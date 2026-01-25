@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { LessonIdentity } from '../types.ts';
-import { INITIAL_LESSON_IDENTITY, GRADUATE_PROFILE_DIMENSIONS } from '../constants.ts';
+import { LessonIdentity } from '../types';
+import { INITIAL_LESSON_IDENTITY } from '../constants'; // Import constants
 import { ArrowLeft, Sparkles, Loader2, Upload } from 'lucide-react';
+import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
 // Declare mammoth global
 declare var mammoth: any;

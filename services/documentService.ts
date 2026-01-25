@@ -1,6 +1,6 @@
 import { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign } from "docx";
 import * as FileSaver from "file-saver";
-import { GeneratedLessonPlan, AssessmentItem, KKTPItem, DocumentSettings, LearningStep, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types.ts";
+import { GeneratedLessonPlan, AssessmentItem, KKTPItem, DocumentSettings, LearningStep, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
 
 declare var pdfMake: any;
 
@@ -99,27 +99,12 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       });
   };
 
-  // Main Title Heading (24pt)
   const createHeading = (text: string) => createPara(
     [createText(safeString(text), { bold: true, size: 48 })], // 48 half-points = 24pt
     { alignment: AlignmentType.CENTER, spacing: { before: 300, after: 150 } }
   );
 
-  // Subtitle/Topic Heading (12pt)
-  const createTopicHeading = (text: string) => createPara(
-    [createText(safeString(text), { bold: true, size: 24 })], // 24 half-points = 12pt
-    { alignment: AlignmentType.CENTER, spacing: { before: 150, after: 300 } }
-  );
-
-  // Section Title (Standard 12pt Bold Uppercase) or Larger
   const createSectionTitle = (text: string, pageBreak = false) => new Paragraph({
-    children: [createText(safeString(text).toUpperCase(), { bold: true, size: 24 })], // 12pt
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 240, after: 240, line: LINE_SPACING },
-    pageBreakBefore: pageBreak
-  });
-
-  const createLargeSectionTitle = (text: string, pageBreak = false) => new Paragraph({
     children: [createText(safeString(text).toUpperCase(), { bold: true, size: 48 })], // 24pt
     alignment: AlignmentType.CENTER,
     spacing: { before: 240, after: 240, line: LINE_SPACING },
@@ -277,7 +262,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   const createMaterialsSection = (m: MaterialsData) => {
       return [
-          createLargeSectionTitle(`MATERI: ${safeString(m.judul)}`, true),
+          createSectionTitle(`MATERI: ${safeString(m.judul)}`, true),
           
           ...createBoxedSection("Ilustrasi", [createPara([createText(safeString(m.deskripsiIlustrasi), { italics: true })])]),
           
@@ -316,8 +301,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       };
 
       return [
-          createLargeSectionTitle("LEMBAR KERJA PESERTA DIDIK (LKPD)", true),
-          createTopicHeading(`TOPIK: ${safeString(l.activityTitle).toUpperCase()}`),
+          createSectionTitle("LEMBAR KERJA PESERTA DIDIK (LKPD)", true),
+          createPara([createText(safeString(l.activityTitle).toUpperCase(), { size: 48, bold: true })], { alignment: AlignmentType.CENTER, spacing: { after: 200 } }), // 24pt
           
           createOpenSectionTitle("Petunjuk Pengerjaan"),
           ...(l.guides && l.guides.length > 0 ? l.guides : ["Berdoa sebelum memulai.", "Baca dengan teliti."]).map((g, i) => createPara([createText(`${i+1}. ${safeString(g)}`)])),
@@ -422,8 +407,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     });
 
     return [
-        createLargeSectionTitle("INSTRUMEN ASESMEN & EVALUASI", true),
-        createTopicHeading(`TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`),
+        createSectionTitle("INSTRUMEN ASESMEN & EVALUASI", true),
+        createHeading(`TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`),
         
         createOpenSectionTitle("1. KKTP (Rubrik Pembelajaran Mendalam)"),
         kktpTable,
@@ -443,8 +428,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   const createQuestionBankSection = (qb: QuestionBankData) => {
       const items: (Paragraph | Table)[] = [
-          createLargeSectionTitle("BANK SOAL & EVALUASI", true),
-          createTopicHeading(`TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`),
+          createSectionTitle("BANK SOAL & EVALUASI", true),
+          createHeading(`TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`),
       ];
       
       qb.items.forEach(item => {
@@ -532,7 +517,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   
   const rppChildren = [
       createHeading("MODUL AJAR"),
-      createTopicHeading(`TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`),
+      createHeading(safeString(data.identitySection.topic)),
       createSectionTitle("I. IDENTITAS UMUM"),
       identityTable,
       
@@ -573,7 +558,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   const lkpdChildren = data.lkpd ? createLkpdSection(data.lkpd) : [];
   const assessmentChildren = data.assessment ? createAssessmentSection(data.assessment) : [];
   const reflectionChildren = data.reflection ? [
-      createLargeSectionTitle("REFLEKSI PEMBELAJARAN", true),
+      createSectionTitle("REFLEKSI PEMBELAJARAN", true),
       ...createBoxedSection("Refleksi Guru", data.reflection.teacher.map(t => createPara([createText(safeString(t))], { bullet: { level: 0 } }))),
       ...createBoxedSection("Refleksi Murid", data.reflection.student.map(t => createPara([createText(safeString(t))], { bullet: { level: 0 } })))
   ] : [];
@@ -639,10 +624,9 @@ export const downloadPdf = (data: GeneratedLessonPlan, settings: DocumentSetting
       return { text: safeString(text), fontSize: size };
   };
 
-  // Header 24pt, Subtitle 12pt
   const createPdfHeader = (title: string, subtitle: string) => [
       { text: title, fontSize: 24, bold: true, alignment: 'center', margin: [0, 0, 0, 2] },
-      { text: subtitle, fontSize: 12, bold: true, alignment: 'center', margin: [0, 0, 0, 10] },
+      { text: subtitle, fontSize: 24, bold: true, alignment: 'center', margin: [0, 0, 0, 10] },
       { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1.5 }] },
       { text: '\n' }
   ];
@@ -732,7 +716,7 @@ export const downloadPdf = (data: GeneratedLessonPlan, settings: DocumentSetting
 
   const createPdfLkpd = (l: LKPDData) => [
       { text: 'LEMBAR KERJA PESERTA DIDIK', style: 'header', alignment: 'center', bold: true, fontSize: 24 },
-      { text: `TOPIK: ${safeString(l.activityTitle).toUpperCase()}`, alignment: 'center', bold: true, fontSize: 12, margin: [0, 0, 0, 20] },
+      { text: `TOPIK: ${safeString(l.activityTitle).toUpperCase()}`, alignment: 'center', bold: true, fontSize: 24, margin: [0, 0, 0, 20] },
       { text: 'Petunjuk:', bold: true },
       { ul: (l.guides || []).map(safeString) },
       { text: 'A. Tujuan', bold: true, margin: [0, 10, 0, 0] },
@@ -824,7 +808,7 @@ export const downloadPdf = (data: GeneratedLessonPlan, settings: DocumentSetting
 
       return [
           { text: 'INSTRUMEN ASESMEN & EVALUASI', fontSize: 24, bold: true, alignment: 'center', margin: [0, 20, 0, 10] },
-          { text: `TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`, bold: true, fontSize: 12, alignment: 'center', margin: [0,0,0,15] },
+          { text: `TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`, bold: true, fontSize: 24, alignment: 'center', margin: [0,0,0,15] },
           { text: '1. KKTP (Rubrik Pembelajaran Mendalam)', bold: true, margin: [0, 5] },
           kktpTable,
           { text: '2. Asesmen Formatif (Proses)', bold: true, margin: [0, 5] },
@@ -901,7 +885,7 @@ export const downloadPdf = (data: GeneratedLessonPlan, settings: DocumentSetting
 
       return [
           { text: 'BANK SOAL', fontSize: 24, alignment: 'center', bold: true, margin: [0, 20, 0, 10] },
-          { text: `TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`, bold: true, fontSize: 12, alignment: 'center', margin: [0,0,0,15] },
+          { text: `TOPIK: ${safeString(data.identitySection.topic).toUpperCase()}`, bold: true, fontSize: 24, alignment: 'center', margin: [0,0,0,15] },
           ...items,
           { text: 'KUNCI JAWABAN', fontSize: 24, alignment: 'center', bold: true, margin: [0, 20, 0, 10], pageBreak: 'before' },
           {
@@ -950,7 +934,7 @@ export const downloadPdf = (data: GeneratedLessonPlan, settings: DocumentSetting
     pageSize: pageSize,
     pageMargins: [MARGIN_PDF, MARGIN_PDF, MARGIN_PDF, MARGIN_PDF],
     content: [
-      ...createPdfHeader('MODUL AJAR', `TOPIK: ${safeString(identitySection.topic).toUpperCase()}`),
+      ...createPdfHeader('MODUL AJAR', safeString(identitySection.topic)),
       { text: 'I. IDENTITAS UMUM', bold: true, margin: [0, 0, 0, 5], fontSize: fontSize },
       identityTable,
       

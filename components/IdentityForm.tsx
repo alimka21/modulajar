@@ -1,7 +1,7 @@
 import React from 'react';
-import { SchoolIdentity } from '../types.ts';
+import { SchoolIdentity } from '../types';
 import { Save, ArrowRight } from 'lucide-react';
-import { INDONESIAN_MONTHS } from '../constants.ts';
+import { INDONESIAN_MONTHS } from '../constants';
 
 interface IdentityFormProps {
   data: SchoolIdentity;

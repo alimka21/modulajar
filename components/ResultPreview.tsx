@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData } from '../types.ts';
+import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData } from '../types';
 import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer } from 'lucide-react';
-import { downloadDocx, downloadPdf } from '../services/documentService.ts';
-import { INDONESIAN_MONTHS } from '../constants.ts';
+import { downloadDocx } from '../services/documentService';
+import { INDONESIAN_MONTHS } from '../constants';
 
 declare var marked: any;
 declare var Swal: any;
 declare var MathJax: any;
+declare var html2pdf: any;
 
 interface ResultPreviewProps {
   data: GeneratedLessonPlan | null;
@@ -150,16 +151,31 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   };
 
   const handleDownloadPDF = () => {
-      if(!data) return;
-      setIsPdfGenerating(true);
-      try {
-          downloadPdf(data, { paperSize: 'A4', fontSize: '12pt' });
-      } catch (e) {
-          console.error(e);
-          Swal.fire('Error', 'Gagal generate PDF', 'error');
-      } finally {
-          setIsPdfGenerating(false);
-      }
+    const element = document.getElementById('konten-dokumen');
+    if (!element) return;
+
+    setIsPdfGenerating(true);
+
+    const opt = {
+      margin:       [15, 15, 15, 15], 
+      filename:     `Modul_Ajar_${inputData.topic.replace(/\s+/g, '_')}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { 
+        scale: 2, 
+        useCORS: true, 
+        scrollY: 0,
+        windowWidth: 800 // Fix layout shift
+      },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save().then(() => {
+        setIsPdfGenerating(false);
+    }).catch((err: any) => {
+        console.error(err);
+        setIsPdfGenerating(false);
+        Swal.fire('Gagal', 'Terjadi kesalahan saat membuat PDF', 'error');
+    });
   };
 
   // --- DEPENDENCY CHECK LOGIC ---
@@ -438,20 +454,17 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   const LkpdHeader = () => (
     <div className="mb-8 bg-white text-black text-inherit font-serif">
       <div className="text-center mb-4">
-        {/* Header 24pt Bold */}
         <h1 className="font-bold uppercase tracking-wide" style={{ fontSize: '24pt', lineHeight: '1.2' }}>
             LEMBAR KERJA PESERTA DIDIK (LKPD)
         </h1>
-        {/* Topic 12pt Bold */}
-        <h2 className="uppercase mt-2 font-bold" style={{ fontSize: '12pt' }}>
+        <h2 className="uppercase mt-2 font-bold" style={{ fontSize: '24pt' }}>
             TOPIK: {data?.lkpd?.activityTitle || inputData.topic}
         </h2>
       </div>
       
       <div className="w-full my-4" style={{ borderBottom: '1.5pt solid black' }}></div>
       
-      {/* Changed grid-cols-2 to flex-col to stack items */}
-      <div className="flex flex-col gap-6" style={{ fontSize: '12pt' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8" style={{ fontSize: '12pt' }}>
         <div className="space-y-1">
            <div className="flex"><span className="font-bold min-w-[150px]">Mata Pelajaran</span><span>: {inputData.subject}</span></div>
            <div className="flex"><span className="font-bold min-w-[150px]">Kelas / Fase</span><span>: {inputData.grade}</span></div>
@@ -545,7 +558,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
       return (
           <div className="break-inside-avoid text-inherit">
             <h2 className="text-center mb-2 uppercase" style={{ fontSize: '24pt', fontWeight: 'bold' }}>INSTRUMEN ASESMEN & EVALUASI</h2>
-            <h3 className="text-center font-bold mb-8 uppercase" style={{ fontSize: '12pt' }}>TOPIK: {inputData.topic}</h3>
+            <h3 className="text-center font-bold mb-8 uppercase" style={{ fontSize: '24pt' }}>TOPIK: {inputData.topic}</h3>
             
             <OpenSection title="1. KKTP (Rubrik Pembelajaran Mendalam)">
                  <p className="italic mb-4 text-inherit">Menggunakan Taksonomi SOLO (Structure of the Observed Learning Outcome)</p>
@@ -620,545 +633,598 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                                 </tr>
                             )) : (
                                 <tr>
-                                    <td colSpan={4} className="border border-black p-4 text-center text-inherit">Belum ada kisi-kisi</td>
+                                    <td colSpan={4} className="border border-black p-4 text-center italic text-inherit">
+                                        Data kisi-kisi belum tersedia.
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
-                    </table>
+                     </table>
                  </div>
             </OpenSection>
 
-            <OpenSection title="4. Tindak Lanjut & Intervensi">
-                <table className="w-full border-collapse border border-black text-inherit">
+            <div className="page-break h-4"></div>
+
+            <OpenSection title="4. Tindak Lanjut & Intervensi Guru">
+                 <table className="w-full border-collapse border border-black text-inherit">
                     <thead>
                         <tr className="bg-[#f0f0f0]">
-                            <th className="border border-black p-2 text-left w-1/3 font-bold text-inherit">Kondisi Siswa</th>
+                            <th className="border border-black p-2 text-left font-bold w-1/3 text-inherit">Kondisi Siswa</th>
                             <th className="border border-black p-2 text-left font-bold text-inherit">Strategi Intervensi</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td className="border border-black p-2 font-bold text-inherit">Perlu Bimbingan</td>
-                            <td className="border border-black p-2 text-inherit">{safeString(intervention.needsGuidance)}</td>
+                            <td className="border border-black p-3 font-bold align-top text-inherit">Perlu Bimbingan</td>
+                            <td className="border border-black p-3 align-top text-inherit">{safeString(intervention.needsGuidance)}</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-2 font-bold text-inherit">Cukup</td>
-                            <td className="border border-black p-2 text-inherit">{safeString(intervention.basic)}</td>
+                            <td className="border border-black p-3 font-bold align-top text-inherit">Cukup</td>
+                            <td className="border border-black p-3 align-top text-inherit">{safeString(intervention.basic)}</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-2 font-bold text-inherit">Baik</td>
-                            <td className="border border-black p-2 text-inherit">{safeString(intervention.proficient)}</td>
+                            <td className="border border-black p-3 font-bold align-top text-inherit">Baik</td>
+                            <td className="border border-black p-3 align-top text-inherit">{safeString(intervention.proficient)}</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-2 font-bold text-inherit">Sangat Baik</td>
-                            <td className="border border-black p-2 text-inherit">{safeString(intervention.advanced)}</td>
+                            <td className="border border-black p-3 font-bold align-top text-inherit">Sangat Baik</td>
+                            <td className="border border-black p-3 align-top text-inherit">{safeString(intervention.advanced)}</td>
                         </tr>
                     </tbody>
-                </table>
+                 </table>
             </OpenSection>
           </div>
       );
   };
 
   const QuestionBankContent = () => {
-    if (isGeneratingQuestionBank) return <div className="text-center py-20">Loading Soal...</div>;
-    if (!data?.questionBank) return <div className="text-center py-20 text-gray-400">Belum ada data Bank Soal</div>;
-    
-    return (
-        <div className="break-inside-avoid text-inherit">
+      if (isGeneratingQuestionBank) return <div className="text-center py-20">Loading Soal...</div>;
+      if (!data?.questionBank) return <div className="text-center py-20 text-gray-400">Belum ada data Bank Soal</div>;
+
+      return (
+          <div className="break-inside-avoid text-inherit">
             <h2 className="text-center mb-2 uppercase" style={{ fontSize: '24pt', fontWeight: 'bold' }}>BANK SOAL & EVALUASI</h2>
-            <h3 className="text-center font-bold mb-8 uppercase" style={{ fontSize: '12pt' }}>TOPIK: {inputData.topic}</h3>
+            <h3 className="text-center font-bold mb-8 uppercase" style={{ fontSize: '24pt' }}>TOPIK: {data.identitySection.topic}</h3>
             
-            <div className="mb-8">
+            <div className="space-y-8">
                 {data.questionBank.items.map((item, idx) => (
-                    <div key={idx} className="mb-6 break-inside-avoid">
-                        <div className="font-bold mb-1 flex gap-2 text-inherit">
-                            <span>{item.number}.</span>
-                            <span className="uppercase text-xs bg-slate-100 px-2 py-0.5 rounded border text-slate-500 font-sans self-start">{safeString(item.type)}</span>
-                        </div>
-                        {item.stimulus && (
-                            <div className="mb-2 italic text-slate-700 border-l-2 border-slate-300 pl-3 text-inherit">
-                                {safeString(item.stimulus)}
-                            </div>
-                        )}
-                        
-                        {item.type === 'Menjodohkan' ? (
-                             <div className="ml-6 mb-2 text-inherit">
-                                <div className="mb-2" dangerouslySetInnerHTML={renderMarkdown(item.question)} />
-                                <table className="w-full border-collapse border border-slate-300 text-sm mt-2 font-sans">
-                                    <thead>
-                                        <tr className="bg-slate-50">
-                                            <th className="border border-slate-300 p-2 text-left">Pernyataan</th>
-                                            <th className="border border-slate-300 p-2 text-center w-8"></th>
-                                            <th className="border border-slate-300 p-2 text-center w-8"></th>
-                                            <th className="border border-slate-300 p-2 text-left">Pasangan</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                         {(() => {
-                                            const leftLines = item.question.split('\n').filter(l => l.trim().length > 0);
-                                            const rightLines = item.options || [];
-                                            const maxRows = Math.max(leftLines.length, rightLines.length);
-                                            const rows = [];
-                                            for(let i=0; i<maxRows; i++) {
-                                                rows.push(
-                                                    <tr key={i}>
-                                                        <td className="border border-slate-300 p-2">{leftLines[i] || ""}</td>
-                                                        <td className="border border-slate-300 p-2 text-center"><div className="w-3 h-3 rounded-full border border-slate-400 mx-auto"></div></td>
-                                                        <td className="border border-slate-300 p-2 text-center"><div className="w-3 h-3 rounded-full border border-slate-400 mx-auto"></div></td>
-                                                        <td className="border border-slate-300 p-2">{rightLines[i] ? rightLines[i].replace(/^[a-eA-E][\.\)]\s*/, '') : ""}</td>
-                                                    </tr>
-                                                );
-                                            }
-                                            return rows;
-                                         })()}
-                                    </tbody>
-                                </table>
-                             </div>
-                        ) : (
-                            <>
-                                <div className="ml-6 mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question)} />
-                                {item.options && item.options.length > 0 && (
-                                    <div className="ml-6 space-y-1 text-inherit">
-                                        {item.options.map((opt, oIdx) => (
-                                            <div key={oIdx} className="flex gap-2">
-                                                <span className="font-bold">{String.fromCharCode(65 + oIdx)}.</span>
-                                                <span dangerouslySetInnerHTML={renderInlineMarkdown(opt.replace(/^[a-eA-E][\.\)]\s*/, ''))} />
+                    <div key={idx} className="break-inside-avoid-page pb-4">
+                        <div className="flex gap-4">
+                            <span className="font-bold text-inherit">{item.number}.</span>
+                            <div className="flex-1 text-inherit">
+                                {item.stimulus && (
+                                    <div className="mb-2 italic text-gray-800 text-inherit">
+                                        {safeString(item.stimulus)}
+                                    </div>
+                                )}
+                                
+                                {item.type !== 'Menjodohkan' && (
+                                    <p className="mb-4 whitespace-pre-wrap text-inherit">{safeString(item.question)}</p>
+                                )}
+                                
+                                {item.type === 'Menjodohkan' ? (
+                                    <div className="mt-4">
+                                        <table className="w-full border-collapse border border-black text-inherit">
+                                            <thead>
+                                                <tr className="bg-white">
+                                                    <th className="p-2 font-bold text-left w-[40%] text-inherit">Daftar Pernyataan</th>
+                                                    <th className="p-2 w-[10%]"></th>
+                                                    <th className="p-2 w-[10%]"></th>
+                                                    <th className="p-2 font-bold text-left w-[40%] text-inherit">Respon</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(() => {
+                                                    const leftLines = item.question.includes('\n') ? item.question.split('\n').filter(l => l.trim().length > 0) : [item.question];
+                                                    const rightLines = item.options || [];
+                                                    const maxRows = Math.max(leftLines.length, rightLines.length);
+                                                    
+                                                    return Array.from({ length: maxRows }).map((_, i) => (
+                                                        <tr key={i}>
+                                                            <td className="p-2 align-middle text-inherit">
+                                                                {leftLines[i] || ""}
+                                                            </td>
+                                                            <td className="p-2 align-middle text-center">
+                                                                {leftLines[i] && <div className="w-5 h-5 rounded-full border-2 border-black bg-white mx-auto print:bg-white print:border-black"></div>}
+                                                            </td>
+                                                            <td className="p-2 align-middle text-center">
+                                                                {rightLines[i] && <div className="w-5 h-5 rounded-full border-2 border-black bg-white mx-auto print:bg-white print:border-black"></div>}
+                                                            </td>
+                                                            <td className="p-2 align-middle text-inherit">
+                                                                {rightLines[i] ? rightLines[i].replace(/^[A-Za-z][.)]\s*/, '') : ""}
+                                                            </td>
+                                                        </tr>
+                                                    ));
+                                                })()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : item.options && item.options.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-8 mt-2 text-inherit">
+                                        {item.options.map((opt, i) => (
+                                            <div key={i} className="flex gap-2 text-inherit">
+                                                <span className="font-bold min-w-[20px] text-inherit">{String.fromCharCode(65 + i)}.</span>
+                                                <span className="text-inherit">{safeString(opt).replace(/^[A-Za-z][.)]\s*/, '')}</span>
                                             </div>
                                         ))}
                                     </div>
-                                )}
-                            </>
-                        )}
+                                ) : null}
+                            </div>
+                        </div>
                     </div>
                 ))}
             </div>
 
-            <div className="page-break h-8"></div>
+            <div className="mt-12 pt-8 border-t-2 border-black page-break">
+                <h3 className="text-lg font-bold text-center mb-6 uppercase">KUNCI JAWABAN & PEDOMAN PENSKORAN</h3>
+                <div className="max-w-2xl mx-auto">
+                    <table className="w-full border-collapse border border-black text-inherit">
+                        <thead>
+                            <tr className="bg-[#f0f0f0]">
+                                <th className="border border-black p-2 text-center w-16 font-bold text-inherit">No</th>
+                                <th className="border border-black p-2 text-left font-bold text-inherit">Jawaban Benar</th>
+                                <th className="border border-black p-2 text-right w-32 font-bold text-inherit">Tipe Soal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.questionBank.items.map((item, idx) => (
+                                <tr key={idx}>
+                                    <td className="border border-black p-2 align-top text-center font-bold text-inherit">{item.number}</td>
+                                    <td className="border border-black p-2 align-top font-bold text-inherit">
+                                        {safeString(item.answerKey)}
+                                    </td>
+                                    <td className="border border-black p-2 align-top text-right text-sm italic text-inherit">
+                                        {safeString(item.type)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+          </div>
+      );
+  };
+
+  const MaterialsContent = () => {
+    if (isGeneratingMaterials) return <div className="text-center py-20">Loading Materi...</div>;
+    if (!data?.materials) return <div className="text-center py-20 text-gray-400">Belum ada data Materi</div>;
+    
+    const m = data.materials as MaterialsData;
+    return (
+        <div className="break-inside-avoid text-inherit">
+            <h2 className="text-center mb-6 uppercase" style={{ fontSize: '24pt', fontWeight: 'bold' }}>MATERI: {m.judul}</h2>
             
-            <h3 className="text-center font-bold mb-6 text-xl uppercase text-inherit">KUNCI JAWABAN</h3>
-            <table className="w-full border-collapse border border-black text-inherit">
-                <thead>
-                    <tr className="bg-[#f0f0f0]">
-                        <th className="border border-black p-2 text-center w-16 font-bold text-inherit">No</th>
-                        <th className="border border-black p-2 text-left font-bold text-inherit">Jawaban</th>
-                        <th className="border border-black p-2 text-center w-32 font-bold text-inherit">Tipe</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.questionBank.items.map((item, idx) => (
-                        <tr key={idx}>
-                            <td className="border border-black p-2 text-center font-bold text-inherit">{item.number}</td>
-                            <td className="border border-black p-2 font-bold text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(item.answerKey))} />
-                            <td className="border border-black p-2 text-center text-sm text-slate-600 text-inherit">{safeString(item.type)}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <div className="mb-6 border border-black p-4 text-inherit">
+               <h4 className="font-bold text-sm uppercase mb-1 text-inherit">Ilustrasi / Visual</h4>
+               <p className="italic text-inherit">{m.deskripsiIlustrasi}</p>
+            </div>
+
+            <div className="space-y-6 text-inherit">
+                <div>
+                   <h4 className="font-bold uppercase mb-2 text-inherit">PEMANTIK BELAJAR</h4>
+                   <p className="italic pl-4 border-l-2 border-black text-inherit">{m.pemantik}</p>
+                </div>
+
+                <div>
+                   <h4 className="font-bold uppercase mb-2 text-inherit">PETA KONSEP</h4>
+                   <ul className="list-disc pl-5 text-inherit">
+                       {m.petaKonsep && m.petaKonsep.map((point, idx) => (
+                           <li key={idx}>{safeString(point)}</li>
+                       ))}
+                   </ul>
+                </div>
+
+                {m.materiInti && m.materiInti.map((sub, i) => (
+                    <div key={i}>
+                        <h3 className="text-lg font-bold uppercase mb-2 border-b border-black inline-block">{i + 1}. {sub.subJudul}</h3>
+                        <div className="text-justify mb-4 text-inherit" dangerouslySetInnerHTML={{ __html: safeString(sub.penjelasan || "").replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-inherit">
+                            <div className="border border-black p-2">
+                                <div className="font-bold uppercase text-xs mb-1 text-inherit">✅ Contoh Konkret</div>
+                                <p className="text-sm text-inherit">{sub.contoh}</p>
+                            </div>
+                            <div className="border border-black p-2">
+                                <div className="font-bold uppercase text-xs mb-1 text-inherit">❌ Bukan Contoh</div>
+                                <p className="text-sm text-inherit">{sub.bukanContoh}</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+                
+                <div className="mt-8 border border-black p-4 text-inherit">
+                   <h4 className="font-bold uppercase mb-2 text-inherit">Tahukah Kamu?</h4>
+                   <p className="text-inherit">{m.trivia}</p>
+                </div>
+
+                <div className="mt-8 text-inherit">
+                    <h4 className="font-bold uppercase mb-2 border-b border-black text-inherit">Glosarium</h4>
+                    <dl className="grid grid-cols-1 gap-2 text-inherit">
+                        {m.glosarium.map((g, i) => (
+                            <div key={i} className="grid grid-cols-[150px_1fr] text-inherit">
+                                <dt className="font-bold text-inherit">{g.istilah}</dt>
+                                <dd className="text-inherit">{g.definisi}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </div>
+            </div>
         </div>
     );
   };
 
+  const ReflectionContent = () => {
+    if (!data?.reflection) return null;
+    return (
+        <div className="break-inside-avoid text-inherit">
+            <h2 className="text-center mb-6 uppercase" style={{ fontSize: '24pt', fontWeight: 'bold' }}>REFLEKSI PEMBELAJARAN</h2>
+            <BoxSection title="Refleksi Guru">
+                <ul className="list-disc pl-5 text-inherit">
+                    {data.reflection.teacher.map((item, i) => <li key={i}>{safeString(item)}</li>)}
+                </ul>
+            </BoxSection>
+            <BoxSection title="Refleksi Murid">
+                <ul className="list-disc pl-5 text-inherit">
+                    {data.reflection.student.map((item, i) => <li key={i}>{safeString(item)}</li>)}
+                </ul>
+            </BoxSection>
+        </div>
+    );
+  };
+
+  const RppContent = () => {
+    if (!data) return null;
+    return (
+    <div className="text-inherit">
+      <div className="mb-6 text-center">
+        <h1 className="uppercase mb-1 text-inherit" style={{ fontSize: '24pt', fontWeight: 'bold' }}>MODUL AJAR</h1>
+        <h2 className="uppercase text-inherit" style={{ fontSize: '24pt', fontWeight: 'bold' }}>{data.identitySection.topic}</h2>
+      </div>
+
+      <h3 className="font-bold uppercase mb-2 border-b border-black text-inherit">I. IDENTITAS UMUM</h3>
+      <table className="w-full mb-6 text-inherit">
+          <tbody>
+              {[
+                ['Nama Sekolah', schoolData.schoolName],
+                ['Nama Penyusun', schoolData.authorName],
+                ['Mata Pelajaran', inputData.subject],
+                ['Kelas / Fase', inputData.grade],
+                ['Semester', inputData.semester],
+                ['Alokasi Waktu', inputData.timeAllocation],
+                ['Jumlah Pertemuan', inputData.meetingCount]
+              ].map(([label, value], i) => (
+                <tr key={i}>
+                  <td className="w-1/3 font-bold py-1 align-top text-inherit">{label}</td>
+                  <td className="w-4 py-1 align-top text-inherit">:</td>
+                  <td className="py-1 align-top text-inherit">{value}</td>
+                </tr>
+              ))}
+          </tbody>
+      </table>
+
+      <BoxSection title="A. Asesmen Awal (Diagnostik)">
+          <p className="text-inherit">{data.initialAssessment || "Belum ada data asesmen awal."}</p>
+      </BoxSection>
+
+      <BoxSection title="B. Dimensi Profil Lulusan">
+          <ul className="list-disc pl-5 text-inherit">
+              {data.graduateProfile.length > 0 ? data.graduateProfile.map((item, i) => <li key={i}>{safeString(item)}</li>) : <li>Tidak ada dimensi dipilih.</li>}
+          </ul>
+      </BoxSection>
+
+      <div className="my-6 text-center text-inherit">
+        <h3 className="font-bold uppercase border-b border-black inline-block text-inherit">II. KOMPONEN INTI</h3>
+      </div>
+
+      <BoxSection title="1. Tujuan Pembelajaran">
+          <ul className="list-disc pl-5 text-inherit">{data.design.objectives.map((item, i) => <li key={i}>{safeString(item)}</li>)}</ul>
+      </BoxSection>
+
+      <BoxSection title="2. Praktik Pedagogis (Model)">
+          <p className="text-inherit">{data.design.pedagogicalPractice}</p>
+      </BoxSection>
+      
+      {data.design.partnership && (
+          <BoxSection title="3. Kemitraan Pembelajaran">
+              <p className="text-inherit">{data.design.partnership}</p>
+          </BoxSection>
+      )}
+      
+      <BoxSection title={data.design.partnership ? "4. Lingkungan Pembelajaran" : "3. Lingkungan Pembelajaran"}>
+          <p className="text-inherit">{data.design.environment}</p>
+      </BoxSection>
+      
+      {data.design.digital && (
+          <BoxSection title={data.design.partnership ? "5. Pemanfaatan Digital" : "4. Pemanfaatan Digital"}>
+              <p className="text-inherit">{data.design.digital}</p>
+          </BoxSection>
+      )}
+
+      <div className="page-break h-4"></div>
+      
+      <div className="my-6 text-center text-inherit">
+        <h3 className="font-bold uppercase border-b border-black inline-block text-inherit">III. LANGKAH PEMBELAJARAN</h3>
+      </div>
+
+      {data.learningExperience.map((step: LearningStep, idx) => (
+          <div key={idx} className="mb-8 text-inherit">
+              <h4 className="font-bold text-lg mb-4 uppercase text-center text-inherit">Pertemuan {step.meetingNo}</h4>
+              
+              <BoxSection title="A. Pendahuluan">
+                  <p className="mb-2 text-sm italic font-bold text-inherit">Prinsip: {step.introPrinciple}</p>
+                  <ol className="list-decimal list-outside ml-6 space-y-2 font-normal text-inherit">
+                      {step.intro.map((item, i) => {
+                          const text = safeString(item);
+                          if (text.match(/>\s*💡?\s*Tips?:?/i) || text.trim().startsWith(">")) {
+                              return (
+                                  <li key={i} className="list-none my-6 text-center font-bold italic text-slate-700 bg-slate-50 border-y border-slate-100 py-2 -ml-6 text-inherit">
+                                      {text.replace(/^>\s*💡?\s*Tips?:?\s*/i, '💡 Tips: ')}
+                                  </li>
+                              );
+                          }
+                          return (
+                              <li key={i} className="pl-1 text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(text)} />
+                          );
+                      })}
+                  </ol>
+              </BoxSection>
+
+              <BoxSection title="B. Kegiatan Inti">
+                  <p className="mb-2 text-sm italic font-bold text-inherit">Prinsip: {step.corePrinciple}</p>
+                  <div className="mb-4 text-inherit">
+                      <span className="font-bold block mb-1 text-inherit">1. Memahami</span>
+                      <ol className="list-decimal list-outside ml-6 space-y-2 font-normal text-inherit">
+                         {step.core.memahami.map((item, i) => {
+                             const text = safeString(item);
+                             if (text.match(/>\s*💡?\s*Tips?:?/i) || text.trim().startsWith(">")) {
+                                 return <li key={i} className="list-none my-6 text-center font-bold italic text-slate-700 bg-slate-50 border-y border-slate-100 py-2 -ml-6 text-inherit">{text.replace(/^>\s*💡?\s*Tips?:?\s*/i, '💡 Tips: ')}</li>;
+                             }
+                             return <li key={i} className="pl-1 text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(text)} />;
+                         })}
+                      </ol>
+                  </div>
+                  <div className="mb-4 text-inherit">
+                      <span className="font-bold block mb-1 text-inherit">2. Mengaplikasi</span>
+                      <ol className="list-decimal list-outside ml-6 space-y-2 font-normal text-inherit">
+                          {step.core.mengaplikasi.map((item, i) => {
+                             const text = safeString(item);
+                             if (text.match(/>\s*💡?\s*Tips?:?/i) || text.trim().startsWith(">")) {
+                                 return <li key={i} className="list-none my-6 text-center font-bold italic text-slate-700 bg-slate-50 border-y border-slate-100 py-2 -ml-6 text-inherit">{text.replace(/^>\s*💡?\s*Tips?:?\s*/i, '💡 Tips: ')}</li>;
+                             }
+                             return <li key={i} className="pl-1 text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(text)} />;
+                          })}
+                      </ol>
+                  </div>
+                  <div className="text-inherit">
+                      <span className="font-bold block mb-1 text-inherit">3. Merefleksi</span>
+                      <ol className="list-decimal list-outside ml-6 space-y-2 font-normal text-inherit">
+                          {step.core.merefleksi.map((item, i) => {
+                             const text = safeString(item);
+                             if (text.match(/>\s*💡?\s*Tips?:?/i) || text.trim().startsWith(">")) {
+                                 return <li key={i} className="list-none my-6 text-center font-bold italic text-slate-700 bg-slate-50 border-y border-slate-100 py-2 -ml-6 text-inherit">{text.replace(/^>\s*💡?\s*Tips?:?\s*/i, '💡 Tips: ')}</li>;
+                             }
+                             return <li key={i} className="pl-1 text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(text)} />;
+                          })}
+                      </ol>
+                  </div>
+              </BoxSection>
+
+              <BoxSection title="C. Penutup">
+                  <p className="mb-2 text-sm italic font-bold text-inherit">Prinsip: {step.closingPrinciple}</p>
+                  <ol className="list-decimal list-outside ml-6 space-y-2 font-normal text-inherit">
+                      {step.closing.map((item, i) => {
+                          const text = safeString(item);
+                          if (text.match(/>\s*💡?\s*Tips?:?/i) || text.trim().startsWith(">")) {
+                              return <li key={i} className="list-none my-6 text-center font-bold italic text-slate-700 bg-slate-50 border-y border-slate-100 py-2 -ml-6 text-inherit">{text.replace(/^>\s*💡?\s*Tips?:?\s*/i, '💡 Tips: ')}</li>;
+                          }
+                          return <li key={i} className="pl-1 text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(text)} />;
+                      })}
+                  </ol>
+              </BoxSection>
+              {idx < data.learningExperience.length - 1 && <div className="page-break h-4"></div>}
+          </div>
+      ))}
+
+      <div className="mt-12 px-8 text-inherit">
+          <div className="flex justify-between text-center">
+              <div className="w-1/3">
+                  <p>Mengetahui,</p>
+                  <p>Kepala Sekolah</p>
+                  <br /><br /><br />
+                  <p className="font-bold underline text-inherit">{schoolData.principalName}</p>
+                  <p>NIP. {schoolData.principalNip}</p>
+              </div>
+              <div className="w-1/3">
+                  <p>{schoolData.location}, {schoolData.date}</p>
+                  <p>Guru Mata Pelajaran</p>
+                  <br /><br /><br />
+                  <p className="font-bold underline text-inherit">{schoolData.authorName}</p>
+                  <p>NIP. {schoolData.authorNip}</p>
+              </div>
+          </div>
+      </div>
+    </div>
+  )};
+
   return (
-    <div className="flex h-full w-full">
-        {/* Sidebar Controls */}
-        <div className="w-80 border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden no-print flex-shrink-0 z-20 shadow-lg">
-            <div className="p-4 border-b border-slate-200 bg-slate-50">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Panel Kontrol</h3>
-                <div className="flex gap-2">
-                   <button onClick={() => downloadDocx(data!, FIXED_DOC_SETTINGS)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors">
-                      <FileDown size={16} /> DOCX
-                   </button>
-                   <button onClick={handleDownloadPDF} disabled={isPdfGenerating} className="flex-1 bg-slate-700 hover:bg-slate-800 text-white py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors">
-                      {isPdfGenerating ? <Loader2 className="animate-spin" size={16} /> : <FileDown size={16} />} PDF
-                   </button>
-                </div>
-                {/* Print Button */}
-                <button onClick={() => window.print()} className="w-full mt-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 py-2 px-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors">
-                    <Printer size={16} /> Print Preview
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex-none bg-white border-b border-slate-200 z-20 no-print">
+        <div className="flex flex-col md:flex-row items-center justify-between px-4">
+            <div className="flex w-full md:w-auto overflow-x-auto no-scrollbar">
+                 <TabButton id="RPP" label="1. RPP" hasData={!!data} />
+                 <TabButton id="MATERI" label="2. Materi" hasData={!!data?.materials} />
+                 <TabButton id="LKPD" label="3. LKPD" hasData={!!data?.lkpd} />
+                 <TabButton id="ASESMEN" label="4. Asesmen" hasData={!!data?.assessment} />
+                 <TabButton id="SOAL" label="5. Bank Soal" hasData={!!data?.questionBank} />
+                 <TabButton id="REFLEKSI" label="6. Refleksi" hasData={!!data?.reflection} />
+                 <TabButton id="SEMUA" label="Semua" hasData={true} />
+            </div>
+            <div className="flex items-center gap-2 py-2 md:py-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
+                <button onClick={() => data && downloadDocx(data, FIXED_DOC_SETTINGS)} disabled={!data} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md text-xs font-medium transition disabled:opacity-50" title="Download Word"><FileDown size={14} /><span className="hidden sm:inline">Word</span></button>
+                <button 
+                    onClick={handleDownloadPDF} 
+                    disabled={!data || isPdfGenerating} 
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded-md text-xs font-medium transition disabled:opacity-50" 
+                    title="Download PDF"
+                >
+                    {isPdfGenerating ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                    <span className="hidden sm:inline">{isPdfGenerating ? 'Generating...' : 'Download PDF'}</span>
                 </button>
             </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
-                
-                {/* Section: Identitas Sekolah */}
-                <div>
-                   <button onClick={() => toggleSection('SCHOOL')} className="flex items-center justify-between w-full text-left mb-2 group">
-                      <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><School size={16} className="text-blue-500"/> Identitas Sekolah</span>
-                      {expandedSection === 'SCHOOL' ? <ChevronDown size={16} className="text-slate-400"/> : <ChevronRight size={16} className="text-slate-400"/>}
-                   </button>
-                   
+        </div>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-[30%] min-w-[320px] flex-none bg-white border-r border-slate-200 overflow-y-auto hidden md:block z-0 no-print">
+             <div className="p-4 space-y-4">
+                <div className="border rounded-lg border-slate-200 overflow-hidden">
+                   <button onClick={() => toggleSection('SCHOOL')} className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition text-left"><div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><School size={16} /><span>Identitas Sekolah</span></div>{expandedSection === 'SCHOOL' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
                    {expandedSection === 'SCHOOL' && (
-                       <div className="space-y-3 pl-2 border-l-2 border-slate-100 ml-2 animate-fade-in">
-                           <div>
-                               <label className="text-xs text-slate-500 font-medium block mb-1">Nama Sekolah</label>
-                               <input type="text" name="schoolName" value={schoolData.schoolName} onChange={handleSchoolChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                           </div>
-                           <div>
-                               <label className="text-xs text-slate-500 font-medium block mb-1">Guru Penyusun</label>
-                               <input type="text" name="authorName" value={schoolData.authorName} onChange={handleSchoolChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                           </div>
-                           <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-xs text-slate-500 font-medium block mb-1">Kota</label>
-                                    <input type="text" name="location" value={schoolData.location} onChange={handleSchoolChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 font-medium block mb-1">Tanggal</label>
-                                    <input type="date" name="date" value={getIsoDateFromDisplay(schoolData.date)} onChange={handleDateChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                                </div>
-                           </div>
-                       </div>
+                      <div className="p-3 space-y-3 bg-white animate-fade-in">
+                          <div><label className="text-xs font-medium text-slate-500">Nama Sekolah</label><input name="schoolName" value={schoolData.schoolName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Nama Kepala Sekolah</label><input name="principalName" value={schoolData.principalName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">NIP Kepala Sekolah</label><input name="principalNip" value={schoolData.principalNip} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Nama Guru</label><input name="authorName" value={schoolData.authorName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">NIP Guru</label><input name="authorNip" value={schoolData.authorNip} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Lokasi & Tanggal</label><div className="flex gap-2"><input name="location" value={schoolData.location} onChange={handleSchoolChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Kota" /><input type="date" value={getIsoDateFromDisplay(schoolData.date)} onChange={handleDateChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Tanggal" /></div></div>
+                      </div>
                    )}
                 </div>
-
-                {/* Section: Detail Pelajaran */}
-                <div>
-                   <button onClick={() => toggleSection('LESSON')} className="flex items-center justify-between w-full text-left mb-2 group">
-                      <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><BookOpen size={16} className="text-indigo-500"/> Detail Pelajaran</span>
-                      {expandedSection === 'LESSON' ? <ChevronDown size={16} className="text-slate-400"/> : <ChevronRight size={16} className="text-slate-400"/>}
-                   </button>
-                   
+                <div className="border rounded-lg border-slate-200 overflow-hidden">
+                   <button onClick={() => toggleSection('LESSON')} className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition text-left"><div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><BookOpen size={16} /><span>Detail Pelajaran</span></div>{expandedSection === 'LESSON' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
                    {expandedSection === 'LESSON' && (
-                       <div className="space-y-3 pl-2 border-l-2 border-slate-100 ml-2 animate-fade-in">
-                           <div>
-                               <label className="text-xs text-slate-500 font-medium block mb-1">Mata Pelajaran</label>
-                               <select name="subject" value={inputData.subject} onChange={handleEditorChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors">
-                                   <option value="" disabled>Pilih Mapel...</option>
-                                   {SUBJECT_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                               </select>
-                           </div>
-                           <div>
-                               <label className="text-xs text-slate-500 font-medium block mb-1">Kelas / Fase</label>
-                               <select name="grade" value={inputData.grade} onChange={handleGradeChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors">
-                                   <option value="" disabled>Pilih Kelas...</option>
-                                   {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                               </select>
-                           </div>
-                           <div>
-                               <label className="text-xs text-slate-500 font-medium block mb-1">Topik Materi</label>
-                               <input type="text" name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                           </div>
-                           <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-xs text-slate-500 font-medium block mb-1">Alokasi Waktu</label>
-                                    <input type="text" name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 font-medium block mb-1">Pertemuan</label>
-                                    <input type="text" name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded bg-slate-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" />
-                                </div>
-                           </div>
-                           <div className="pt-2">
-                               <button 
-                                 onClick={() => {
-                                    if (canGenerate) onGenerate();
-                                    else Swal.fire('Data Tidak Lengkap', getValidationMessage(), 'warning');
-                                 }}
-                                 disabled={isLoading}
-                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
-                               >
-                                  {isLoading ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
-                                  {data ? 'Regenerate RPP' : 'Generate RPP'}
-                               </button>
-                           </div>
-                       </div>
+                      <div className="p-3 space-y-3 bg-white animate-fade-in">
+                          <div><label className="text-xs font-medium text-slate-500">Mata Pelajaran</label><select name="subject" value={inputData.subject} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Mapel...</option>{SUBJECT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Kelas / Fase</label><select name="grade" value={inputData.grade} onChange={handleGradeChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Kelas...</option>{GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Semester</label><select name="semester" value={inputData.semester} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="Ganjil">Ganjil</option><option value="Genap">Genap</option></select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Alokasi Waktu</label><input name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Jumlah Pertemuan</label><select name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="1 Pertemuan">1 Pertemuan</option><option value="2 Pertemuan">2 Pertemuan</option></select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Topik / Materi</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Topik Utama" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Tujuan Pembelajaran</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm resize-none bg-white" placeholder="Contoh: Peserta didik mampu menganalisis struktur teks..." /></div>
+                          <div className="pt-2"><button onClick={onGenerate} disabled={isLoading || !canGenerate || (isOptimizationMode && !!data)} className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${isLoading || !canGenerate || (isOptimizationMode && !!data) ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>{isLoading ? <Loader2 className="animate-spin" size={16} /> : (isOptimizationMode && !!data ? <CheckSquare size={16} /> : <Sparkles size={16} />)}{isLoading ? "Menyusun..." : (isOptimizationMode && !!data ? "Modul Siap (Optimasi)" : "Update RPP")}</button>{!canGenerate && <p className="text-[10px] text-red-500 text-center mt-1">{getValidationMessage()}</p>}</div>
+                      </div>
                    )}
                 </div>
+             </div>
+        </div>
 
-                {/* Quick Edit (Optimization) */}
-                {isOptimizationMode && (
-                    <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                        <h4 className="text-xs font-bold text-yellow-800 mb-2 flex items-center gap-1"><Sparkles size={12}/> AI Optimization Active</h4>
-                        <div className="text-[10px] text-yellow-700 leading-relaxed mb-2">
-                            RPP ini hasil optimasi dari teks mentah Anda. Anda bisa mengedit input di bawah ini dan klik "Update" untuk memperbaiki hasil.
+        <div className="flex-1 bg-slate-100 overflow-hidden relative flex flex-col items-center">
+            {(activeTab === 'MATERI' || activeTab === 'SEMUA') && !data?.materials && data && !isGeneratingMaterials && (<GenerationToolbar title="Materi Ajar Belum Tersedia" onAction={handleGenerateMaterialsClick} isLoading={isGeneratingMaterials} actionLabel="Buat Materi" icon={BookText} />)}
+            {(activeTab === 'LKPD' || activeTab === 'SEMUA') && !data?.lkpd && data && !isGeneratingLKPD && (<GenerationToolbar title="LKPD Belum Tersedia" onAction={handleGenerateLKPDClick} isLoading={isGeneratingLKPD} actionLabel="Buat LKPD" icon={ClipboardCheck} />)}
+            {(activeTab === 'ASESMEN' || activeTab === 'SEMUA') && !data?.assessment && data && !isGeneratingAssessment && (<GenerationToolbar title="Asesmen Belum Tersedia" onAction={handleGenerateAssessmentClick} isLoading={isGeneratingAssessment} actionLabel="Buat Asesmen" icon={CheckSquare} />)}
+            {(activeTab === 'SOAL' || activeTab === 'SEMUA') && !data?.questionBank && data && !isGeneratingQuestionBank && (<QuestionToolbar />)}
+
+            <div ref={scrollContainerRef} className="flex-1 w-full overflow-y-auto p-4 md:p-8">
+                {/* PAPER VIEW CONTAINER */}
+                <div 
+                    id="konten-dokumen"
+                    className="bg-white shadow-lg mx-auto min-h-[1000px] transition-all paper-content" 
+                    style={{ 
+                        width: '210mm', 
+                        padding: '25.4mm', 
+                        ...paperStyle 
+                    }}
+                >
+                    {!data ? (
+                        <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 font-sans no-print">
+                             <div className="bg-slate-50 p-6 rounded-full mb-6 mx-auto w-fit"><Sparkles size={48} className="text-blue-200" /></div>
+                             <h3 className="text-xl font-bold text-slate-700 mb-2">Modul Ajar Belum Dibuat</h3>
+                             <p className="text-sm text-slate-500 max-w-md mx-auto mb-8">Silahkan isi detail di panel kiri dan klik "Update RPP", atau tempel teks RPP mentah di bawah ini untuk dioptimalkan.</p>
+                             <div className="w-full max-w-2xl mx-auto bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner">
+                                <textarea value={rawInputText} onChange={(e) => setRawInputText(e.target.value)} placeholder="Tempel teks RPP atau Modul Ajar mentah di sini untuk dirapikan secara otomatis..." className="w-full h-32 bg-white border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none mb-3 text-slate-700 font-sans" />
+                                <button onClick={() => onOptimize(rawInputText)} disabled={!rawInputText || isLoading} className={`w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${!rawInputText || isLoading ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md'}`}>{isLoading ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}{isLoading ? 'Sedang Mengoptimalkan...' : 'Optimalkan Struktur RPP'}</button>
+                             </div>
                         </div>
-                        <textarea 
-                            className="w-full h-24 text-xs p-2 border border-yellow-300 rounded bg-white focus:outline-none focus:border-yellow-500 mb-2"
-                            placeholder="Instruksi tambahan..."
-                            value={rawInputText}
-                            onChange={(e) => setRawInputText(e.target.value)}
-                        />
-                        <button 
-                            onClick={() => onOptimize(rawInputText)}
-                            disabled={!rawInputText || isLoading}
-                            className="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-1.5 px-2 rounded text-xs font-bold"
-                        >
-                            Update Optimasi
-                        </button>
-                    </div>
-                )}
+                    ) : (
+                        <div className="animate-fade-in">
+                            {/* Insert Style Override for Lists */}
+                            <style>{`
+                                /* Force Font Uniformity to Cambria 12pt */
+                                .paper-content, 
+                                .paper-content p, 
+                                .paper-content li, 
+                                .paper-content td, 
+                                .paper-content th, 
+                                .paper-content span, 
+                                .paper-content div {
+                                    font-size: 12pt !important;
+                                    line-height: 1.5 !important;
+                                    font-family: 'Cambria', 'Times New Roman', serif !important;
+                                    color: #000000 !important;
+                                }
+                                
+                                /* Header exceptions - 24pt Bold */
+                                .paper-content h1 { font-size: 24pt !important; line-height: 1.2 !important; font-weight: bold !important; }
+                                .paper-content h2 { font-size: 24pt !important; line-height: 1.2 !important; font-weight: bold !important; }
+                                .paper-content h3 { font-size: 24pt !important; line-height: 1.2 !important; font-weight: bold !important; }
+                                .paper-content h4 { font-size: 12pt !important; text-transform: uppercase; }
+
+                                .lkpd-reset h1, .lkpd-reset h2, .lkpd-reset h3, .lkpd-reset h4, .lkpd-reset h5, .lkpd-reset h6 {
+                                    font-size: inherit !important;
+                                    font-weight: bold;
+                                    margin-bottom: 0.5em;
+                                    margin-top: 1em;
+                                }
+                                
+                                /* Update Table Styles for Markdown Content */
+                                .markdown-content table {
+                                    width: 100%;
+                                    border-collapse: collapse;
+                                    margin: 1em 0;
+                                }
+                                .markdown-content th, .markdown-content td {
+                                    border: 1px solid #000;
+                                    padding: 8px;
+                                    text-align: left;
+                                }
+                                .markdown-content th {
+                                    background-color: #f0f0f0;
+                                }
+                            `}</style>
+
+                            {(activeTab === 'RPP' || activeTab === 'SEMUA') && <RppContent />}
+                            
+                            {(activeTab === 'MATERI' || activeTab === 'SEMUA') && (
+                                <>
+                                    {activeTab === 'SEMUA' && data.materials && <div className="h-8 border-t border-dashed border-slate-300 my-8 print:break-before-page page-break"></div>}
+                                    <MaterialsContent />
+                                </>
+                            )}
+                            
+                            {(activeTab === 'LKPD' || activeTab === 'SEMUA') && (
+                                <>
+                                    {activeTab === 'SEMUA' && data.lkpd && <div className="h-8 border-t border-dashed border-slate-300 my-8 print:break-before-page page-break"></div>}
+                                    <LkpdContent />
+                                </>
+                            )}
+                            
+                            {(activeTab === 'ASESMEN' || activeTab === 'SEMUA') && (
+                                <>
+                                    {activeTab === 'SEMUA' && data.assessment && <div className="h-8 border-t border-dashed border-slate-300 my-8 print:break-before-page page-break"></div>}
+                                    <AssessmentContent />
+                                </>
+                            )}
+
+                             {(activeTab === 'SOAL' || activeTab === 'SEMUA') && (
+                                <>
+                                    {activeTab === 'SEMUA' && data.questionBank && <div className="h-8 border-t border-dashed border-slate-300 my-8 print:break-before-page page-break"></div>}
+                                    <QuestionBankContent />
+                                </>
+                            )}
+                            
+                            {(activeTab === 'REFLEKSI' || activeTab === 'SEMUA') && (
+                                <>
+                                    {activeTab === 'SEMUA' && data.reflection && <div className="h-8 border-t border-dashed border-slate-300 my-8 print:break-before-page page-break"></div>}
+                                    <ReflectionContent />
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
-
-        {/* Main Preview Area */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100 relative">
-             {/* Toolbar Tabs */}
-             <div className="bg-white border-b border-slate-200 flex overflow-x-auto no-scrollbar shadow-sm z-10 no-print flex-shrink-0">
-                  <TabButton id="RPP" label="1. Modul Ajar" hasData={!!data} />
-                  <TabButton id="MATERI" label="2. Materi Ajar" hasData={!!data?.materials} />
-                  <TabButton id="LKPD" label="3. LKPD" hasData={!!data?.lkpd} />
-                  <TabButton id="ASESMEN" label="4. Asesmen" hasData={!!data?.assessment} />
-                  <TabButton id="SOAL" label="5. Bank Soal" hasData={!!data?.questionBank} />
-             </div>
-
-             {/* Generation Toolbars per Tab */}
-             {activeTab === 'MATERI' && !data?.materials && (
-                 <GenerationToolbar 
-                    title="Materi Ajar belum dibuat." 
-                    actionLabel="Buat Materi Ajar (AI)" 
-                    onAction={handleGenerateMaterialsClick} 
-                    isLoading={isGeneratingMaterials}
-                    icon={BookText}
-                 />
-             )}
-             {activeTab === 'LKPD' && !data?.lkpd && (
-                 <GenerationToolbar 
-                    title="LKPD belum dibuat." 
-                    actionLabel="Buat LKPD (AI)" 
-                    onAction={handleGenerateLKPDClick} 
-                    isLoading={isGeneratingLKPD}
-                    icon={ClipboardCheck}
-                 />
-             )}
-             {activeTab === 'ASESMEN' && !data?.assessment && (
-                 <GenerationToolbar 
-                    title="Instrumen Asesmen belum dibuat." 
-                    actionLabel="Buat Asesmen (AI)" 
-                    onAction={handleGenerateAssessmentClick} 
-                    isLoading={isGeneratingAssessment}
-                    icon={CheckSquare}
-                 />
-             )}
-             {activeTab === 'SOAL' && !data?.questionBank && (
-                 <QuestionToolbar />
-             )}
-
-             {/* Document Viewer */}
-             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center bg-[#525659]">
-                 {/* Paper Page */}
-                 <div id="konten-dokumen" className="bg-white shadow-2xl w-full max-w-[210mm] min-h-[297mm] p-[20mm] md:p-[25mm] mx-auto document-font paper-content" style={paperStyle}>
-                     {isLoading ? (
-                         <div className="flex flex-col items-center justify-center h-96 space-y-4">
-                             <Loader2 size={48} className="animate-spin text-blue-600" />
-                             <p className="text-slate-500 font-medium animate-pulse">Sedang menyusun dokumen cerdas...</p>
-                         </div>
-                     ) : !data ? (
-                         <div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-4 border-2 border-dashed border-slate-200 rounded-xl m-8">
-                             <Layers size={64} className="opacity-20" />
-                             <p>Dokumen kosong. Silahkan generate RPP terlebih dahulu.</p>
-                         </div>
-                     ) : (
-                         <>
-                            {/* TAB CONTENT SWITCHER */}
-                            {activeTab === 'RPP' && (
-                                <div className="break-inside-avoid">
-                                    <h1 className="text-center font-bold mb-2 uppercase" style={{ fontSize: '24pt' }}>MODUL AJAR</h1>
-                                    <h2 className="text-center font-bold mb-8 uppercase" style={{ fontSize: '12pt' }}>TOPIK: {data.identitySection.topic}</h2>
-
-                                    <OpenSection title="I. IDENTITAS UMUM">
-                                        <table className="w-full mb-6 table-fixed">
-                                            <tbody>
-                                                <tr><td className="w-40 py-1 font-bold align-top">Nama Sekolah</td><td className="w-4 align-top">:</td><td className="align-top">{data.identitySection.schoolName}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Nama Penyusun</td><td className="align-top">:</td><td className="align-top">{data.approval.authorName}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Mata Pelajaran</td><td className="align-top">:</td><td className="align-top">{data.identitySection.subject}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Kelas / Fase</td><td className="align-top">:</td><td className="align-top">{data.identitySection.grade}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Semester</td><td className="align-top">:</td><td className="align-top">{data.identitySection.semester}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Alokasi Waktu</td><td className="align-top">:</td><td className="align-top">{data.identitySection.timeAllocation}</td></tr>
-                                                <tr><td className="py-1 font-bold align-top">Jumlah Pertemuan</td><td className="align-top">:</td><td className="align-top">{data.identitySection.meetingCount}</td></tr>
-                                            </tbody>
-                                        </table>
-                                        
-                                        <div className="mb-4">
-                                            <div className="font-bold mb-1 uppercase text-sm">Asesmen Awal (Diagnostik)</div>
-                                            <div className="text-justify">{safeString(data.initialAssessment)}</div>
-                                        </div>
-                                        <div className="mb-4">
-                                            <div className="font-bold mb-1 uppercase text-sm">Profil Pelajar Pancasila</div>
-                                            <ul className="list-disc pl-5">
-                                                {data.graduateProfile.map((item, i) => <li key={i}>{safeString(item)}</li>)}
-                                            </ul>
-                                        </div>
-                                    </OpenSection>
-
-                                    <OpenSection title="II. KOMPONEN INTI">
-                                        <div className="mb-4">
-                                            <div className="font-bold mb-1 uppercase text-sm">1. Tujuan Pembelajaran</div>
-                                            <ul className="list-disc pl-5">
-                                                {data.design.objectives.map((item, i) => <li key={i}>{safeString(item)}</li>)}
-                                            </ul>
-                                        </div>
-                                        <div className="mb-4">
-                                            <div className="font-bold mb-1 uppercase text-sm">2. Pendekatan Pedagogis</div>
-                                            <div className="text-justify">{safeString(data.design.pedagogicalPractice)}</div>
-                                        </div>
-                                        <div className="mb-4">
-                                            <div className="font-bold mb-1 uppercase text-sm">3. Lingkungan Pembelajaran</div>
-                                            <div className="text-justify">{safeString(data.design.environment)}</div>
-                                        </div>
-                                        {data.design.digital && (
-                                            <div className="mb-4">
-                                                <div className="font-bold mb-1 uppercase text-sm">4. Pemanfaatan Digital</div>
-                                                <div className="text-justify">{safeString(data.design.digital)}</div>
-                                            </div>
-                                        )}
-                                    </OpenSection>
-
-                                    <OpenSection title="III. LANGKAH PEMBELAJARAN">
-                                        {data.learningExperience.map((step, idx) => (
-                                            <div key={idx} className="mb-8 border-b border-black pb-4 last:border-0 break-inside-avoid">
-                                                <h3 className="font-bold text-center mb-4 uppercase text-lg border-y border-black py-2 bg-gray-50">PERTEMUAN {step.meetingNo}</h3>
-                                                
-                                                <div className="mb-4">
-                                                    <h4 className="font-bold border-b border-gray-300 mb-2">A. Pendahuluan <span className="font-normal italic text-sm ml-2">(Prinsip: {safeString(step.introPrinciple)})</span></h4>
-                                                    <div className="pl-4 space-y-2">
-                                                        {step.intro.map((act, i) => (
-                                                             <div key={i} className="mb-2" dangerouslySetInnerHTML={renderMarkdown(act)} />
-                                                        ))}
-                                                    </div>
-                                                </div>
-
-                                                <div className="mb-4">
-                                                    <h4 className="font-bold border-b border-gray-300 mb-2">B. Kegiatan Inti <span className="font-normal italic text-sm ml-2">(Prinsip: {safeString(step.corePrinciple)})</span></h4>
-                                                    
-                                                    <div className="pl-4 space-y-4">
-                                                        <div>
-                                                            <strong className="underline decoration-dotted text-blue-800">1. Memahami (Acquire)</strong>
-                                                            <div className="mt-1 pl-2 border-l-2 border-blue-100 space-y-2">
-                                                                {step.core.memahami.map((act, i) => (
-                                                                     <div key={i} dangerouslySetInnerHTML={renderMarkdown(act)} />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                        <div>
-                                                            <strong className="underline decoration-dotted text-purple-800">2. Mengaplikasi (Connect)</strong>
-                                                            <div className="mt-1 pl-2 border-l-2 border-purple-100 space-y-2">
-                                                                {step.core.mengaplikasi.map((act, i) => (
-                                                                     <div key={i} dangerouslySetInnerHTML={renderMarkdown(act)} />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                        <div>
-                                                            <strong className="underline decoration-dotted text-emerald-800">3. Merefleksi (Reflect)</strong>
-                                                            <div className="mt-1 pl-2 border-l-2 border-emerald-100 space-y-2">
-                                                                {step.core.merefleksi.map((act, i) => (
-                                                                     <div key={i} dangerouslySetInnerHTML={renderMarkdown(act)} />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="mb-4">
-                                                    <h4 className="font-bold border-b border-gray-300 mb-2">C. Penutup <span className="font-normal italic text-sm ml-2">(Prinsip: {safeString(step.closingPrinciple)})</span></h4>
-                                                    <div className="pl-4 space-y-2">
-                                                        {step.closing.map((act, i) => (
-                                                             <div key={i} className="mb-2" dangerouslySetInnerHTML={renderMarkdown(act)} />
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </OpenSection>
-
-                                    <div className="break-inside-avoid mt-12 pt-8">
-                                        <table className="w-full">
-                                            <tbody>
-                                                <tr>
-                                                    <td className="w-1/2 text-center align-top px-4">
-                                                        <div className="mb-20">Mengetahui,<br/>Kepala Sekolah</div>
-                                                        <div className="font-bold underline">{safeString(data.approval.principalName)}</div>
-                                                        <div>NIP. {safeString(data.approval.principalNip)}</div>
-                                                    </td>
-                                                    <td className="w-1/2 text-center align-top px-4">
-                                                        <div className="mb-20">{safeString(data.approval.location)}, {safeString(data.approval.date)}<br/>Guru Mata Pelajaran</div>
-                                                        <div className="font-bold underline">{safeString(data.approval.authorName)}</div>
-                                                        <div>NIP. {safeString(data.approval.authorNip)}</div>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            )}
-
-                            {activeTab === 'MATERI' && (
-                                <div className="break-inside-avoid">
-                                    {isGeneratingMaterials ? (
-                                        <div className="text-center py-20 text-slate-500">
-                                            <Loader2 className="animate-spin mx-auto mb-4" />
-                                            Sedang menyusun materi ajar...
-                                        </div>
-                                    ) : !data.materials ? (
-                                        <div className="text-center py-20 text-slate-400">
-                                            Materi belum dibuat. Klik tombol di atas.
-                                        </div>
-                                    ) : (
-                                        <div className="animate-fade-in">
-                                            <h1 className="text-center font-bold mb-4 uppercase" style={{ fontSize: '24pt' }}>{data.materials.judul}</h1>
-                                            
-                                            <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 italic mb-6 text-justify">
-                                                "{safeString(data.materials.pemantik)}"
-                                            </div>
-
-                                            <OpenSection title="PETA KONSEP">
-                                                <ul className="list-disc pl-5">
-                                                    {data.materials.petaKonsep.map((p, i) => <li key={i}>{safeString(p)}</li>)}
-                                                </ul>
-                                            </OpenSection>
-
-                                            <div className="mb-8">
-                                                <h3 className="font-bold uppercase mb-4 text-lg border-b-2 border-black pb-1">MATERI INTI</h3>
-                                                {data.materials.materiInti.map((sub, i) => (
-                                                    <div key={i} className="mb-6 break-inside-avoid">
-                                                        <h4 className="font-bold text-lg mb-2">{i+1}. {safeString(sub.subJudul)}</h4>
-                                                        <div className="text-justify mb-3 markdown-content" dangerouslySetInnerHTML={renderMarkdown(sub.penjelasan)} />
-                                                        
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                            <div className="bg-green-50 p-3 rounded border border-green-200">
-                                                                <strong className="text-green-800 block mb-1">✅ Contoh:</strong>
-                                                                <div className="text-sm markdown-content" dangerouslySetInnerHTML={renderMarkdown(sub.contoh)} />
-                                                            </div>
-                                                            <div className="bg-red-50 p-3 rounded border border-red-200">
-                                                                <strong className="text-red-800 block mb-1">❌ Bukan Contoh:</strong>
-                                                                <div className="text-sm markdown-content" dangerouslySetInnerHTML={renderMarkdown(sub.bukanContoh)} />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            <div className="mb-6 p-4 border border-black rounded-lg break-inside-avoid">
-                                                <h4 className="font-bold uppercase mb-2">💡 Tahukah Kamu?</h4>
-                                                <p className="text-justify">{safeString(data.materials.trivia)}</p>
-                                            </div>
-
-                                            <div className="break-inside-avoid">
-                                                <h4 className="font-bold uppercase mb-2 border-b border-gray-300">GLOSARIUM</h4>
-                                                <dl className="space-y-2">
-                                                    {data.materials.glosarium.map((g, i) => (
-                                                        <div key={i} className="flex gap-2">
-                                                            <dt className="font-bold min-w-[120px]">{safeString(g.istilah)}:</dt>
-                                                            <dd>{safeString(g.definisi)}</dd>
-                                                        </div>
-                                                    ))}
-                                                </dl>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {activeTab === 'LKPD' && <LkpdContent />}
-                            {activeTab === 'ASESMEN' && <AssessmentContent />}
-                            
-                            {activeTab === 'SOAL' && <QuestionBankContent />}
-
-                         </>
-                     )}
-                 </div>
-             </div>
-        </div>
+      </div>
     </div>
   );
 };

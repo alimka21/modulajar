@@ -1,18 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, AssessmentItem, KKTPItem, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types.ts';
+import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, AssessmentItem, KKTPItem, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 
 const getClient = () => {
-  // Use the global variable we set in index.html
-  // @ts-ignore
-  const apiKey = typeof window !== 'undefined' && window.APP_CONFIG ? window.APP_CONFIG.API_KEY : '';
-  
-  // Check if key is missing OR if it's still the placeholder (meaning Netlify build didn't replace it)
-  if (!apiKey || apiKey === "__API_KEY_PLACEHOLDER__") {
-    console.error("API Key Error. Current value:", apiKey);
-    throw new Error("API Key hilang atau belum dikonfigurasi. Pastikan Environment Variable 'API_KEY' sudah diset di Netlify.");
+  if (!process.env.API_KEY) {
+    throw new Error("API Key is missing.");
   }
-  
-  return new GoogleGenAI({ apiKey: apiKey });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 // ------------------------------------
