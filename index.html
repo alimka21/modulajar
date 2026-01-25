@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PAKAR MODUL AJAR - AI Lesson Plan Generator</title>
     
-    <!-- API Key Injection & Process Polyfill -->
+    <!-- API Key Injection (Global Variable) -->
     <script>
-      window.process = {
-        env: {
-          // This string is replaced by Netlify build command
-          API_KEY: "__API_KEY_PLACEHOLDER__"
-        }
+      // Kita gunakan variabel global khusus agar tidak tertimpa oleh library lain
+      window.APP_CONFIG = {
+        // Netlify akan mengganti string ini saat build
+        API_KEY: "__API_KEY_PLACEHOLDER__"
       };
     </script>
 
@@ -84,6 +83,9 @@
         background: #dadce0; 
         border-radius: 4px;
       }
+      ::-webkit-scrollbar-thumb {
+        background: #bdc1c6; 
+      }
       ::-webkit-scrollbar-thumb:hover {
         background: #bdc1c6; 
       }
@@ -145,11 +147,23 @@
       thead { display: table-header-group; }
       tfoot { display: table-footer-group; }
     </style>
-  </head>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "file-saver": "https://esm.sh/file-saver@^2.0.5",
+    "docx": "https://esm.sh/docx@^9.5.1"
+  }
+}
+</script>
+</head>
   <body class="bg-white text-[#1f1f1f] antialiased h-screen overflow-hidden flex flex-col font-sans">
     <div id="root" class="h-full flex flex-col"></div>
     <!-- Load App via Babel -->
     <script type="text/babel" data-presets="react,typescript" data-type="module" src="./index.tsx"></script>
-    <script type="module" src="/index.tsx"></script>
-</body>
+  </body>
 </html>

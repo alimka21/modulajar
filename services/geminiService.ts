@@ -2,10 +2,17 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, AssessmentItem, KKTPItem, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 
 const getClient = () => {
-  if (!process.env.API_KEY || 'FAKE_API_KEY_FOR_DEVELOPMENT') {
-    throw new Error("API Key is missing.");
+  // Use the global variable we set in index.html
+  // @ts-ignore
+  const apiKey = typeof window !== 'undefined' && window.APP_CONFIG ? window.APP_CONFIG.API_KEY : '';
+  
+  // Check if key is missing OR if it's still the placeholder (meaning Netlify build didn't replace it)
+  if (!apiKey || apiKey === "__API_KEY_PLACEHOLDER__") {
+    console.error("API Key Error. Current value:", apiKey);
+    throw new Error("API Key hilang atau belum dikonfigurasi. Pastikan Environment Variable 'API_KEY' sudah diset di Netlify.");
   }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY || 'FAKE_API_KEY_FOR_DEVELOPMENT' });
+  
+  return new GoogleGenAI({ apiKey: apiKey });
 };
 
 // ------------------------------------
@@ -35,8 +42,8 @@ PRINSIP DASAR PENYUSUNAN MODUL AJAR (WAJIB DIPATUHI):
      d. Guru berkeliling memberikan scaffolding (bantuan terbatas).
 6. **FITUR SIDE-NOTES (TIPS GURU)**:
    - Wajib sertakan tips pedagogis praktis di sela-sela langkah pembelajaran.
-   - Gunakan format Markdown Blockquote persis seperti ini: "> ð¡ Tips: [Isi Tips]".
-   - Contoh: "> ð¡ Tips: Gunakan timer visual 5 menit agar diskusi murid tetap fokus dan efisien."
+   - Gunakan format Markdown Blockquote persis seperti ini: "> 💡 Tips: [Isi Tips]".
+   - Contoh: "> 💡 Tips: Gunakan timer visual 5 menit agar diskusi murid tetap fokus dan efisien."
 7. **FORMAT MATEMATIKA (WAJIB)**:
    - Untuk semua persamaan, rumus, variabel, dan angka yang bersifat matematis, WAJIB menggunakan format LaTeX.
    - Gunakan format inline: $E=mc^2$ atau $\frac{1}{2}$.
@@ -308,7 +315,7 @@ export const generateRPP = async (
     
     PENTING:
     - Kembangkan aktivitas menjadi sangat detail (Micro-steps).
-    - Sertakan "> ð¡ Tips: ..." di setiap tahapan (Pendahuluan, Inti, Penutup).
+    - Sertakan "> 💡 Tips: ..." di setiap tahapan (Pendahuluan, Inti, Penutup).
     - **Pastikan semua elemen matematika ditulis dalam LaTeX.**
 
     Hasilkan output JSON Sesuai Schema RPP.
@@ -451,7 +458,7 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
 
   STRUKTUR OUTPUT TAB ASESMEN (MARKDOWN):
 
-  ## 1. ð KKTP: Rubrik Pembelajaran Mendalam
+  ## 1. 📊 KKTP: Rubrik Pembelajaran Mendalam
   Gunakan "Pendekatan 2: Menggunakan Rubrik". Jangan gunakan persentase atau interval angka semata.
   Buatkan Tabel Rubrik dengan 4 Level Kualitas:
   - Perlu Bimbingan 
@@ -464,7 +471,7 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
   - JANGAN sertakan teks label SOLO dalam kurung seperti (Unistructural), (Multistructural) di dalam output text. Cukup deskripsi perilakunya.
   - Pastikan gradasi dari kiri ke kanan menunjukkan peningkatan kualitas berpikir (Low Order -> High Order Thinking).
 
-  ## 2. ð Asesmen Formatif (Proses)
+  ## 2. 🔍 Asesmen Formatif (Proses)
   *Tujuan:* Umpan balik proses (Assessment for Learning).
 
   ### Asesmen Proses
@@ -472,7 +479,7 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
   - Sajikan **Tabel Checklist Observasi** sederhana.
   - Sediakan panduan **Umpan Balik Berjenjang** (Tangga Umpan Balik).
 
-  ## 3. ð Asesmen Sumatif (Evaluation)
+  ## 3. 📝 Asesmen Sumatif (Evaluation)
   *Tujuan:* Menilai pencapaian akhir (Assessment of Learning).
   - Buatkan Kisi-Kisi Soal (Grid) yang menghubungkan indikator soal dengan level kognitif tinggi (Relational & Extended Abstract).
   - Hubungkan ini sebagai dasar untuk pembuatan Bank Soal nanti.
@@ -547,7 +554,7 @@ export const optimizeExistingPlan = async (rawText: string): Promise<GeneratedLe
   
   INSTRUKSI SPESIFIK OPTIMASI:
   1. **Granularitas (Wajib)**: Jika input hanya "Guru membagi kelompok", ubah menjadi 3-4 langkah mikro (misal: menjelaskan aturan, teknik berhitung, pembagian peran dalam kelompok).
-  2. **Pengayaan (Wajib)**: Sisipkan "> ð¡ Tips: ..." pada bagian yang membutuhkan strategi kelas (Classroom Management) atau Diferensiasi.
+  2. **Pengayaan (Wajib)**: Sisipkan "> 💡 Tips: ..." pada bagian yang membutuhkan strategi kelas (Classroom Management) atau Diferensiasi.
   3. **HOTS**: Pastikan pertanyaan pemantik dan aktivitas memancing berpikir kritis, bukan hanya menyalin.
   4. **Matematika**: Ubah semua rumus atau persamaan matematika yang berantakan menjadi format LaTeX yang rapi ($...$).
   
