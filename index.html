@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PAKAR MODUL AJAR - AI Lesson Plan Generator</title>
+    
+    <!-- API Key Injection & Process Polyfill -->
+    <script>
+      window.process = {
+        env: {
+          // This string is replaced by Netlify build command
+          API_KEY: "__API_KEY_PLACEHOLDER__"
+        }
+      };
+    </script>
+
+    <!-- Babel for Client-Side Compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'Roboto', 'sans-serif'],
+              serif: ['Cambria', 'Times New Roman', 'serif'],
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/vfs_fonts.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- PDF.js for reading PDF files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Set worker for PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <!-- html2pdf for PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- MathJax for Math Rendering -->
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: {
+          fontCache: 'global'
+        },
+        startup: {
+          typeset: false 
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+      body { font-family: 'Inter', 'Roboto', sans-serif; }
+      
+      /* Dokumen Preview Font set to Cambria */
+      .document-font { font-family: 'Cambria', 'Times New Roman', serif; }
+      
+      /* Custom Scrollbar for cleaner look */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #dadce0; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #bdc1c6; 
+      }
+
+      /* Markdown Styles for ResultPreview */
+      .prose blockquote {
+        border-left: 4px solid #facc15; /* Yellow-400 */
+        background-color: #fefce8; /* Yellow-50 */
+        padding: 0.5rem 1rem;
+        margin: 0.5rem 0;
+        border-radius: 0 0.5rem 0.5rem 0;
+        font-style: italic;
+        color: #854d0e; /* Yellow-800 */
+        font-size: 0.9em;
+      }
+      .prose strong {
+        font-weight: 700;
+        color: #1f1f1f;
+      }
+
+      /* Print and PDF Generation Styles */
+      @media print {
+        button, nav, header, .no-print, .sidebar {
+            display: none !important;
+        }
+        body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            background: white !important;
+            color: black !important;
+        }
+        @page {
+            margin: 0;
+            size: A4;
+        }
+        .paper-content {
+            margin: 0 !important;
+            padding: 20mm !important;
+            box-shadow: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+        }
+      }
+
+      /* PDF Generation Helpers */
+      .page-break {
+        page-break-before: always;
+      }
+      
+      table, tr, td, th, .card, .section-box, li {
+        page-break-inside: avoid;
+      }
+      
+      table {
+        page-break-inside: auto;
+      }
+      
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "file-saver": "https://esm.sh/file-saver@^2.0.5",
+    "docx": "https://esm.sh/docx@^9.5.1"
+  }
+}
+</script>
+</head>
+  <body class="bg-white text-[#1f1f1f] antialiased h-screen overflow-hidden flex flex-col font-sans">
+    <div id="root" class="h-full flex flex-col"></div>
+    <!-- Load App via Babel -->
+    <script type="text/babel" data-presets="react,typescript" data-type="module" src="./index.tsx"></script>
+  </body>
+</html>
