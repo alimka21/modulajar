@@ -1,4 +1,4 @@
-import { SchoolIdentity, LessonIdentity } from './types';
+import { SchoolIdentity, LessonIdentity } from './types.ts';
 
 export const INITIAL_SCHOOL_IDENTITY: SchoolIdentity = {
   schoolName: '',

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig } from './types';
-import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
-import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, optimizeExistingPlan, generateMaterials } from './services/geminiService';
-import ResultPreview from './components/ResultPreview';
-import LandingPage from './components/LandingPage';
+import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig } from './types.ts';
+import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants.ts';
+import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, optimizeExistingPlan, generateMaterials } from './services/geminiService.ts';
+import ResultPreview from './components/ResultPreview.tsx';
+import LandingPage from './components/LandingPage.tsx';
 import { GraduationCap, Layout, ArrowLeft } from 'lucide-react';
 
 type ViewMode = 'LANDING' | 'WORKSPACE';

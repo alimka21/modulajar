@@ -1,6 +1,6 @@
 import { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign } from "docx";
 import * as FileSaver from "file-saver";
-import { GeneratedLessonPlan, AssessmentItem, KKTPItem, DocumentSettings, LearningStep, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
+import { GeneratedLessonPlan, AssessmentItem, KKTPItem, DocumentSettings, LearningStep, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types.ts";
 
 declare var pdfMake: any;
 
@@ -75,12 +75,12 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   };
 
   const createPara = (children: any[], options?: { 
-      alignment?: AlignmentType; 
+      alignment?: any; 
       spacing?: any; 
       numbering?: any; 
       bullet?: any; 
       shading?: any; 
-      heading?: HeadingLevel; 
+      heading?: any; 
       border?: any;
       indent?: any;
       pageBreakBefore?: boolean;
