@@ -1,6 +1,6 @@
 [build]
-  publish = "."
-  command = "sed -i \"s|__API_KEY_PLACEHOLDER__|${API_KEY}|g\" index.html"
+  command = "npm run build"
+  publish = "dist"
 
 [[redirects]]
   from = "/*"
