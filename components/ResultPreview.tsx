@@ -966,7 +966,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
       <div className="flex-none bg-white border-b border-slate-200 relative z-20 no-print">
         <div className="flex flex-col md:flex-row items-center justify-between px-4">
             <div className="flex w-full md:w-auto overflow-x-auto no-scrollbar">
-                 <TabButton id="RPP_PLUS" label="RPP + Asesmen" hasData={!!data} icon={Layers} />
+                 <TabButton id="RPP_PLUS" label="RPM + Asesmen" hasData={!!data} icon={Layers} />
                  <TabButton id="MATERI" label="Materi Ajar" hasData={!!data?.materials} icon={BookOpen} />
                  <TabButton id="LKPD" label="Lembar Kerja" hasData={!!data?.lkpd} icon={ClipboardCheck} />
                  <TabButton id="SOAL" label="Bank Soal" hasData={!!data?.questionBank} icon={BookKey} />
@@ -1015,7 +1015,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                           <div><label className="text-xs font-medium text-slate-500">Jumlah Pertemuan</label><select name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="1 Pertemuan">1 Pertemuan</option><option value="2 Pertemuan">2 Pertemuan</option><option value="3 Pertemuan">3 Pertemuan</option></select></div>
                           <div><label className="text-xs font-medium text-slate-500">Topik / Materi</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Topik Utama" /></div>
                           <div><label className="text-xs font-medium text-slate-500">Tujuan Pembelajaran</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm resize-none bg-white" placeholder="Contoh: Peserta didik mampu menganalisis struktur teks..." /></div>
-                          <div className="pt-2"><button onClick={onGenerate} disabled={isLoading || !canGenerate} className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${isLoading || !canGenerate ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>{isLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}{isLoading ? "Menyusun RPP + Asesmen..." : "Generate RPP + Asesmen"}</button>{!canGenerate && <p className="text-[10px] text-red-500 text-center mt-1">{getValidationMessage()}</p>}</div>
+                          <div className="pt-2"><button onClick={onGenerate} disabled={isLoading || !canGenerate} className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${isLoading || !canGenerate ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>{isLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}{isLoading ? "Menyusun RPM + Asesmen..." : "Generate RPM + Asesmen"}</button>{!canGenerate && <p className="text-[10px] text-red-500 text-center mt-1">{getValidationMessage()}</p>}</div>
                       </div>
                    )}
                 </div>
@@ -1139,7 +1139,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                              <div className="bg-slate-50 p-6 rounded-full mb-6 mx-auto w-fit"><Sparkles size={48} className="text-blue-200" /></div>
                              <h3 className="text-xl font-bold text-slate-700 mb-2">Modul Ajar Belum Dibuat</h3>
                              <p className="text-sm text-slate-500 max-w-md mx-auto mb-8">
-                                Silahkan lengkapi <strong>Identitas Sekolah</strong> dan <strong>Detail Pelajaran</strong> pada panel di sebelah kiri, lalu klik tombol <strong>Generate RPP + Asesmen</strong>.
+                                Silahkan lengkapi <strong>Identitas Sekolah</strong> dan <strong>Detail Pelajaran</strong> pada panel di sebelah kiri, lalu klik tombol <strong>Generate RPM + Asesmen</strong>.
                              </p>
                         </div>
                     ) : (

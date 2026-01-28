@@ -1,8 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
-import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send } from 'lucide-react';
 import { AppSettings } from '../types';
-import { supabase } from '../lib/supabaseClient';
 
 interface LoginPageProps {
   onLogin: (email: string, pass: string) => void;
@@ -15,66 +14,28 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
-  // Connection Status State
-  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'error'>('checking');
-
-  useEffect(() => {
-    checkConnection();
-  }, []);
-
-  const checkConnection = async () => {
-    try {
-        // Melakukan ping sederhana ke layanan Auth Supabase
-        // getSession sangat ringan dan efektif untuk cek konektivitas key/network
-        const { error } = await supabase.auth.getSession();
-        
-        if (error) {
-            // Jika error network/fetch, anggap offline
-            if (error.message && (error.message.includes('fetch') || error.message.includes('network'))) {
-                setConnectionStatus('error');
-            } else {
-                // Jika error lain (misal sesi tidak ada), koneksi server sebenernya OK
-                setConnectionStatus('connected');
-            }
-        } else {
-            setConnectionStatus('connected');
-        }
-    } catch (e) {
-        setConnectionStatus('error');
-    }
-  };
+  // Forgot Password State
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotData, setForgotData] = useState({ name: '', email: '' });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onLogin(email, password);
   };
 
+  const handleForgotPassword = (e: React.FormEvent) => {
+      e.preventDefault();
+      const targetNumber = '62839829282';
+      const message = `Halo Admin Pakar Modul Ajar, saya lupa kata sandi akun saya.\n\nNama: ${forgotData.name}\nEmail: ${forgotData.email}\n\nMohon bantuannya untuk reset kata sandi. Terima kasih.`;
+      const url = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+      setShowForgotModal(false);
+      setForgotData({ name: '', email: '' });
+  };
+
   return (
     <div className="min-h-screen bg-[#F0F4F9] flex flex-col items-center justify-center p-4 font-sans text-slate-900 relative">
       
-      {/* CONNECTION STATUS BADGE (Top Right) */}
-      <div className="absolute top-4 right-4 animate-fade-in">
-         {connectionStatus === 'checking' && (
-             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-200 text-slate-600 rounded-full text-xs font-medium border border-slate-300">
-                 <Loader2 size={12} className="animate-spin" />
-                 <span>Cek Koneksi...</span>
-             </div>
-         )}
-         {connectionStatus === 'connected' && (
-             <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200 shadow-sm" title="Terhubung ke Supabase Cloud">
-                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                 <Wifi size={14} />
-                 <span>Server Online</span>
-             </div>
-         )}
-         {connectionStatus === 'error' && (
-             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-200 text-slate-500 rounded-full text-xs font-medium border border-slate-300" title="Gagal koneksi ke server. Menggunakan penyimpanan lokal.">
-                 <WifiOff size={14} />
-                 <span>Mode Offline (Lokal)</span>
-             </div>
-         )}
-      </div>
-
       <div className="flex flex-col items-center mb-8 animate-fade-in-down">
          <div className="text-blue-600 mb-4 bg-white p-4 rounded-full shadow-sm">
            <GraduationCap size={48} strokeWidth={1.5} />
@@ -83,7 +44,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
             PAKAR MODUL AJAR
          </h1>
          <p className="text-sm text-slate-500 font-medium tracking-wide mt-1 text-center">
-           Login untuk mengakses platform
+           Pembelajaran Mendalam
          </p>
       </div>
 
@@ -132,6 +93,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                     </div>
                 </div>
 
+                <div className="flex justify-end">
+                    <button 
+                        type="button"
+                        onClick={() => setShowForgotModal(true)}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                        Lupa Kata Sandi?
+                    </button>
+                </div>
+
                 <button 
                     type="submit"
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-2"
@@ -164,6 +135,56 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
          </div>
       </div>
       
+      {/* FORGOT PASSWORD MODAL */}
+      {showForgotModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm border border-slate-200 overflow-hidden animate-fade-in-up">
+                  <div className="flex justify-between items-center p-4 border-b border-slate-100">
+                      <h3 className="font-bold text-slate-800 text-lg">Reset Kata Sandi</h3>
+                      <button onClick={() => setShowForgotModal(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={20} />
+                      </button>
+                  </div>
+                  <div className="p-6">
+                      <p className="text-sm text-slate-600 mb-4">
+                          Masukkan nama dan email terdaftar. Kami akan mengarahkan Anda ke WhatsApp Admin untuk verifikasi manual.
+                      </p>
+                      <form onSubmit={handleForgotPassword} className="space-y-3">
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label>
+                              <input 
+                                  type="text" 
+                                  required
+                                  value={forgotData.name}
+                                  onChange={e => setForgotData({...forgotData, name: e.target.value})}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                  placeholder="Nama sesuai akun"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 mb-1">Email Terdaftar</label>
+                              <input 
+                                  type="email" 
+                                  required
+                                  value={forgotData.email}
+                                  onChange={e => setForgotData({...forgotData, email: e.target.value})}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500"
+                                  placeholder="email@anda.com"
+                              />
+                          </div>
+                          <button 
+                              type="submit"
+                              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg shadow-sm transition flex items-center justify-center gap-2 mt-2"
+                          >
+                              <Send size={16} />
+                              Kirim ke WhatsApp
+                          </button>
+                      </form>
+                  </div>
+              </div>
+          </div>
+      )}
+
       <div className="mt-8 text-center">
         <p className="text-xs text-slate-400">
             &copy; {new Date().getFullYear()} EduGen AI.

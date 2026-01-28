@@ -125,7 +125,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     
-    showLoading('Sedang Menyusun RPP...', 'AI sedang menganalisis kebutuhan pembelajaran Anda. Mohon tunggu...');
+    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kebutuhan pembelajaran Anda. Mohon tunggu...');
 
     try {
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
@@ -133,10 +133,10 @@ const App: React.FC = () => {
       
       closeLoading();
       
-      // Success Notification for RPP
+      // Success Notification for RPP/RPM
       toast.fire({
           icon: 'success',
-          title: 'RPP Berhasil Disusun!',
+          title: 'RPM Berhasil Disusun!',
           text: 'Melanjutkan otomatis ke Asesmen...'
       });
       
@@ -158,11 +158,11 @@ const App: React.FC = () => {
 
       } catch (assessErr: any) {
           console.error("Assessment chain failed", assessErr);
-          setError("RPP berhasil dibuat, namun Asesmen gagal (Server Sibuk).");
+          setError("RPM berhasil dibuat, namun Asesmen gagal (Server Sibuk).");
           swal.fire({
               icon: 'warning',
               title: 'Asesmen Tertunda',
-              text: 'RPP berhasil, namun server sedang sibuk untuk membuat Asesmen. Silakan klik tombol "Buat Asesmen" nanti.',
+              text: 'RPM berhasil, namun server sedang sibuk untuk membuat Asesmen. Silakan klik tombol "Buat Asesmen" nanti.',
               confirmButtonColor: '#f59e0b'
           });
       } finally {
@@ -176,7 +176,7 @@ const App: React.FC = () => {
       
       swal.fire({
           icon: 'error',
-          title: 'Gagal Menyusun RPP',
+          title: 'Gagal Menyusun RPM',
           text: errorMessage,
           confirmButtonColor: '#ef4444'
       });

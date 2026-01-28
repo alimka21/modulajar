@@ -1,3 +1,4 @@
+
 import React, { useRef } from 'react';
 import { LessonIdentity } from '../types';
 import { INITIAL_LESSON_IDENTITY } from '../constants'; // Import constants
@@ -216,7 +217,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
           {isLoading ? (
             <>
               <Loader2 className="animate-spin" size={20} />
-              <span>Menyusun RPP...</span>
+              <span>Menyusun RPM...</span>
             </>
           ) : (
             <>
