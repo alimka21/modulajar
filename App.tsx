@@ -13,6 +13,9 @@ import ResultPreview from './components/ResultPreview';
 
 import { GraduationCap, LogOut } from 'lucide-react';
 
+// Declare SweetAlert global
+declare var Swal: any;
+
 type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN';
 
 const App: React.FC = () => {
@@ -55,12 +58,31 @@ const App: React.FC = () => {
     
     if (user) {
         if (user.role === 'user' && user.status === 'pending') {
-            setAuthError("Akun Anda belum dikonfirmasi oleh Admin.");
+            const msg = "Akun Anda belum dikonfirmasi oleh Admin.";
+            setAuthError(msg);
+            Swal.fire({
+                icon: 'warning',
+                title: 'Akun Belum Aktif',
+                text: msg,
+                confirmButtonColor: '#f59e0b'
+            });
             return;
         }
         
+        // LOGIN SUCCESS
         setCurrentUser(user);
         setAuthError(null);
+        
+        Swal.fire({
+            icon: 'success',
+            title: 'Login Berhasil',
+            text: `Selamat datang kembali, ${user.name}!`,
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true
+        });
         
         if (user.role === 'admin') {
             setViewMode('ADMIN');
@@ -68,15 +90,43 @@ const App: React.FC = () => {
             setViewMode('APP');
         }
     } else {
-        setAuthError("Email atau Password salah.");
+        // LOGIN FAILED
+        const msg = "Email atau Password salah.";
+        setAuthError(msg);
+        Swal.fire({
+            icon: 'error',
+            title: 'Login Gagal',
+            text: msg,
+            confirmButtonColor: '#d33'
+        });
     }
   };
 
   const handleLogout = () => {
-      setCurrentUser(null);
-      setViewMode('LOGIN');
-      setGeneratedPlan(null);
-      setLessonIdentity(INITIAL_LESSON_IDENTITY);
+      Swal.fire({
+        title: 'Keluar Aplikasi?',
+        text: "Anda akan kembali ke halaman login.",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Ya, Keluar'
+      }).then((result: any) => {
+        if (result.isConfirmed) {
+            setCurrentUser(null);
+            setViewMode('LOGIN');
+            setGeneratedPlan(null);
+            setLessonIdentity(INITIAL_LESSON_IDENTITY);
+            Swal.fire({
+                icon: 'success',
+                title: 'Berhasil Keluar',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 1500
+            });
+        }
+      });
   };
 
   // --- GENERATION HANDLERS ---
@@ -84,9 +134,35 @@ const App: React.FC = () => {
   const handleGenerateRPP = async () => {
     setIsLoading(true);
     setError(null);
+    
+    // Show loading popup that cannot be dismissed
+    Swal.fire({
+        title: 'Sedang Menyusun RPP...',
+        text: 'AI sedang menganalisis kebutuhan pembelajaran Anda. Mohon tunggu...',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+
     try {
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
       setGeneratedPlan(rppResult);
+      
+      // Close loading popup
+      Swal.close();
+      
+      // Success Notification for RPP
+      Swal.fire({
+          icon: 'success',
+          title: 'RPP Berhasil Disusun!',
+          text: 'Melanjutkan otomatis ke penyusunan Asesmen...',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true
+      });
       
       // Add a small delay to avoid hitting Rate Limit immediately after RPP generation
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -97,16 +173,42 @@ const App: React.FC = () => {
       try {
           const assessmentData = await generateAssessment(rppResult);
           setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
+          
+          Swal.fire({
+            icon: 'success',
+            title: 'Asesmen Siap!',
+            text: 'Instrumen Asesmen (KKTP, Formatif, Sumatif) berhasil ditambahkan.',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000
+          });
+
       } catch (assessErr: any) {
           console.error("Assessment chain failed", assessErr);
           setError("RPP berhasil dibuat, namun Asesmen gagal (Server Sibuk). Anda bisa mencoba generate Asesmen lagi secara manual.");
+          Swal.fire({
+              icon: 'warning',
+              title: 'Asesmen Tertunda',
+              text: 'RPP berhasil, namun server sedang sibuk untuk membuat Asesmen. Silakan klik tombol "Buat Asesmen" nanti.',
+              confirmButtonColor: '#f59e0b'
+          });
       } finally {
           setIsGeneratingAssessment(false);
       }
 
     } catch (err: any) {
-      setError(err.message || "Terjadi kesalahan saat menghubungi AI.");
+      const errorMessage = err.message || "Terjadi kesalahan saat menghubungi AI.";
+      setError(errorMessage);
       setIsLoading(false);
+      
+      Swal.fire({
+          icon: 'error',
+          title: 'Gagal Menyusun RPP',
+          text: errorMessage,
+          footer: 'Silakan coba lagi dalam beberapa saat.',
+          confirmButtonColor: '#d33'
+      });
     }
   };
 
@@ -117,7 +219,23 @@ const App: React.FC = () => {
     try {
       const materialContent = await generateMaterials(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, materials: materialContent }) : null);
-    } catch (err: any) { setError(err.message); } finally { setIsGeneratingMaterials(false); }
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Materi Ajar Siap!',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    } catch (err: any) { 
+        setError(err.message);
+        Swal.fire({
+            icon: 'error',
+            title: 'Gagal Membuat Materi',
+            text: err.message,
+        });
+    } finally { setIsGeneratingMaterials(false); }
   };
 
   const handleGenerateLKPD = async () => {
@@ -126,7 +244,23 @@ const App: React.FC = () => {
     try {
       const lkpdData = await generateLKPD(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: lkpdData }) : null);
-    } catch (err: any) { setError(err.message); } finally { setIsGeneratingLKPD(false); }
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'LKPD Berhasil Dibuat!',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    } catch (err: any) { 
+        setError(err.message);
+        Swal.fire({
+            icon: 'error',
+            title: 'Gagal Membuat LKPD',
+            text: err.message,
+        });
+    } finally { setIsGeneratingLKPD(false); }
   };
 
   const handleGenerateAssessment = async () => {
@@ -135,7 +269,23 @@ const App: React.FC = () => {
     try {
       const assessmentData = await generateAssessment(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
-    } catch (err: any) { setError(err.message); } finally { setIsGeneratingAssessment(false); }
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Asesmen Diperbarui!',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    } catch (err: any) { 
+        setError(err.message);
+        Swal.fire({
+            icon: 'error',
+            title: 'Gagal Membuat Asesmen',
+            text: err.message,
+        });
+    } finally { setIsGeneratingAssessment(false); }
   };
 
   const handleGenerateQuestionBank = async (config: QuestionBankConfig) => {
@@ -144,7 +294,24 @@ const App: React.FC = () => {
     try {
       const questionData = await generateQuestionBank(generatedPlan, config);
       setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: questionData }) : null);
-    } catch (err: any) { setError(err.message); } finally { setIsGeneratingQuestionBank(false); }
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Bank Soal Selesai!',
+        text: `Berhasil membuat ${config.count} soal tipe ${config.level}.`,
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    } catch (err: any) { 
+        setError(err.message);
+        Swal.fire({
+            icon: 'error',
+            title: 'Gagal Membuat Soal',
+            text: err.message,
+        });
+    } finally { setIsGeneratingQuestionBank(false); }
   };
 
   // --- RENDER VIEWS ---
@@ -211,7 +378,7 @@ const App: React.FC = () => {
         {/* RIGHT SIDE: PREVIEW */}
         <main className="flex-1 bg-slate-100 overflow-hidden relative">
             {error && (
-                 <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 shadow-lg">
+                 <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 shadow-lg animate-fade-in-down">
                     {error}
                 </div>
             )}

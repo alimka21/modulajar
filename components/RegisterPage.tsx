@@ -4,6 +4,9 @@ import { ArrowLeft, MessageCircle } from 'lucide-react';
 import { AppSettings, User } from '../types';
 import { saveUser, hashPassword } from '../services/storageService';
 
+// Declare SweetAlert global
+declare var Swal: any;
+
 interface RegisterPageProps {
   onBack: () => void;
   settings: AppSettings;
@@ -39,16 +42,27 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       
       saveUser(newUser);
 
-      // 2. Redirect ke WhatsApp
+      // 2. Prepare WhatsApp URL
       const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
       const encodedMessage = encodeURIComponent(message);
       const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
       
-      window.open(waUrl, '_blank');
-      
-      // 3. Inform User
-      alert("Data pendaftaran berhasil disimpan. Anda akan diarahkan ke WhatsApp untuk konfirmasi admin.");
-      onBack();
+      // 3. Show SweetAlert and Redirect
+      Swal.fire({
+          title: 'Pendaftaran Berhasil!',
+          text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
+          icon: 'success',
+          confirmButtonText: 'Hubungi Admin Sekarang',
+          confirmButtonColor: '#25D366', // WhatsApp color
+          showCancelButton: true,
+          cancelButtonText: 'Tutup',
+          cancelButtonColor: '#64748b'
+      }).then((result: any) => {
+          if (result.isConfirmed) {
+              window.open(waUrl, '_blank');
+          }
+          onBack();
+      });
   };
 
   return (

@@ -2,7 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, hashPassword } from '../services/storageService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2 } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2, X } from 'lucide-react';
+
+// Declare SweetAlert global
+declare var Swal: any;
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -17,9 +20,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   // User Management State
   const [userTab, setUserTab] = useState<'ACTIVE' | 'PENDING'>('ACTIVE');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // ADD User State
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [isSubmittingUser, setIsSubmittingUser] = useState(false); // Loading state for submit
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '' });
+
+  // EDIT User State
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '', status: '' });
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   // Admin Profile State
   const [adminCreds, setAdminCreds] = useState({ username: '', newPassword: '' });
@@ -40,54 +50,156 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   };
 
   const handleUpdateStatus = (user: User, status: 'active' | 'pending') => {
-      updateUser({ ...user, status });
-      refreshData();
+      Swal.fire({
+          title: status === 'active' ? 'Aktifkan Pengguna?' : 'Nonaktifkan Pengguna?',
+          text: `Apakah Anda yakin ingin mengubah status ${user.name}?`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonColor: '#2563eb',
+          cancelButtonColor: '#d33',
+          confirmButtonText: 'Ya, Ubah!',
+          cancelButtonText: 'Batal'
+      }).then((result: any) => {
+          if (result.isConfirmed) {
+              updateUser({ ...user, status });
+              refreshData();
+              Swal.fire({
+                  title: 'Berhasil!',
+                  text: `Status pengguna berhasil diubah menjadi ${status === 'active' ? 'Aktif' : 'Pending'}.`,
+                  icon: 'success',
+                  timer: 2000,
+                  showConfirmButton: false
+              });
+          }
+      });
   };
 
   const handleDeleteUser = (id: string) => {
-      if (confirm('Apakah Anda yakin ingin menghapus pengguna ini?')) {
-          deleteUser(id);
-          refreshData();
-      }
+      Swal.fire({
+          title: 'Hapus Pengguna?',
+          text: "Data yang dihapus tidak dapat dikembalikan!",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#d33',
+          cancelButtonColor: '#3085d6',
+          confirmButtonText: 'Ya, Hapus!',
+          cancelButtonText: 'Batal'
+      }).then((result: any) => {
+          if (result.isConfirmed) {
+              deleteUser(id);
+              refreshData();
+              Swal.fire(
+                  'Terhapus!',
+                  'Data pengguna telah dihapus.',
+                  'success'
+              );
+          }
+      });
   };
 
   const handleAddUser = async (e: React.FormEvent) => {
       e.preventDefault();
-      setIsSubmittingUser(true); // Start loading
+      setIsSubmittingUser(true);
 
       try {
         const hashedPassword = await hashPassword(newUser.password);
         
         const user: User = {
-            id: Date.now().toString(), // Will be overwritten by Supabase ID if online
+            id: Date.now().toString(),
             name: newUser.name,
             email: newUser.email,
             password: hashedPassword,
-            role: 'user',
+            role: 'user', // FORCE ROLE USER -> Masuk ke Halaman Utama APP saat login
             status: 'active', // Manual add is directly active
             joinedDate: new Date().toISOString()
         };
         
-        // Await the save process so we catch errors and don't refresh too early
         await saveUser(user);
         
         setIsAddingUser(false);
         setNewUser({ name: '', email: '', password: '' });
         refreshData();
-        alert('Pengguna berhasil ditambahkan!');
+        
+        Swal.fire({
+            title: 'Berhasil!',
+            text: 'Pengguna baru berhasil ditambahkan dan langsung Aktif.',
+            icon: 'success',
+            confirmButtonColor: '#2563eb'
+        });
 
       } catch (error: any) {
         console.error("Gagal menambah user:", error);
-        alert(`Gagal menambah pengguna: ${error.message || "Terjadi kesalahan sistem."}`);
+        Swal.fire({
+            title: 'Gagal!',
+            text: error.message || "Terjadi kesalahan sistem.",
+            icon: 'error'
+        });
       } finally {
-        setIsSubmittingUser(false); // Stop loading
+        setIsSubmittingUser(false);
+      }
+  };
+
+  // --- EDIT USER LOGIC ---
+  const handleEditClick = (user: User) => {
+      setEditingUser(user);
+      setEditFormData({
+          name: user.name,
+          email: user.email,
+          password: '', // Kosongkan, hanya isi jika ingin ubah
+          status: user.status
+      });
+  };
+
+  const handleSaveEditUser = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingUser) return;
+      setIsSubmittingEdit(true);
+
+      try {
+          const updatedUser: User = {
+              ...editingUser,
+              name: editFormData.name,
+              email: editFormData.email,
+              status: editFormData.status as 'active' | 'pending'
+          };
+
+          // Update password hanya jika diisi
+          if (editFormData.password && editFormData.password.trim() !== "") {
+              updatedUser.password = await hashPassword(editFormData.password);
+          }
+
+          updateUser(updatedUser);
+          refreshData();
+          setEditingUser(null); // Close modal
+
+          Swal.fire({
+            title: 'Berhasil Diupdate!',
+            text: 'Data pengguna telah diperbarui.',
+            icon: 'success',
+            timer: 2000,
+            showConfirmButton: false
+          });
+
+      } catch (error: any) {
+          Swal.fire({
+            title: 'Error!',
+            text: 'Gagal mengupdate data pengguna.',
+            icon: 'error'
+          });
+      } finally {
+          setIsSubmittingEdit(false);
       }
   };
 
   const handleSaveSettings = (e: React.FormEvent) => {
       e.preventDefault();
       saveSettings(settings);
-      alert('Pengaturan berhasil disimpan!');
+      Swal.fire({
+        title: 'Tersimpan!',
+        text: 'Pengaturan aplikasi berhasil disimpan.',
+        icon: 'success',
+        confirmButtonColor: '#2563eb'
+      });
   };
 
   const handleUpdateAdmin = async (e: React.FormEvent) => {
@@ -96,13 +208,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       if (!admin) return;
 
       if (!adminCreds.username) {
-          alert("Username tidak boleh kosong");
+          Swal.fire('Error', 'Username tidak boleh kosong', 'error');
           return;
       }
 
       const updatedAdmin: User = {
           ...admin,
-          email: adminCreds.username, // Using email field as username for admin
+          email: adminCreds.username,
       };
 
       if (adminCreds.newPassword) {
@@ -111,8 +223,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
       updateUser(updatedAdmin);
       refreshData();
-      setAdminCreds(prev => ({ ...prev, newPassword: '' })); // Clear password field
-      alert("Kredensial Admin berhasil diperbarui!");
+      setAdminCreds(prev => ({ ...prev, newPassword: '' }));
+      
+      Swal.fire({
+        title: 'Sukses!',
+        text: 'Kredensial Admin berhasil diperbarui!',
+        icon: 'success',
+        confirmButtonColor: '#4f46e5'
+      });
   };
 
   // Stats
@@ -121,7 +239,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const filteredUsers = users.filter(u => {
       const matchSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || u.email.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchRole = u.role !== 'admin'; // Hide admin in list usually
+      const matchRole = u.role !== 'admin';
       if (userTab === 'ACTIVE') return matchSearch && matchRole && u.status === 'active';
       return matchSearch && matchRole && u.status === 'pending';
   });
@@ -129,7 +247,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden text-[#1f1f1f] font-sans">
       
-      {/* HEADER (Matches App.tsx) */}
+      {/* HEADER */}
       <header className="bg-white border-b border-slate-200 relative h-16 flex-none z-50 px-4 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2 select-none">
             <span className="text-blue-600">
@@ -157,7 +275,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar (Light Themed) */}
+          {/* Sidebar */}
           <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-none">
               <nav className="flex-1 p-4 space-y-2">
                   <button onClick={() => setActiveTab('DASHBOARD')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'DASHBOARD' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
@@ -176,7 +294,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           </aside>
 
           {/* Main Content */}
-          <main className="flex-1 overflow-y-auto bg-slate-100 p-8">
+          <main className="flex-1 overflow-y-auto bg-slate-100 p-8 relative">
               
               {/* DASHBOARD TAB */}
               {activeTab === 'DASHBOARD' && (
@@ -209,9 +327,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                           </button>
                       </div>
 
-                      {/* Add User Modal/Form */}
+                      {/* ADD USER FORM (Inline) */}
                       {isAddingUser && (
-                          <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-6 relative">
+                          <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-6 relative animate-fade-in-down">
                               {isSubmittingUser && (
                                 <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl">
                                     <Loader2 className="animate-spin text-blue-600" size={32} />
@@ -304,7 +422,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                               <XCircle size={16} />
                                                           </button>
                                                       )}
-                                                      <button onClick={() => alert('Fitur edit detail belum tersedia.')} className="bg-blue-100 text-blue-700 p-1.5 rounded-md hover:bg-blue-200 transition" title="Edit">
+                                                      <button onClick={() => handleEditClick(user)} className="bg-blue-100 text-blue-700 p-1.5 rounded-md hover:bg-blue-200 transition" title="Edit">
                                                           <Edit2 size={16} />
                                                       </button>
                                                       <button onClick={() => handleDeleteUser(user.id)} className="bg-red-100 text-red-700 p-1.5 rounded-md hover:bg-red-200 transition" title="Hapus">
@@ -410,6 +528,87 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               )}
 
           </main>
+
+          {/* EDIT USER MODAL (POPUP) */}
+          {editingUser && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden animate-fade-in-up">
+                      <div className="flex justify-between items-center p-5 border-b border-slate-100">
+                          <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                              <Edit2 size={20} className="text-blue-600" />
+                              Edit Pengguna
+                          </h3>
+                          <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600 transition">
+                              <X size={24} />
+                          </button>
+                      </div>
+                      
+                      <div className="p-6">
+                          <form onSubmit={handleSaveEditUser} className="space-y-4">
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label>
+                                  <input 
+                                      type="text"
+                                      value={editFormData.name}
+                                      onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                      required
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Email</label>
+                                  <input 
+                                      type="email"
+                                      value={editFormData.email}
+                                      onChange={e => setEditFormData({...editFormData, email: e.target.value})}
+                                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                      required
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Status Akun</label>
+                                  <select 
+                                      value={editFormData.status}
+                                      onChange={e => setEditFormData({...editFormData, status: e.target.value})}
+                                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                  >
+                                      <option value="active">Aktif</option>
+                                      <option value="pending">Pending (Belum Dikonfirmasi)</option>
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Ubah Password (Opsional)</label>
+                                  <input 
+                                      type="text"
+                                      value={editFormData.password}
+                                      onChange={e => setEditFormData({...editFormData, password: e.target.value})}
+                                      placeholder="Isi jika ingin mereset password..."
+                                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-400"
+                                  />
+                              </div>
+
+                              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
+                                  <button 
+                                      type="button" 
+                                      onClick={() => setEditingUser(null)}
+                                      className="px-5 py-2.5 text-slate-600 font-bold text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                  >
+                                      Batal
+                                  </button>
+                                  <button 
+                                      type="submit" 
+                                      disabled={isSubmittingEdit}
+                                      className="px-6 py-2.5 text-white font-bold text-sm bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition flex items-center gap-2 disabled:opacity-50"
+                                  >
+                                      {isSubmittingEdit && <Loader2 size={16} className="animate-spin" />}
+                                      Simpan Perubahan
+                                  </button>
+                              </div>
+                          </form>
+                      </div>
+                  </div>
+              </div>
+          )}
       </div>
     </div>
   );
