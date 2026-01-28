@@ -46,6 +46,7 @@ export interface DeepLearningAssessment {
   kktp: KKTPItem[];
   formative: {
     checklist: { aspect: string; indicator: string }[];
+    // objectiveTest removed as requested
     feedbackGuide: {
       clarification: string;
       appreciation: string;
@@ -68,20 +69,29 @@ export interface DeepLearningAssessment {
 }
 
 export interface LKPDData {
-  activityTitle: string;
-  guides: string[]; // Petunjuk Umum Pengerjaan
-  objectives: string; // Tujuan Misi (Bahasa Siswa)
-  toolsMaterials: string[];
-  instructions: string[]; // Langkah Kerja Step-by-step
-  activityZone: string; // Markdown string for tables/canvas/spaces
-  discussionQuestions: string[];
-  reflection: string; // Markdown string for self-reflection checklist
+  title: string;          
+  objectives: string;     
+  instructions: string[]; 
+  stimulus: string;       
+  activities: {
+      level1: string;     
+      level2: string;     
+      level3: string;     
+  };
+  reflection: string[];   
 }
 
 // --- QUESTION BANK TYPES ---
 
-export type QuestionLevel = 'LOTS' | 'MIXED' | 'HOTS';
-export type QuestionType = 'Pilihan Ganda' | 'Pilihan Ganda Kompleks' | 'Menjodohkan' | 'Isian Singkat' | 'Uraian';
+export type QuestionLevel = 'LOTS' | 'HOTS' | 'CAMPURAN';
+
+export type QuestionType = 
+  | 'Pilihan Ganda' 
+  | 'Pilihan Ganda Kompleks' 
+  | 'Menjodohkan' 
+  | 'Benar/Salah' 
+  | 'Isian Singkat' 
+  | 'Uraian';
 
 export interface QuestionBankConfig {
   count: number;
@@ -91,14 +101,19 @@ export interface QuestionBankConfig {
 
 export interface QuestionItem {
   number: number;
-  type: string;
+  type: QuestionType; 
   question: string;
   stimulus?: string;
-  options?: string[];
+  // For PG & PG Kompleks
+  options?: string[]; 
+  // For Matching (Menjodohkan)
+  matchingPairs?: { left: string; right: string }[]; 
+  // Answer key (Text for essays/short, Option letter for PG, Boolean for T/F)
   answerKey: string;
 }
 
 export interface QuestionBankData {
+  config?: QuestionBankConfig; // Store the config used to generate
   items: QuestionItem[];
 }
 
@@ -112,18 +127,16 @@ export interface DocumentSettings {
   fontSize: FontSize;
 }
 
-// Strictly structured materials: Deep Dive Format
 export interface MaterialsData {
-  judul: string;
-  pemantik: string; // Apersepsi / Pemantik Belajar
-  petaKonsep: string[]; // List of main scope points
-  materiInti: { 
-      subJudul: string; 
-      penjelasan: string; 
-      contoh: string; 
-      bukanContoh: string; 
-  }[];
-  deskripsiIlustrasi: string;
+  judul: string; 
+  pemantik: string; 
+  subTopik: string[]; 
+  konsepInti: {
+      definisi: string; 
+      penjelasanBertahap: string[]; 
+      tabelVisual: string; 
+      contohKonkret: string; 
+  };
   trivia: string;
   glosarium: { istilah: string; definisi: string }[];
 }
@@ -131,15 +144,15 @@ export interface MaterialsData {
 export interface LearningStep {
   meetingNo: number;
   intro: string[];
-  introPrinciple: string; // Can select 1 or 2 principles
+  introPrinciple: string; 
   core: {
     memahami: string[];
     mengaplikasi: string[];
     merefleksi: string[];
   };
-  corePrinciple: string; // Can select 1 or 2 principles
+  corePrinciple: string; 
   closing: string[];
-  closingPrinciple: string; // Can select 1 or 2 principles
+  closingPrinciple: string; 
 }
 
 export interface GeneratedLessonPlan {
@@ -184,4 +197,23 @@ export interface GeneratedLessonPlan {
     principalName: string;
     principalNip: string;
   };
+}
+
+export type UserRole = 'admin' | 'user';
+export type UserStatus = 'active' | 'pending';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  password?: string; 
+  role: UserRole;
+  status: UserStatus;
+  joinedDate: string;
+}
+
+export interface AppSettings {
+  promoLink: string;
+  whatsappNumber: string;
+  socialMediaLink: string;
 }

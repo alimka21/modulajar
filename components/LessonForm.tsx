@@ -106,7 +106,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
              <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Tujuan Pembelajaran</label>
-                  <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Peserta didik mampu..." />
+                  <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Murid mampu..." />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Praktik Pedagogis (Model/Metode)</label>

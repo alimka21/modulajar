@@ -1,18 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig } from './types';
-import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
-import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, optimizeExistingPlan, generateMaterials } from './services/geminiService';
-import ResultPreview from './components/ResultPreview';
-import LandingPage from './components/LandingPage';
-import { GraduationCap, Layout, ArrowLeft } from 'lucide-react';
 
-type ViewMode = 'LANDING' | 'WORKSPACE';
+import React, { useState, useEffect } from 'react';
+import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig, User, AppSettings } from './types';
+import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
+import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials } from './services/geminiService';
+import { initializeStorage, authenticate, getSettings } from './services/storageService';
+
+// Components
+import LoginPage from './components/LoginPage';
+import RegisterPage from './components/RegisterPage';
+import AdminDashboard from './components/AdminDashboard';
+import ResultPreview from './components/ResultPreview';
+
+import { GraduationCap, LogOut } from 'lucide-react';
+
+type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN';
 
 const App: React.FC = () => {
-  const [viewMode, setViewMode] = useState<ViewMode>('LANDING');
+  // --- AUTH STATE ---
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('LOGIN');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings>({ promoLink: '', whatsappNumber: '', socialMediaLink: '' });
+
+  // --- APP LOGIC STATE ---
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   
-  // Loading states for different parts
-  const [isLoading, setIsLoading] = useState<boolean>(false); // General/RPP loading
+  // Modular Loading States
   const [isGeneratingMaterials, setIsGeneratingMaterials] = useState<boolean>(false);
   const [isGeneratingLKPD, setIsGeneratingLKPD] = useState<boolean>(false);
   const [isGeneratingAssessment, setIsGeneratingAssessment] = useState<boolean>(false);
@@ -20,103 +33,91 @@ const App: React.FC = () => {
   
   const [error, setError] = useState<string | null>(null);
 
-  // Mode state for disabling generation button
-  const [isOptimizationMode, setIsOptimizationMode] = useState<boolean>(false);
-
-  // Persistent School Identity
   const [schoolIdentity, setSchoolIdentity] = useState<SchoolIdentity>(() => {
     const saved = localStorage.getItem('schoolIdentity');
     return saved ? JSON.parse(saved) : INITIAL_SCHOOL_IDENTITY;
   });
 
-  // Dynamic Lesson Identity
   const [lessonIdentity, setLessonIdentity] = useState<LessonIdentity>(INITIAL_LESSON_IDENTITY);
-  
-  // Generated Result
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedLessonPlan | null>(null);
 
-  // Save Identity on Change
+  // --- INITIALIZATION ---
   useEffect(() => {
+    initializeStorage();
+    setAppSettings(getSettings());
     localStorage.setItem('schoolIdentity', JSON.stringify(schoolIdentity));
   }, [schoolIdentity]);
 
-  // Handle "Buat dari Awal"
-  const handleCreateNew = () => {
-    setLessonIdentity(INITIAL_LESSON_IDENTITY);
-    setGeneratedPlan(null);
-    setIsOptimizationMode(false);
-    setViewMode('WORKSPACE');
-  };
-
-  // Handle "Optimalkan" (Generate from Text)
-  const handleOptimize = async (text: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await optimizeExistingPlan(text);
-      
-      // Populate states with the parsed result
-      setGeneratedPlan(result);
-      
-      // Update Inputs so they match the result
-      setLessonIdentity({
-        ...INITIAL_LESSON_IDENTITY,
-        subject: result.identitySection.subject || '',
-        grade: result.identitySection.grade || '',
-        semester: result.identitySection.semester || 'Ganjil',
-        timeAllocation: result.identitySection.timeAllocation || '',
-        topic: result.identitySection.topic || '',
-        objectives: result.design.objectives.join('\n') || '',
-      });
-
-      // Update School Identity ONLY if extracted data is present
-      setSchoolIdentity(prev => ({
-        ...prev,
-        schoolName: result.identitySection.schoolName || prev.schoolName,
-        authorName: result.approval.authorName || prev.authorName,
-        authorNip: result.approval.authorNip || prev.authorNip,
-        principalName: result.approval.principalName || prev.principalName,
-        principalNip: result.approval.principalNip || prev.principalNip,
-        location: result.approval.location || prev.location,
-        date: result.approval.date || prev.date,
-      }));
-
-      // Switch view and set mode
-      setIsOptimizationMode(true);
-      setViewMode('WORKSPACE');
-
-    } catch (err: any) {
-      setError(err.message || "Gagal mengoptimalkan teks. Pastikan format teks sesuai.");
-    } finally {
-      setIsLoading(false);
+  // --- AUTH HANDLERS ---
+  const handleLogin = async (email: string, pass: string) => {
+    // Authenticate is now async because of hashing
+    const user = await authenticate(email, pass);
+    
+    if (user) {
+        if (user.role === 'user' && user.status === 'pending') {
+            setAuthError("Akun Anda belum dikonfirmasi oleh Admin.");
+            return;
+        }
+        
+        setCurrentUser(user);
+        setAuthError(null);
+        
+        if (user.role === 'admin') {
+            setViewMode('ADMIN');
+        } else {
+            setViewMode('APP');
+        }
+    } else {
+        setAuthError("Email atau Password salah.");
     }
   };
+
+  const handleLogout = () => {
+      setCurrentUser(null);
+      setViewMode('LOGIN');
+      setGeneratedPlan(null);
+      setLessonIdentity(INITIAL_LESSON_IDENTITY);
+  };
+
+  // --- GENERATION HANDLERS ---
 
   const handleGenerateRPP = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Step 1: Generate RPP Core
-      const result = await generateRPP(schoolIdentity, lessonIdentity);
-      setGeneratedPlan(result);
+      const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
+      setGeneratedPlan(rppResult);
+      
+      // Add a small delay to avoid hitting Rate Limit immediately after RPP generation
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Auto-chain Assessment
+      setIsLoading(false); 
+      setIsGeneratingAssessment(true);
+      try {
+          const assessmentData = await generateAssessment(rppResult);
+          setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
+      } catch (assessErr: any) {
+          console.error("Assessment chain failed", assessErr);
+          setError("RPP berhasil dibuat, namun Asesmen gagal (Server Sibuk). Anda bisa mencoba generate Asesmen lagi secara manual.");
+      } finally {
+          setIsGeneratingAssessment(false);
+      }
+
     } catch (err: any) {
       setError(err.message || "Terjadi kesalahan saat menghubungi AI.");
-    } finally {
       setIsLoading(false);
     }
   };
 
+  // Modular Generators
   const handleGenerateMaterials = async () => {
     if (!generatedPlan) return;
     setIsGeneratingMaterials(true);
     try {
       const materialContent = await generateMaterials(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, materials: materialContent }) : null);
-    } catch (err: any) {
-      setError(err.message || "Gagal membuat Materi Ajar.");
-    } finally {
-      setIsGeneratingMaterials(false);
-    }
+    } catch (err: any) { setError(err.message); } finally { setIsGeneratingMaterials(false); }
   };
 
   const handleGenerateLKPD = async () => {
@@ -125,11 +126,7 @@ const App: React.FC = () => {
     try {
       const lkpdData = await generateLKPD(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: lkpdData }) : null);
-    } catch (err: any) {
-      setError(err.message || "Gagal membuat LKPD.");
-    } finally {
-      setIsGeneratingLKPD(false);
-    }
+    } catch (err: any) { setError(err.message); } finally { setIsGeneratingLKPD(false); }
   };
 
   const handleGenerateAssessment = async () => {
@@ -138,11 +135,7 @@ const App: React.FC = () => {
     try {
       const assessmentData = await generateAssessment(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
-    } catch (err: any) {
-      setError(err.message || "Gagal membuat Asesmen.");
-    } finally {
-      setIsGeneratingAssessment(false);
-    }
+    } catch (err: any) { setError(err.message); } finally { setIsGeneratingAssessment(false); }
   };
 
   const handleGenerateQuestionBank = async (config: QuestionBankConfig) => {
@@ -151,101 +144,99 @@ const App: React.FC = () => {
     try {
       const questionData = await generateQuestionBank(generatedPlan, config);
       setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: questionData }) : null);
-    } catch (err: any) {
-      setError(err.message || "Gagal membuat Bank Soal.");
-    } finally {
-      setIsGeneratingQuestionBank(false);
-    }
+    } catch (err: any) { setError(err.message); } finally { setIsGeneratingQuestionBank(false); }
   };
 
-  const handleReset = () => {
-    setViewMode('LANDING');
-    setLessonIdentity(INITIAL_LESSON_IDENTITY);
-    setGeneratedPlan(null);
-    setIsOptimizationMode(false);
+  // --- RENDER VIEWS ---
+
+  if (viewMode === 'LOGIN') {
+      return (
+          <LoginPage 
+            onLogin={handleLogin} 
+            onGoToRegister={() => setViewMode('REGISTER')}
+            settings={appSettings}
+            error={authError}
+          />
+      );
   }
 
-  // --- RENDER ---
-
-  if (viewMode === 'LANDING') {
-    return (
-      <>
-        {error && (
-             <div className="fixed top-4 right-4 z-[60] bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-center gap-4 animate-fade-in font-sans">
-                <span>{error}</span>
-                <button onClick={() => setError(null)} className="font-bold">✕</button>
-             </div>
-        )}
-        <LandingPage 
-          onOptimize={handleOptimize} 
-          onCreateNew={handleCreateNew} 
-          isOptimizing={isLoading} 
-        />
-      </>
-    );
+  if (viewMode === 'REGISTER') {
+      return <RegisterPage onBack={() => setViewMode('LOGIN')} settings={appSettings} />;
   }
 
+  if (viewMode === 'ADMIN') {
+      return <AdminDashboard onLogout={handleLogout} onGoToApp={() => setViewMode('APP')} />;
+  }
+
+  // --- MAIN APPLICATION WORKSPACE ---
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden text-[#1f1f1f] font-sans">
-      {/* Header - Google App Bar Style */}
-      <header className="bg-white border-b border-slate-200 h-16 flex-none z-50 px-4 flex items-center justify-between no-print">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setViewMode('LANDING')} className="p-2 hover:bg-slate-100 rounded-full text-[#444746] transition-colors">
-                <ArrowLeft size={20} />
-            </button>
-            <div className="flex items-center gap-2 select-none">
-              <span className="text-blue-600">
-                 <GraduationCap size={24} />
-              </span>
-              <h1 className="text-[1.1rem] font-medium text-[#444746] uppercase">
-                PAKAR MODUL AJAR
-              </h1>
+      
+      {/* HEADER (AREA 1 Cleaned) */}
+      <header className="bg-white border-b border-slate-200 relative h-16 flex-none z-50 px-4 flex items-center justify-between no-print shadow-sm">
+          <div className="flex items-center gap-2 select-none">
+            <span className="text-blue-600">
+                <GraduationCap size={28} />
+            </span>
+            <div>
+                <h1 className="text-lg font-bold text-slate-800 uppercase leading-none">
+                    PAKAR MODUL AJAR
+                </h1>
+                <span className="text-[10px] text-slate-500 font-medium">Platform Pembelajaran Mendalam</span>
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
-             <div className="hidden md:block text-xs text-[#444746] font-medium mr-2">
-                Draft tersimpan otomatis
+          <div className="flex items-center gap-4">
+             {currentUser?.role === 'admin' && (
+                 <button onClick={() => setViewMode('ADMIN')} className="text-xs font-bold text-blue-600 hover:underline">
+                     KEMBALI KE ADMIN
+                 </button>
+             )}
+             <div className="hidden md:flex flex-col items-end mr-2">
+                 <span className="text-xs font-bold text-slate-700">{currentUser?.name}</span>
+                 <span className="text-[10px] text-slate-500">{currentUser?.email}</span>
              </div>
              <button 
-               onClick={handleReset} 
-               className="text-sm text-[#444746] hover:text-black font-medium px-4 py-2 rounded-full hover:bg-slate-100 transition-colors"
+               onClick={handleLogout} 
+               className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-4 py-2 rounded-lg transition-colors"
              >
-               Kembali ke Home
+               <LogOut size={16} /> Keluar
              </button>
           </div>
       </header>
 
-      {/* Main Content Workspace */}
-      <main className="flex-1 flex overflow-hidden relative bg-slate-50">
-        {error && (
-             <div className="absolute top-4 right-4 z-[60] bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-center gap-4 animate-fade-in no-print">
-                <span>{error}</span>
-                <button onClick={() => setError(null)} className="font-bold">✕</button>
-             </div>
-        )}
+      {/* Main Split Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        
+        {/* RIGHT SIDE: PREVIEW */}
+        <main className="flex-1 bg-slate-100 overflow-hidden relative">
+            {error && (
+                 <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 shadow-lg">
+                    {error}
+                </div>
+            )}
+            
+            <ResultPreview 
+                data={generatedPlan} 
+                inputData={lessonIdentity}
+                onInputChange={setLessonIdentity}
+                schoolData={schoolIdentity}
+                onSchoolChange={setSchoolIdentity}
+                onGenerate={handleGenerateRPP}
+                isLoading={isLoading}
+                
+                onGenerateMaterials={handleGenerateMaterials}
+                isGeneratingMaterials={isGeneratingMaterials}
+                onGenerateLKPD={handleGenerateLKPD}
+                isGeneratingLKPD={isGeneratingLKPD}
+                onGenerateAssessment={handleGenerateAssessment}
+                isGeneratingAssessment={isGeneratingAssessment}
+                onGenerateQuestionBank={handleGenerateQuestionBank}
+                isGeneratingQuestionBank={isGeneratingQuestionBank}
+            />
+        </main>
 
-        <ResultPreview 
-          data={generatedPlan} 
-          inputData={lessonIdentity}
-          onInputChange={setLessonIdentity}
-          schoolData={schoolIdentity}
-          onSchoolChange={setSchoolIdentity}
-          onGenerate={handleGenerateRPP}
-          isLoading={isLoading}
-          isOptimizationMode={isOptimizationMode}
-          onOptimize={handleOptimize}
-          
-          onGenerateMaterials={handleGenerateMaterials}
-          isGeneratingMaterials={isGeneratingMaterials}
-          onGenerateLKPD={handleGenerateLKPD}
-          isGeneratingLKPD={isGeneratingLKPD}
-          onGenerateAssessment={handleGenerateAssessment}
-          isGeneratingAssessment={isGeneratingAssessment}
-          onGenerateQuestionBank={handleGenerateQuestionBank}
-          isGeneratingQuestionBank={isGeneratingQuestionBank}
-        />
-      </main>
+      </div>
     </div>
   );
 };

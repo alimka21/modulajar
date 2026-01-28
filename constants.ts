@@ -28,7 +28,7 @@ export const INITIAL_LESSON_IDENTITY: LessonIdentity = {
 };
 
 export const GRADUATE_PROFILE_DIMENSIONS = [
-  "1. Keimanan & Ketakwaan Terhadap Tuhan YME",
+  "1. Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa",
   "2. Kewargaan",
   "3. Penalaran Kritis",
   "4. Kreativitas",
