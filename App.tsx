@@ -4,6 +4,7 @@ import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig
 import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
 import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials } from './services/geminiService';
 import { initializeStorage, authenticate, getSettings } from './services/storageService';
+import { swal, toast, showLoading, closeLoading } from './services/notificationService';
 
 // Components
 import LoginPage from './components/LoginPage';
@@ -12,9 +13,6 @@ import AdminDashboard from './components/AdminDashboard';
 import ResultPreview from './components/ResultPreview';
 
 import { GraduationCap, LogOut } from 'lucide-react';
-
-// Declare SweetAlert global
-declare var Swal: any;
 
 type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN';
 
@@ -60,11 +58,12 @@ const App: React.FC = () => {
         if (user.role === 'user' && user.status === 'pending') {
             const msg = "Akun Anda belum dikonfirmasi oleh Admin.";
             setAuthError(msg);
-            Swal.fire({
+            swal.fire({
                 icon: 'warning',
                 title: 'Akun Belum Aktif',
                 text: msg,
-                confirmButtonColor: '#f59e0b'
+                confirmButtonColor: '#f59e0b',
+                confirmButtonText: 'Mengerti'
             });
             return;
         }
@@ -73,15 +72,9 @@ const App: React.FC = () => {
         setCurrentUser(user);
         setAuthError(null);
         
-        Swal.fire({
+        toast.fire({
             icon: 'success',
-            title: 'Login Berhasil',
-            text: `Selamat datang kembali, ${user.name}!`,
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true
+            title: `Selamat datang, ${user.name}!`
         });
         
         if (user.role === 'admin') {
@@ -93,37 +86,34 @@ const App: React.FC = () => {
         // LOGIN FAILED
         const msg = "Email atau Password salah.";
         setAuthError(msg);
-        Swal.fire({
+        swal.fire({
             icon: 'error',
             title: 'Login Gagal',
             text: msg,
-            confirmButtonColor: '#d33'
+            confirmButtonColor: '#ef4444'
         });
     }
   };
 
   const handleLogout = () => {
-      Swal.fire({
+      swal.fire({
         title: 'Keluar Aplikasi?',
         text: "Anda akan kembali ke halaman login.",
         icon: 'question',
         showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Ya, Keluar'
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#f1f5f9',
+        confirmButtonText: 'Ya, Keluar',
+        cancelButtonText: 'Batal'
       }).then((result: any) => {
         if (result.isConfirmed) {
             setCurrentUser(null);
             setViewMode('LOGIN');
             setGeneratedPlan(null);
             setLessonIdentity(INITIAL_LESSON_IDENTITY);
-            Swal.fire({
+            toast.fire({
                 icon: 'success',
-                title: 'Berhasil Keluar',
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 1500
+                title: 'Berhasil Keluar'
             });
         }
       });
@@ -135,36 +125,22 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     
-    // Show loading popup that cannot be dismissed
-    Swal.fire({
-        title: 'Sedang Menyusun RPP...',
-        text: 'AI sedang menganalisis kebutuhan pembelajaran Anda. Mohon tunggu...',
-        allowOutsideClick: false,
-        didOpen: () => {
-            Swal.showLoading();
-        }
-    });
+    showLoading('Sedang Menyusun RPP...', 'AI sedang menganalisis kebutuhan pembelajaran Anda. Mohon tunggu...');
 
     try {
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
       setGeneratedPlan(rppResult);
       
-      // Close loading popup
-      Swal.close();
+      closeLoading();
       
       // Success Notification for RPP
-      Swal.fire({
+      toast.fire({
           icon: 'success',
           title: 'RPP Berhasil Disusun!',
-          text: 'Melanjutkan otomatis ke penyusunan Asesmen...',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          timerProgressBar: true
+          text: 'Melanjutkan otomatis ke Asesmen...'
       });
       
-      // Add a small delay to avoid hitting Rate Limit immediately after RPP generation
+      // Add a small delay
       await new Promise(resolve => setTimeout(resolve, 3000));
 
       // Auto-chain Assessment
@@ -174,20 +150,16 @@ const App: React.FC = () => {
           const assessmentData = await generateAssessment(rppResult);
           setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
           
-          Swal.fire({
+          toast.fire({
             icon: 'success',
             title: 'Asesmen Siap!',
-            text: 'Instrumen Asesmen (KKTP, Formatif, Sumatif) berhasil ditambahkan.',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000
+            text: 'Instrumen Asesmen berhasil ditambahkan.'
           });
 
       } catch (assessErr: any) {
           console.error("Assessment chain failed", assessErr);
-          setError("RPP berhasil dibuat, namun Asesmen gagal (Server Sibuk). Anda bisa mencoba generate Asesmen lagi secara manual.");
-          Swal.fire({
+          setError("RPP berhasil dibuat, namun Asesmen gagal (Server Sibuk).");
+          swal.fire({
               icon: 'warning',
               title: 'Asesmen Tertunda',
               text: 'RPP berhasil, namun server sedang sibuk untuk membuat Asesmen. Silakan klik tombol "Buat Asesmen" nanti.',
@@ -202,12 +174,11 @@ const App: React.FC = () => {
       setError(errorMessage);
       setIsLoading(false);
       
-      Swal.fire({
+      swal.fire({
           icon: 'error',
           title: 'Gagal Menyusun RPP',
           text: errorMessage,
-          footer: 'Silakan coba lagi dalam beberapa saat.',
-          confirmButtonColor: '#d33'
+          confirmButtonColor: '#ef4444'
       });
     }
   };
@@ -220,17 +191,13 @@ const App: React.FC = () => {
       const materialContent = await generateMaterials(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, materials: materialContent }) : null);
       
-      Swal.fire({
+      toast.fire({
         icon: 'success',
-        title: 'Materi Ajar Siap!',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3000
+        title: 'Materi Ajar Siap!'
       });
     } catch (err: any) { 
         setError(err.message);
-        Swal.fire({
+        swal.fire({
             icon: 'error',
             title: 'Gagal Membuat Materi',
             text: err.message,
@@ -245,17 +212,13 @@ const App: React.FC = () => {
       const lkpdData = await generateLKPD(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: lkpdData }) : null);
       
-      Swal.fire({
+      toast.fire({
         icon: 'success',
-        title: 'LKPD Berhasil Dibuat!',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3000
+        title: 'LKPD Berhasil Dibuat!'
       });
     } catch (err: any) { 
         setError(err.message);
-        Swal.fire({
+        swal.fire({
             icon: 'error',
             title: 'Gagal Membuat LKPD',
             text: err.message,
@@ -270,17 +233,13 @@ const App: React.FC = () => {
       const assessmentData = await generateAssessment(generatedPlan);
       setGeneratedPlan(prev => prev ? ({ ...prev, assessment: assessmentData }) : null);
       
-      Swal.fire({
+      toast.fire({
         icon: 'success',
-        title: 'Asesmen Diperbarui!',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3000
+        title: 'Asesmen Diperbarui!'
       });
     } catch (err: any) { 
         setError(err.message);
-        Swal.fire({
+        swal.fire({
             icon: 'error',
             title: 'Gagal Membuat Asesmen',
             text: err.message,
@@ -295,18 +254,14 @@ const App: React.FC = () => {
       const questionData = await generateQuestionBank(generatedPlan, config);
       setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: questionData }) : null);
       
-      Swal.fire({
+      toast.fire({
         icon: 'success',
         title: 'Bank Soal Selesai!',
-        text: `Berhasil membuat ${config.count} soal tipe ${config.level}.`,
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3000
+        text: `Berhasil membuat ${config.count} soal.`
       });
     } catch (err: any) { 
         setError(err.message);
-        Swal.fire({
+        swal.fire({
             icon: 'error',
             title: 'Gagal Membuat Soal',
             text: err.message,
@@ -339,7 +294,7 @@ const App: React.FC = () => {
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden text-[#1f1f1f] font-sans">
       
-      {/* HEADER (AREA 1 Cleaned) */}
+      {/* HEADER */}
       <header className="bg-white border-b border-slate-200 relative h-16 flex-none z-50 px-4 flex items-center justify-between no-print shadow-sm">
           <div className="flex items-center gap-2 select-none">
             <span className="text-blue-600">

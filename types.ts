@@ -205,11 +205,13 @@ export type UserStatus = 'active' | 'pending';
 export interface User {
   id: string;
   name: string;
+  username?: string; // New Field
   email: string;
   password?: string; 
   role: UserRole;
   status: UserStatus;
   joinedDate: string;
+  lastLogin?: string; // New Field
 }
 
 export interface AppSettings {

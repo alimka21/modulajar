@@ -1,11 +1,9 @@
 
 import React, { useState } from 'react';
-import { ArrowLeft, MessageCircle } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
 import { AppSettings, User } from '../types';
 import { saveUser, hashPassword } from '../services/storageService';
-
-// Declare SweetAlert global
-declare var Swal: any;
+import { swal } from '../services/notificationService';
 
 interface RegisterPageProps {
   onBack: () => void;
@@ -15,9 +13,11 @@ interface RegisterPageProps {
 const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
   const [formData, setFormData] = useState({
       name: '',
+      username: '',
       email: '',
       password: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -26,43 +26,69 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
   const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       
-      // Hash password before saving
-      const hashedPassword = await hashPassword(formData.password);
+      // VALIDATION
+      if (formData.password.length < 6) {
+          swal.fire({
+              title: 'Password Terlalu Pendek',
+              text: 'Kata sandi harus minimal 6 karakter.',
+              icon: 'warning',
+              confirmButtonColor: '#f59e0b'
+          });
+          return;
+      }
 
-      // 1. Simpan ke LocalStorage sebagai 'Pending'
-      const newUser: User = {
-          id: Date.now().toString(),
-          name: formData.name,
-          email: formData.email,
-          password: hashedPassword, // Saved Hashed
-          role: 'user',
-          status: 'pending',
-          joinedDate: new Date().toISOString()
-      };
+      setIsSubmitting(true);
       
-      saveUser(newUser);
+      try {
+          // Hash password before saving
+          const hashedPassword = await hashPassword(formData.password);
 
-      // 2. Prepare WhatsApp URL
-      const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
-      const encodedMessage = encodeURIComponent(message);
-      const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
-      
-      // 3. Show SweetAlert and Redirect
-      Swal.fire({
-          title: 'Pendaftaran Berhasil!',
-          text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
-          icon: 'success',
-          confirmButtonText: 'Hubungi Admin Sekarang',
-          confirmButtonColor: '#25D366', // WhatsApp color
-          showCancelButton: true,
-          cancelButtonText: 'Tutup',
-          cancelButtonColor: '#64748b'
-      }).then((result: any) => {
-          if (result.isConfirmed) {
-              window.open(waUrl, '_blank');
-          }
-          onBack();
-      });
+          // 1. Simpan ke LocalStorage sebagai 'Pending'
+          const newUser: User = {
+              id: Date.now().toString(),
+              name: formData.name,
+              username: formData.username || formData.email.split('@')[0],
+              email: formData.email,
+              password: hashedPassword, // Saved Hashed
+              role: 'user',
+              status: 'pending',
+              joinedDate: new Date().toISOString(),
+              lastLogin: ''
+          };
+          
+          // AWAIT THIS to ensure it saves (or handles error) before proceeding
+          await saveUser(newUser);
+
+          // 2. Prepare WhatsApp URL
+          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
+          const encodedMessage = encodeURIComponent(message);
+          const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
+          
+          // 3. Show SweetAlert and Redirect
+          swal.fire({
+              title: 'Pendaftaran Berhasil!',
+              text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
+              icon: 'success',
+              confirmButtonText: 'Hubungi Admin Sekarang',
+              confirmButtonColor: '#25D366', // WhatsApp color
+              showCancelButton: true,
+              cancelButtonText: 'Tutup',
+              cancelButtonColor: '#f1f5f9', // Slate-100 for button
+          }).then((result: any) => {
+              if (result.isConfirmed) {
+                  window.open(waUrl, '_blank');
+              }
+              onBack();
+          });
+      } catch (error: any) {
+          swal.fire({
+              title: 'Gagal Mendaftar',
+              text: error.message || "Terjadi kesalahan sistem.",
+              icon: 'error'
+          });
+      } finally {
+          setIsSubmitting(false);
+      }
   };
 
   return (
@@ -94,6 +120,18 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                     />
                 </div>
                 <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Username (ID Pengguna)</label>
+                    <input 
+                        type="text"
+                        name="username" 
+                        value={formData.username}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        placeholder="Contoh: budi123"
+                        required
+                    />
+                </div>
+                <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Email Aktif</label>
                     <input 
                         type="email"
@@ -120,10 +158,11 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
 
                 <button 
                     type="submit"
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-4 flex items-center justify-center gap-2"
+                    disabled={isSubmitting}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-4 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                    <MessageCircle size={20} />
-                    DAFTAR & HUBUNGI ADMIN
+                    {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : <MessageCircle size={20} />}
+                    {isSubmitting ? 'Memproses...' : 'DAFTAR & HUBUNGI ADMIN'}
                 </button>
             </form>
          </div>

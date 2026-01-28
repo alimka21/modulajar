@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, hashPassword } from '../services/storageService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2, X } from 'lucide-react';
+import { swal, toast } from '../services/notificationService';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign } from 'lucide-react';
 
-// Declare SweetAlert global
-declare var Swal: any;
+declare var Chart: any;
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -24,19 +24,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   // ADD User State
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', email: '', password: '' });
 
   // EDIT User State
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '', status: '' });
+  const [editFormData, setEditFormData] = useState({ name: '', username: '', email: '', password: '', status: '' });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   // Admin Profile State
   const [adminCreds, setAdminCreds] = useState({ username: '', newPassword: '' });
 
+  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartInstance = useRef<any>(null);
+
   useEffect(() => {
       refreshData();
   }, []);
+
+  // Initialize Chart when Dashboard tab is active and users are loaded
+  useEffect(() => {
+      if (activeTab === 'DASHBOARD' && users.length > 0 && chartRef.current) {
+          initChart();
+      }
+      return () => {
+          if (chartInstance.current) {
+              chartInstance.current.destroy();
+          }
+      };
+  }, [activeTab, users]);
 
   const refreshData = () => {
       const allUsers = getUsers();
@@ -49,46 +64,125 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       }
   };
 
+  const formatDate = (dateString: string) => {
+      if (!dateString) return "-";
+      try {
+          const date = new Date(dateString);
+          return date.toLocaleDateString('id-ID', {
+              day: '2-digit',
+              month: 'long',
+              year: 'numeric'
+          });
+      } catch (e) {
+          return dateString;
+      }
+  };
+
+  const initChart = () => {
+      if (!chartRef.current) return;
+      
+      // Group users by registration date (last 7 days + extras)
+      const counts: Record<string, number> = {};
+      
+      // Initialize some dates
+      const today = new Date();
+      for(let i=6; i>=0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          const key = d.toISOString().split('T')[0];
+          counts[key] = 0;
+      }
+
+      users.forEach(u => {
+          if(u.role !== 'admin' && u.joinedDate) {
+              const dateKey = u.joinedDate.split('T')[0];
+              if (counts[dateKey] !== undefined) {
+                  counts[dateKey]++;
+              } else {
+                  // Optional: Catch older dates if you want a longer chart
+              }
+          }
+      });
+
+      const labels = Object.keys(counts).map(k => {
+          const [y, m, d] = k.split('-');
+          return `${d}/${m}`;
+      });
+      const data = Object.values(counts);
+
+      if (chartInstance.current) {
+          chartInstance.current.destroy();
+      }
+
+      const ctx = chartRef.current.getContext('2d');
+      chartInstance.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+              labels: labels,
+              datasets: [{
+                  label: 'Pendaftar Baru Harian',
+                  data: data,
+                  borderColor: '#2563eb',
+                  backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                  tension: 0.4,
+                  fill: true,
+                  pointBackgroundColor: '#2563eb',
+                  pointRadius: 4
+              }]
+          },
+          options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                  legend: { display: false }
+              },
+              scales: {
+                  y: {
+                      beginAtZero: true,
+                      ticks: { stepSize: 1 }
+                  },
+                  x: {
+                      grid: { display: false }
+                  }
+              }
+          }
+      });
+  };
+
   const handleUpdateStatus = (user: User, status: 'active' | 'pending') => {
-      Swal.fire({
+      swal.fire({
           title: status === 'active' ? 'Aktifkan Pengguna?' : 'Nonaktifkan Pengguna?',
           text: `Apakah Anda yakin ingin mengubah status ${user.name}?`,
           icon: 'question',
           showCancelButton: true,
           confirmButtonColor: '#2563eb',
-          cancelButtonColor: '#d33',
-          confirmButtonText: 'Ya, Ubah!',
-          cancelButtonText: 'Batal'
+          confirmButtonText: 'Ya, Ubah'
       }).then((result: any) => {
           if (result.isConfirmed) {
               updateUser({ ...user, status });
               refreshData();
-              Swal.fire({
-                  title: 'Berhasil!',
-                  text: `Status pengguna berhasil diubah menjadi ${status === 'active' ? 'Aktif' : 'Pending'}.`,
+              toast.fire({
                   icon: 'success',
-                  timer: 2000,
-                  showConfirmButton: false
+                  title: 'Status Diperbarui',
+                  text: `Pengguna berhasil diubah menjadi ${status === 'active' ? 'Aktif' : 'Pending'}.`
               });
           }
       });
   };
 
   const handleDeleteUser = (id: string) => {
-      Swal.fire({
+      swal.fire({
           title: 'Hapus Pengguna?',
           text: "Data yang dihapus tidak dapat dikembalikan!",
           icon: 'warning',
           showCancelButton: true,
-          confirmButtonColor: '#d33',
-          cancelButtonColor: '#3085d6',
-          confirmButtonText: 'Ya, Hapus!',
-          cancelButtonText: 'Batal'
+          confirmButtonColor: '#ef4444',
+          confirmButtonText: 'Ya, Hapus'
       }).then((result: any) => {
           if (result.isConfirmed) {
               deleteUser(id);
               refreshData();
-              Swal.fire(
+              swal.fire(
                   'Terhapus!',
                   'Data pengguna telah dihapus.',
                   'success'
@@ -99,6 +193,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const handleAddUser = async (e: React.FormEvent) => {
       e.preventDefault();
+      
+      // VALIDATION
+      if (newUser.password.length < 6) {
+          swal.fire({
+              title: 'Password Terlalu Pendek',
+              text: 'Password harus minimal 6 karakter.',
+              icon: 'warning',
+              confirmButtonColor: '#f59e0b'
+          });
+          return;
+      }
+
       setIsSubmittingUser(true);
 
       try {
@@ -107,20 +213,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
         const user: User = {
             id: Date.now().toString(),
             name: newUser.name,
+            username: newUser.username || newUser.email.split('@')[0],
             email: newUser.email,
             password: hashedPassword,
             role: 'user', // FORCE ROLE USER -> Masuk ke Halaman Utama APP saat login
             status: 'active', // Manual add is directly active
-            joinedDate: new Date().toISOString()
+            joinedDate: new Date().toISOString(),
+            lastLogin: ''
         };
         
         await saveUser(user);
         
         setIsAddingUser(false);
-        setNewUser({ name: '', email: '', password: '' });
+        setNewUser({ name: '', username: '', email: '', password: '' });
         refreshData();
         
-        Swal.fire({
+        swal.fire({
             title: 'Berhasil!',
             text: 'Pengguna baru berhasil ditambahkan dan langsung Aktif.',
             icon: 'success',
@@ -129,7 +237,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
       } catch (error: any) {
         console.error("Gagal menambah user:", error);
-        Swal.fire({
+        swal.fire({
             title: 'Gagal!',
             text: error.message || "Terjadi kesalahan sistem.",
             icon: 'error'
@@ -144,6 +252,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       setEditingUser(user);
       setEditFormData({
           name: user.name,
+          username: user.username || '',
           email: user.email,
           password: '', // Kosongkan, hanya isi jika ingin ubah
           status: user.status
@@ -159,12 +268,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           const updatedUser: User = {
               ...editingUser,
               name: editFormData.name,
+              username: editFormData.username,
               email: editFormData.email,
               status: editFormData.status as 'active' | 'pending'
           };
 
           // Update password hanya jika diisi
           if (editFormData.password && editFormData.password.trim() !== "") {
+              if (editFormData.password.length < 6) {
+                swal.fire({
+                    title: 'Password Terlalu Pendek',
+                    text: 'Password harus minimal 6 karakter.',
+                    icon: 'warning'
+                });
+                setIsSubmittingEdit(false);
+                return;
+              }
               updatedUser.password = await hashPassword(editFormData.password);
           }
 
@@ -172,16 +291,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           refreshData();
           setEditingUser(null); // Close modal
 
-          Swal.fire({
-            title: 'Berhasil Diupdate!',
-            text: 'Data pengguna telah diperbarui.',
+          toast.fire({
             icon: 'success',
-            timer: 2000,
-            showConfirmButton: false
+            title: 'Data Berhasil Diupdate'
           });
 
       } catch (error: any) {
-          Swal.fire({
+          swal.fire({
             title: 'Error!',
             text: 'Gagal mengupdate data pengguna.',
             icon: 'error'
@@ -194,7 +310,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const handleSaveSettings = (e: React.FormEvent) => {
       e.preventDefault();
       saveSettings(settings);
-      Swal.fire({
+      swal.fire({
         title: 'Tersimpan!',
         text: 'Pengaturan aplikasi berhasil disimpan.',
         icon: 'success',
@@ -208,7 +324,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       if (!admin) return;
 
       if (!adminCreds.username) {
-          Swal.fire('Error', 'Username tidak boleh kosong', 'error');
+          swal.fire('Error', 'Username tidak boleh kosong', 'error');
           return;
       }
 
@@ -218,6 +334,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       };
 
       if (adminCreds.newPassword) {
+          if (adminCreds.newPassword.length < 6) {
+              swal.fire('Error', 'Password baru harus minimal 6 karakter', 'error');
+              return;
+          }
           updatedAdmin.password = await hashPassword(adminCreds.newPassword);
       }
 
@@ -225,7 +345,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       refreshData();
       setAdminCreds(prev => ({ ...prev, newPassword: '' }));
       
-      Swal.fire({
+      swal.fire({
         title: 'Sukses!',
         text: 'Kredensial Admin berhasil diperbarui!',
         icon: 'success',
@@ -238,7 +358,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const pendingCount = users.filter(u => u.status === 'pending').length;
 
   const filteredUsers = users.filter(u => {
-      const matchSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || u.email.toLowerCase().includes(searchTerm.toLowerCase());
+      const lowerSearch = searchTerm.toLowerCase();
+      const matchSearch = u.name.toLowerCase().includes(lowerSearch) || 
+                          u.email.toLowerCase().includes(lowerSearch) ||
+                          (u.username && u.username.toLowerCase().includes(lowerSearch));
       const matchRole = u.role !== 'admin';
       if (userTab === 'ACTIVE') return matchSearch && matchRole && u.status === 'active';
       return matchSearch && matchRole && u.status === 'pending';
@@ -262,9 +385,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           </div>
           
           <div className="flex items-center gap-4">
-             <button onClick={onGoToApp} className="text-xs font-bold text-blue-600 hover:underline">
-                 LIHAT APLIKASI
-             </button>
+             <div className="hidden md:flex items-center gap-2 mr-4">
+                 <div className="text-right">
+                     <div className="text-sm font-bold text-slate-700">Administrator</div>
+                     <div className="text-[10px] text-green-600 font-medium bg-green-50 px-2 rounded-full inline-block">Online</div>
+                 </div>
+                 <div className="w-9 h-9 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 border border-slate-200">
+                     <ShieldCheck size={18} />
+                 </div>
+             </div>
              <button 
                onClick={onLogout} 
                className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-4 py-2 rounded-lg transition-colors"
@@ -276,8 +405,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
       <div className="flex-1 flex overflow-hidden">
           {/* Sidebar */}
-          <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-none">
-              <nav className="flex-1 p-4 space-y-2">
+          <aside className="w-64 bg-white border-r border-slate-200 flex flex-col flex-none h-full">
+              <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-4 mt-2">Main Menu</div>
                   <button onClick={() => setActiveTab('DASHBOARD')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === 'DASHBOARD' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
                       <LayoutDashboard size={18} />
                       <span>Dashboard</span>
@@ -291,6 +421,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                       <span>Pengaturan</span>
                   </button>
               </nav>
+
+              <div className="p-4 border-t border-slate-200 bg-slate-50 mt-auto">
+                   <button onClick={onGoToApp} className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5">
+                       <ExternalLink size={18} /> LIHAT APLIKASI
+                   </button>
+              </div>
           </aside>
 
           {/* Main Content */}
@@ -298,20 +434,54 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               
               {/* DASHBOARD TAB */}
               {activeTab === 'DASHBOARD' && (
-                  <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
-                      <h2 className="text-xl font-bold text-slate-800">Dashboard Overview</h2>
+                  <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
+                      
+                      {/* Welcome Section */}
+                      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
+                          <div className="absolute right-0 top-0 opacity-10 transform translate-x-10 -translate-y-10">
+                              <Activity size={200} />
+                          </div>
+                          <h2 className="text-3xl font-bold mb-2 relative z-10">Selamat Datang, Admin!</h2>
+                          <p className="text-blue-100 max-w-2xl relative z-10">
+                              Ini adalah panel kontrol utama Anda. Di sini Anda dapat memantau aktivitas pengguna, mengelola pendaftaran baru, dan mengatur konfigurasi aplikasi secara real-time.
+                          </p>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
-                              <div className="text-slate-500 text-xs font-bold uppercase mb-2">Total User Aktif</div>
-                              <div className="text-3xl font-black text-blue-600">{activeCount}</div>
+                              <div className="flex justify-between items-start mb-4">
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Total User Aktif</div>
+                                  <div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Users size={20} /></div>
+                              </div>
+                              <div className="text-4xl font-black text-slate-800">{activeCount}</div>
+                              <div className="text-xs text-green-600 font-medium mt-2 flex items-center gap-1"><Activity size={12} /> User terverifikasi</div>
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
-                              <div className="text-slate-500 text-xs font-bold uppercase mb-2">Menunggu Konfirmasi</div>
-                              <div className="text-3xl font-black text-orange-500">{pendingCount}</div>
+                              <div className="flex justify-between items-start mb-4">
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Menunggu Konfirmasi</div>
+                                  <div className="bg-orange-50 p-2 rounded-lg text-orange-600"><CheckCircle size={20} /></div>
+                              </div>
+                              <div className="text-4xl font-black text-slate-800">{pendingCount}</div>
+                              <div className="text-xs text-orange-600 font-medium mt-2">Butuh tindakan segera</div>
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
-                              <div className="text-slate-500 text-xs font-bold uppercase mb-2">Total Semua Akun</div>
-                              <div className="text-3xl font-black text-slate-800">{users.length}</div>
+                              <div className="flex justify-between items-start mb-4">
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Total Akun</div>
+                                  <div className="bg-purple-50 p-2 rounded-lg text-purple-600"><ShieldCheck size={20} /></div>
+                              </div>
+                              <div className="text-4xl font-black text-slate-800">{users.length}</div>
+                              <div className="text-xs text-slate-400 font-medium mt-2">Termasuk Admin & Pending</div>
+                          </div>
+                      </div>
+
+                      {/* CHART SECTION */}
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                              <BarChart3 size={20} className="text-blue-600" />
+                              Statistik Pendaftaran Harian
+                          </h3>
+                          <div className="h-64 w-full">
+                              <canvas ref={chartRef}></canvas>
                           </div>
                       </div>
                   </div>
@@ -319,9 +489,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
               {/* USERS TAB */}
               {activeTab === 'USERS' && (
-                  <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
+                  <div className="space-y-6 animate-fade-in max-w-[95%] mx-auto">
                       <div className="flex justify-between items-center">
-                          <h2 className="text-xl font-bold text-slate-800">Master Pengguna</h2>
+                          <h2 className="text-xl font-bold text-slate-800">Master Data Pengguna</h2>
                           <button onClick={() => setIsAddingUser(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition">
                               <Plus size={16} /> Tambah User
                           </button>
@@ -336,14 +506,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                 </div>
                               )}
                               <h3 className="font-bold text-base mb-4 text-slate-700">Tambah Pengguna Manual</h3>
-                              <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                              <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                   <div>
                                       <label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label>
                                       <div className="relative">
                                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                               <UserIcon className="text-slate-400" size={14} />
                                           </div>
-                                          <input required type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" />
+                                          <input required type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Nama User" />
+                                      </div>
+                                  </div>
+                                  <div>
+                                      <label className="block text-xs font-bold text-slate-500 mb-1">Username</label>
+                                      <div className="relative">
+                                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                              <AtSign className="text-slate-400" size={14} />
+                                          </div>
+                                          <input required type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Username" />
                                       </div>
                                   </div>
                                   <div>
@@ -352,7 +531,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                               <Mail className="text-slate-400" size={14} />
                                           </div>
-                                          <input required type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" />
+                                          <input required type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="email@contoh.com" />
                                       </div>
                                   </div>
                                   <div>
@@ -361,12 +540,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                               <Lock className="text-slate-400" size={14} />
                                           </div>
-                                          <input required type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" />
+                                          <input required type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Min 6 karakter" />
                                       </div>
                                   </div>
-                                  <div className="flex gap-2">
-                                      <button type="submit" disabled={isSubmittingUser} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50">Simpan</button>
+                                  <div className="flex gap-2 md:col-span-4 justify-end mt-2">
                                       <button type="button" onClick={() => setIsAddingUser(false)} disabled={isSubmittingUser} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition disabled:opacity-50">Batal</button>
+                                      <button type="submit" disabled={isSubmittingUser} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50">Simpan Data</button>
                                   </div>
                               </form>
                           </div>
@@ -389,55 +568,69 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                   <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
                                   <input 
                                       type="text" 
-                                      placeholder="Cari nama atau email..." 
+                                      placeholder="Cari Username, Nama atau Email..." 
                                       value={searchTerm}
                                       onChange={e => setSearchTerm(e.target.value)}
                                       className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white"
                                   />
                               </div>
 
-                              <table className="w-full text-left border-collapse">
-                                  <thead>
-                                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
-                                          <th className="p-3 font-bold border-b">Nama</th>
-                                          <th className="p-3 font-bold border-b">Email</th>
-                                          <th className="p-3 font-bold border-b">Tanggal Daftar</th>
-                                          <th className="p-3 font-bold border-b text-center">Aksi</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody className="text-sm">
-                                      {filteredUsers.length > 0 ? filteredUsers.map(user => (
-                                          <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                                              <td className="p-3 border-b font-medium">{user.name}</td>
-                                              <td className="p-3 border-b text-slate-600">{user.email}</td>
-                                              <td className="p-3 border-b text-slate-500">{new Date(user.joinedDate).toLocaleDateString()}</td>
-                                              <td className="p-3 border-b">
-                                                  <div className="flex justify-center gap-2">
-                                                      {user.status === 'pending' ? (
-                                                          <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-100 text-green-700 p-1.5 rounded-md hover:bg-green-200 transition" title="Konfirmasi Aktif">
-                                                              <CheckCircle size={16} />
-                                                          </button>
-                                                      ) : (
-                                                           <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-orange-100 text-orange-700 p-1.5 rounded-md hover:bg-orange-200 transition" title="Nonaktifkan">
-                                                              <XCircle size={16} />
-                                                          </button>
-                                                      )}
-                                                      <button onClick={() => handleEditClick(user)} className="bg-blue-100 text-blue-700 p-1.5 rounded-md hover:bg-blue-200 transition" title="Edit">
-                                                          <Edit2 size={16} />
-                                                      </button>
-                                                      <button onClick={() => handleDeleteUser(user.id)} className="bg-red-100 text-red-700 p-1.5 rounded-md hover:bg-red-200 transition" title="Hapus">
-                                                          <Trash2 size={16} />
-                                                      </button>
-                                                  </div>
-                                              </td>
-                                          </tr>
-                                      )) : (
-                                          <tr>
-                                              <td colSpan={4} className="p-8 text-center text-slate-400 italic">Tidak ada data pengguna.</td>
-                                          </tr>
-                                      )}
-                                  </tbody>
-                              </table>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse min-w-[800px]">
+                                    <thead>
+                                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                                            <th className="p-3 font-bold border-b text-center w-12">No</th>
+                                            <th className="p-3 font-bold border-b">Nama Pengguna</th>
+                                            <th className="p-3 font-bold border-b">Username</th>
+                                            <th className="p-3 font-bold border-b">Email</th>
+                                            <th className="p-3 font-bold border-b">Password</th>
+                                            <th className="p-3 font-bold border-b">Tgl Daftar</th>
+                                            <th className="p-3 font-bold border-b">Login Terakhir</th>
+                                            <th className="p-3 font-bold border-b text-center">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm">
+                                        {filteredUsers.length > 0 ? filteredUsers.map((user, index) => (
+                                            <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="p-3 border-b text-center text-slate-500">{index + 1}</td>
+                                                <td className="p-3 border-b font-medium">{user.name}</td>
+                                                <td className="p-3 border-b text-blue-600 font-medium">{user.username || '-'}</td>
+                                                <td className="p-3 border-b text-slate-600">{user.email}</td>
+                                                <td className="p-3 border-b font-mono text-xs text-slate-500">
+                                                    {user.password ? (user.password.length > 20 ? '(Enkripsi)' : user.password) : '-'}
+                                                </td>
+                                                <td className="p-3 border-b text-slate-500">{formatDate(user.joinedDate)}</td>
+                                                <td className="p-3 border-b text-slate-500 text-xs">
+                                                    {user.lastLogin ? formatDate(user.lastLogin) : 'Belum pernah'}
+                                                </td>
+                                                <td className="p-3 border-b">
+                                                    <div className="flex justify-center gap-2">
+                                                        {user.status === 'pending' ? (
+                                                            <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-100 text-green-700 p-1.5 rounded-md hover:bg-green-200 transition" title="Konfirmasi Aktif">
+                                                                <CheckCircle size={16} />
+                                                            </button>
+                                                        ) : (
+                                                             <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-orange-100 text-orange-700 p-1.5 rounded-md hover:bg-orange-200 transition" title="Nonaktifkan">
+                                                                <XCircle size={16} />
+                                                            </button>
+                                                        )}
+                                                        <button onClick={() => handleEditClick(user)} className="bg-blue-100 text-blue-700 p-1.5 rounded-md hover:bg-blue-200 transition" title="Edit">
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                        <button onClick={() => handleDeleteUser(user.id)} className="bg-red-100 text-red-700 p-1.5 rounded-md hover:bg-red-200 transition" title="Hapus">
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={8} className="p-8 text-center text-slate-400 italic">Tidak ada data pengguna.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                              </div>
                           </div>
                       </div>
                   </div>
@@ -551,6 +744,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                       type="text"
                                       value={editFormData.name}
                                       onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                      required
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Username</label>
+                                  <input 
+                                      type="text"
+                                      value={editFormData.username}
+                                      onChange={e => setEditFormData({...editFormData, username: e.target.value})}
                                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                                       required
                                   />

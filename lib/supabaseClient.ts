@@ -1,26 +1,37 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Load variables from environment
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+// URL Project Supabase Anda
+// Prioritaskan Environment Variable, jika tidak ada gunakan URL yang diberikan.
+const PROVIDED_URL = 'https://pxypfmqvwliqywqlbbkc.supabase.co';
+const supabaseUrl = process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_URL !== 'undefined'
+    ? process.env.VITE_SUPABASE_URL 
+    : PROVIDED_URL;
 
-// Check configuration status for debugging
-const isConfigured = supabaseUrl && supabaseAnonKey && 
-                     !supabaseUrl.includes('placeholder') && 
-                     supabaseUrl !== 'undefined';
+// Anon Key Supabase (JWT)
+// Menggunakan key valid yang Anda berikan
+const PROVIDED_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4eXBmbXF2d2xpcXl3cWxiYmtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODI1OTcsImV4cCI6MjA4NTE1ODU5N30.iST1IVW7X3x1SDwQb3TKWbRlrKQ0mGwkaDV0BnmORW8';
+
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY && process.env.VITE_SUPABASE_ANON_KEY !== 'undefined'
+    ? process.env.VITE_SUPABASE_ANON_KEY
+    : PROVIDED_KEY;
+
+// Cek status konfigurasi
+const isConfigured = supabaseUrl && supabaseAnonKey;
 
 if (!isConfigured) {
-  console.warn("⚠️ Supabase Credentials missing or placeholder detected. Auth features will run in Dev/Offline mode.");
-  // Ini akan membantu melihat apa yang sebenarnya terbaca (jika null/undefined)
-  console.debug("Debug Supabase URL:", supabaseUrl ? "Set (Hidden)" : "Not Set"); 
+  console.group("⚠️ Supabase Configuration Missing");
+  console.warn("URL:", supabaseUrl);
+  console.warn("Key:", supabaseAnonKey ? "******" : "MISSING");
+  console.warn("Fitur login/register akan berjalan dalam mode Offline/Simulasi.");
+  console.warn("Untuk mengaktifkan Supabase, tambahkan VITE_SUPABASE_ANON_KEY pada file .env");
+  console.groupEnd();
 } else {
-  console.log("✅ Supabase Client initialized successfully.");
+  console.log("✅ Supabase Client Connected:", supabaseUrl);
 }
 
-// Use fallback URL and Key to prevent "supabaseUrl is required" error which crashes the app on load.
-// If variables are missing, Auth calls will fail gracefully with network errors instead of a whitespace crash.
-const validUrl = isConfigured ? supabaseUrl : 'https://placeholder.supabase.co';
-const validKey = isConfigured ? supabaseAnonKey : 'placeholder-key';
+// Gunakan key valid atau placeholder untuk mencegah crash saat inisialisasi client
+// (Request auth akan tetap gagal jika key tidak valid, tapi error ditangani oleh service)
+const validKey = supabaseAnonKey || 'placeholder-key';
 
-export const supabase = createClient(validUrl, validKey);
+export const supabase = createClient(supabaseUrl, validKey);

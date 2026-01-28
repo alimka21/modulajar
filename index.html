@@ -13,12 +13,34 @@
             fontFamily: {
               sans: ['Inter', 'system-ui', 'sans-serif'], // UI Font
               serif: ['Cambria', 'Georgia', 'serif'], // Document Font
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'fade-in-up': 'fadeInUp 0.5s ease-out',
+              'fade-in-down': 'fadeInDown 0.5s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              fadeInDown: {
+                '0%': { opacity: '0', transform: 'translateY(-10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
             }
           }
         }
       }
     </script>
     
+    <!-- Chart.js for Dashboard Analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <!-- External Libraries via CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/pdfmake.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/vfs_fonts.js"></script>
@@ -93,6 +115,36 @@
       .prose strong {
         font-weight: 700;
         color: #1f1f1f;
+      }
+
+      /* === SWEETALERT2 CUSTOM OVERRIDES === */
+      div:where(.swal2-container) {
+          z-index: 9999 !important;
+          font-family: 'Inter', system-ui, sans-serif !important;
+      }
+      div:where(.swal2-popup) {
+          border-radius: 1rem !important;
+          padding: 2rem !important;
+          border: 1px solid #e2e8f0;
+      }
+      div:where(.swal2-title) {
+          font-size: 1.25rem !important;
+          font-weight: 700 !important;
+          color: #1e293b !important;
+          padding-top: 0.5rem !important;
+      }
+      div:where(.swal2-html-container) {
+          font-size: 0.95rem !important;
+          color: #64748b !important;
+          line-height: 1.5 !important;
+      }
+      div:where(.swal2-actions) {
+          gap: 0.75rem !important;
+          margin-top: 1.5rem !important;
+      }
+      div:where(.swal2-icon) {
+          transform: scale(0.9);
+          margin-top: 0 !important;
       }
 
       /* =========================================
