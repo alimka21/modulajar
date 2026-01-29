@@ -89,7 +89,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
     return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${day}`;
   };
 
-  // --- API KEY HANDLERS ---
+  // --- API KEY HANDLERS (UPDATED) ---
   const handleSaveApiKey = async () => {
       if (!apiKey.trim()) {
           swal.fire({ icon: 'warning', title: 'Input Kosong', text: 'Mohon masukkan API Key terlebih dahulu.' });
@@ -97,10 +97,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }
       
       setIsTestingKey(true);
-      const isValid = await validateApiKey(apiKey);
+      
+      // Update: handle object return type {success, message}
+      const result = await validateApiKey(apiKey);
       setIsTestingKey(false);
 
-      if (isValid) {
+      if (result.success) {
           try {
               // 1. Save to Database (Persistent)
               await saveUserApiKey(user.id, apiKey);
@@ -115,7 +117,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
           }
       } else {
           setKeyStatus('INVALID');
-          swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: 'API Key tidak valid atau kuota habis.' });
+          // Update: Show specific error message
+          swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: result.message });
       }
   };
 

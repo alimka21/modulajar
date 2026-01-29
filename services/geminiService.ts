@@ -16,19 +16,33 @@ const getClient = () => {
   return new GoogleGenAI({ apiKey: apiKey });
 };
 
-// Validasi Koneksi API Key
-export const validateApiKey = async (apiKey: string): Promise<boolean> => {
+// Validasi Koneksi API Key (Updated to return detailed error)
+export const validateApiKey = async (apiKey: string): Promise<{ success: boolean; message: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        // Lakukan request ringan untuk tes token
+        // Gunakan model paling ringan dan stabil untuk testing
         await ai.models.generateContent({
-            model: 'gemini-2.0-flash', // Gunakan model yang ringan/cepat untuk tes
+            model: 'gemini-1.5-flash', 
             contents: 'Test connection',
         });
-        return true;
-    } catch (error) {
+        return { success: true, message: "Koneksi Berhasil" };
+    } catch (error: any) {
         console.error("API Key Validation Failed:", error);
-        return false;
+        
+        let msg = error.message || "Gagal menghubungi server AI.";
+        
+        // Terjemahkan Error Umum Google Gemini
+        if (msg.includes("403") || msg.includes("permission")) {
+            msg = "Akses Ditolak (403). Cek 'API Restrictions' di Google Cloud Console. Pastikan domain vercel.app diizinkan atau matikan restriction sementara.";
+        } else if (msg.includes("400") || msg.includes("INVALID_ARGUMENT")) {
+            msg = "API Key Tidak Valid (400). Pastikan tidak ada spasi saat copy-paste.";
+        } else if (msg.includes("429") || msg.includes("quota")) {
+            msg = "Kuota Habis (429). Limit penggunaan API Key ini telah tercapai.";
+        } else if (msg.includes("API key not valid")) {
+            msg = "API Key Salah. Periksa kembali karakter key Anda.";
+        }
+
+        return { success: false, message: msg };
     }
 };
 
@@ -38,7 +52,8 @@ export const validateApiKey = async (apiKey: string): Promise<boolean> => {
 const generateWithRetry = async (
   prompt: string, 
   schema: any, 
-  model: string = 'gemini-2.0-flash',
+  // UBAH DEFAULT KE 1.5-flash AGAR LEBIH STABIL & HEMAT KUOTA
+  model: string = 'gemini-1.5-flash',
   retries: number = 4
 ): Promise<any> => {
   const ai = getClient();
@@ -80,6 +95,22 @@ const generateWithRetry = async (
           throw new Error("Server sedang sibuk (Limit Kuota Tercapai). Mohon tunggu 1-2 menit sebelum mencoba lagi, atau gunakan API Key Sendiri di menu Profil.");
         }
       }
+      
+      // Jika error 404 (Model not found), coba fallback ke 1.5-pro
+      if (error.message?.includes('404') || error.message?.includes('not found')) {
+          console.warn("Model not found, retrying with fallback model...");
+          try {
+               const fallbackResponse = await ai.models.generateContent({
+                    model: 'gemini-1.5-pro',
+                    contents: prompt,
+                    config: { responseMimeType: "application/json", responseSchema: schema }
+               });
+               return JSON.parse(fallbackResponse.text || "{}");
+          } catch (e) {
+              throw error; // Throw original error if fallback fails
+          }
+      }
+
       throw error;
     }
   }
