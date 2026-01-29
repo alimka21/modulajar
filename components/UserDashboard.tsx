@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { SchoolIdentity, User, HistoryItem, GeneratedLessonPlan, LessonIdentity } from '../types';
 import { INDONESIAN_MONTHS } from '../constants';
 import { validateApiKey } from '../services/geminiService';
-import { getHistory } from '../services/storageService';
+import { getHistory, updateUserApiKey } from '../services/storageService';
 import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2 } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
 
@@ -24,23 +24,33 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [showKey, setShowKey] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'NONE' | 'VALID' | 'INVALID'>('NONE');
+  const [isSavingKey, setIsSavingKey] = useState(false);
 
   // History State
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   useEffect(() => {
-      // Load saved API key
-      const savedKey = localStorage.getItem('custom_api_key');
-      if (savedKey) {
-          setApiKey(savedKey);
-          setKeyStatus('VALID'); // Assume valid if exists initially
+      // 1. Priority: Load from Database (user object from context)
+      if (user.apiKey) {
+          setApiKey(user.apiKey);
+          setKeyStatus('VALID'); // Assume valid if stored in DB
+          // Sync to localStorage for GeminiService
+          localStorage.setItem('custom_api_key', user.apiKey);
+      } else {
+          // 2. Fallback: Load from localStorage if not in DB (legacy support)
+          const savedKey = localStorage.getItem('custom_api_key');
+          if (savedKey) {
+              setApiKey(savedKey);
+              setKeyStatus('VALID'); 
+          }
       }
+
       setIdentityData(schoolIdentity);
 
       // Load History
       loadHistoryData();
-  }, [schoolIdentity]);
+  }, [schoolIdentity, user]); // Add user as dependency
 
   const loadHistoryData = async () => {
       setIsLoadingHistory(true);
@@ -89,16 +99,26 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }
       
       setIsTestingKey(true);
-      const isValid = await validateApiKey(apiKey);
-      setIsTestingKey(false);
-
-      if (isValid) {
-          localStorage.setItem('custom_api_key', apiKey);
-          setKeyStatus('VALID');
-          swal.fire({ icon: 'success', title: 'Terkoneksi!', text: 'API Key valid dan telah disimpan.' });
-      } else {
-          setKeyStatus('INVALID');
-          swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: 'API Key tidak valid atau kuota habis.' });
+      setIsSavingKey(true);
+      
+      try {
+        const isValid = await validateApiKey(apiKey);
+        
+        if (isValid) {
+            // Save to Database AND LocalStorage via Service
+            await updateUserApiKey(user.id, apiKey);
+            
+            setKeyStatus('VALID');
+            swal.fire({ icon: 'success', title: 'Tersimpan!', text: 'API Key valid dan telah disimpan di akun Anda.' });
+        } else {
+            setKeyStatus('INVALID');
+            swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: 'API Key tidak valid atau kuota habis.' });
+        }
+      } catch (e: any) {
+          swal.fire({ icon: 'error', title: 'Error', text: e.message || "Gagal menyimpan." });
+      } finally {
+          setIsTestingKey(false);
+          setIsSavingKey(false);
       }
   };
 
@@ -110,12 +130,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
           showCancelButton: true,
           confirmButtonColor: '#ef4444',
           confirmButtonText: 'Ya, Hapus'
-      }).then((result: any) => {
+      }).then(async (result: any) => {
           if (result.isConfirmed) {
-              localStorage.removeItem('custom_api_key');
-              setApiKey('');
-              setKeyStatus('NONE');
-              toast.fire({ icon: 'success', title: 'API Key Dihapus' });
+              setIsSavingKey(true);
+              try {
+                // Remove from DB and LocalStorage
+                await updateUserApiKey(user.id, '');
+                
+                setApiKey('');
+                setKeyStatus('NONE');
+                toast.fire({ icon: 'success', title: 'API Key Dihapus' });
+              } catch(e) {
+                 toast.fire({ icon: 'error', title: 'Gagal Menghapus' });
+              } finally {
+                  setIsSavingKey(false);
+              }
           }
       });
   };
@@ -216,7 +245,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     <div className="p-4 bg-slate-50 border-b border-slate-200">
                         <h2 className="font-bold text-slate-700 flex items-center gap-2">
                             <Key size={20} className="text-amber-500" />
-                            Set API Key Mandiri
+                            Set API Key Mandiri (Tersimpan di Akun)
                         </h2>
                     </div>
                     
@@ -224,8 +253,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
                              <AlertTriangle className="text-amber-600 flex-none mt-0.5" size={20} />
                              <div className="text-sm text-amber-800">
-                                 <p className="font-bold mb-1">Jika Sering Terjadi Limit / Eror:</p>
-                                 <p>Kami menyarankan Anda menggunakan API Key pribadi. Kuota server publik dibagi dengan banyak pengguna, sehingga rentan mencapai batas penggunaan harian.</p>
+                                 <p className="font-bold mb-1">Penting:</p>
+                                 <p>API Key Anda kini <strong>tersimpan aman di database</strong>. Anda tidak perlu memasukkannya lagi saat login di perangkat lain atau setelah menghapus cache browser.</p>
                              </div>
                         </div>
 
@@ -258,15 +287,17 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                         <div className="flex flex-wrap gap-3">
                             <button 
                                 onClick={handleSaveApiKey}
-                                disabled={isTestingKey}
+                                disabled={isTestingKey || isSavingKey}
                                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm flex items-center gap-2 shadow-sm transition disabled:opacity-50"
                             >
-                                {isTestingKey ? 'Menguji...' : 'Simpan & Tes Koneksi'}
+                                {(isTestingKey || isSavingKey) ? <Loader2 className="animate-spin" size={16} /> : null}
+                                {isTestingKey ? 'Memproses...' : 'Simpan ke Akun & Tes'}
                             </button>
                             
                             {keyStatus === 'VALID' && (
                                 <button 
                                     onClick={handleDeleteApiKey}
+                                    disabled={isSavingKey}
                                     className="bg-white border border-red-200 text-red-600 hover:bg-red-50 font-bold py-2 px-4 rounded-lg text-sm flex items-center gap-2 shadow-sm transition"
                                 >
                                     <Trash2 size={16} /> Hapus Key
@@ -300,7 +331,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                         </li>
                         <li className="flex items-start gap-2">
                             <CheckCircle className="flex-none text-emerald-200 mt-0.5" size={16} />
-                            <span>Cocok untuk pemakaian harian yang intensif.</span>
+                            <span>Tersimpan permanen di akun Anda.</span>
                         </li>
                     </ul>
                 </div>

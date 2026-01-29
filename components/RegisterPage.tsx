@@ -15,6 +15,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       name: '',
       username: '',
       email: '',
+      phoneNumber: '',
       password: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,6 +37,14 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
           });
           return;
       }
+      if (!formData.phoneNumber) {
+          swal.fire({
+              title: 'Nomor HP Wajib',
+              text: 'Mohon isi nomor WhatsApp/HP aktif.',
+              icon: 'warning',
+          });
+          return;
+      }
 
       setIsSubmitting(true);
       
@@ -46,6 +55,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
               name: formData.name,
               username: formData.username || formData.email.split('@')[0],
               email: formData.email,
+              phoneNumber: formData.phoneNumber, // Include Phone Number
               password: formData.password, // Raw password required for SignUp
               role: 'user',
               status: 'pending',
@@ -57,7 +67,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
           await saveUser(userPayload);
 
           // 2. Prepare WhatsApp URL
-          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
+          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\nNo. HP: ${formData.phoneNumber}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
           const encodedMessage = encodeURIComponent(message);
           const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
           
@@ -126,6 +136,18 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         onChange={handleChange}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="Contoh: budi123"
+                        required
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Nomor WhatsApp / HP</label>
+                    <input 
+                        type="tel"
+                        name="phoneNumber" 
+                        value={formData.phoneNumber}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        placeholder="08123456789"
                         required
                     />
                 </div>

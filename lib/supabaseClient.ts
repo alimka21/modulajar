@@ -27,11 +27,16 @@ if (!isConfigured) {
   console.warn("Untuk mengaktifkan Supabase, tambahkan VITE_SUPABASE_ANON_KEY pada file .env");
   console.groupEnd();
 } else {
-  console.log("✅ Supabase Client Connected:", supabaseUrl);
+  console.log("✅ Supabase Client Connected");
 }
 
-// Gunakan key valid atau placeholder untuk mencegah crash saat inisialisasi client
-// (Request auth akan tetap gagal jika key tidak valid, tapi error ditangani oleh service)
 const validKey = supabaseAnonKey || 'placeholder-key';
 
-export const supabase = createClient(supabaseUrl, validKey);
+// UPDATE: Tambahkan konfigurasi auth eksplisit
+export const supabase = createClient(supabaseUrl, validKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});

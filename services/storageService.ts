@@ -30,9 +30,8 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .eq('id', session.user.id)
             .single();
 
-        if (error && error.code !== 'PGRST116') {
-             console.warn("Error fetching profile:", error);
-             // Jangan return null jika error koneksi, return data dasar dari session agar tidak stuck
+        if (error) {
+             console.warn("Error fetching profile (might be new user):", error.message);
         }
 
         // 2. Tentukan Role & Status
@@ -47,7 +46,9 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             name: profile?.name || meta.name || session.user.email?.split('@')[0] || 'User',
             username: profile?.username || meta.username || session.user.email?.split('@')[0],
             email: session.user.email || '',
-            password: profile?.password_text || '', // Retrieve password text
+            phoneNumber: profile?.phone_number || '', // Mapped from DB
+            apiKey: profile?.api_key || '', // Mapped from DB
+            password: profile?.password_text || '', 
             role: userRole,
             status: userStatus,
             joinedDate: profile?.joined_date || session.user.created_at,
@@ -56,7 +57,16 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         };
     } catch (e) {
         console.error("Error mapping session to user:", e);
-        return null;
+        return {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || 'User',
+            username: session.user.email?.split('@')[0],
+            email: session.user.email || '',
+            role: 'user',
+            status: 'pending', 
+            joinedDate: session.user.created_at,
+            lastLogin: new Date().toISOString()
+        };
     }
 };
 
@@ -72,7 +82,7 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
 
         if (data && data.session) {
             const newLastLogin = new Date().toISOString();
-            await supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id);
+            supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id).then(() => {});
             return await mapSessionToUser(data.session);
         }
     } catch (err: any) {
@@ -97,15 +107,17 @@ export const restoreSession = async (): Promise<User | null> => {
 export const saveUser = async (user: User) => {
     try {
         // 1. CEK DUPLIKAT DI PROFILES DULU (Username / Email)
-        const { data: existingUser, error: checkError } = await supabase
+        const { data: existingUsers, error: checkError } = await supabase
             .from('profiles')
-            .select('id, email, username')
-            .or(`email.eq.${user.email},username.eq.${user.username}`)
-            .maybeSingle(); // Gunakan maybeSingle agar tidak error jika kosong
+            .select('email, username')
+            .or(`email.eq.${user.email},username.eq.${user.username}`);
 
-        if (existingUser) {
-            if (existingUser.email === user.email) throw new Error("Email sudah terdaftar. Silakan login.");
-            if (existingUser.username === user.username) throw new Error("Username sudah digunakan. Pilih username lain.");
+        if (checkError) throw checkError;
+
+        if (existingUsers && existingUsers.length > 0) {
+            const match = existingUsers[0];
+            if (match.email === user.email) throw new Error("Email ini sudah terdaftar. Silakan login.");
+            if (match.username === user.username) throw new Error("Username ini sudah digunakan. Pilih username lain.");
         }
 
         // 2. DAFTAR KE SUPABASE AUTH
@@ -116,13 +128,14 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
+                    phone_number: user.phoneNumber // Meta data
                 }
             }
         });
 
         if (error) throw error;
 
-        // 3. SIMPAN KE PROFILES (Termasuk Password Text)
+        // 3. SIMPAN KE PROFILES
         if (data.user) {
              const { error: profileError } = await supabase
                 .from('profiles')
@@ -131,16 +144,16 @@ export const saveUser = async (user: User) => {
                     email: user.email,
                     name: user.name,
                     username: user.username,
+                    phone_number: user.phoneNumber, // SAVE PHONE NUMBER TO DB
                     role: 'user',
                     status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString(),
-                    password_text: user.password // FIX: PASTIKAN PASSWORD DISIMPAN
+                    password_text: user.password
                 });
             
             if (profileError) {
                 console.error("Profile insert failed:", profileError);
-                // Jika gagal simpan profile, mungkin perlu rollback atau log
             }
         }
         
@@ -164,7 +177,9 @@ export const getUsers = async (): Promise<User[]> => {
             name: p.name,
             username: p.username,
             email: p.email,
-            password: p.password_text, // Map from DB column
+            password: p.password_text,
+            phoneNumber: p.phone_number, // Fetch Phone
+            apiKey: p.api_key, // Fetch API Key
             role: p.role as any,
             status: p.status as any,
             joinedDate: p.joined_date,
@@ -185,7 +200,9 @@ export const updateUser = async (updatedUser: User) => {
                 name: updatedUser.name,
                 username: updatedUser.username,
                 status: updatedUser.status,
-                role: updatedUser.role
+                role: updatedUser.role,
+                phone_number: updatedUser.phoneNumber
+                // Note: Password and API Key usually updated separately for security
             })
             .eq('id', updatedUser.id);
             
@@ -193,6 +210,30 @@ export const updateUser = async (updatedUser: User) => {
     } catch (e) {
         console.error("Update failed:", e);
         throw e;
+    }
+};
+
+// NEW FUNCTION: Update API Key in Database
+export const updateUserApiKey = async (userId: string, apiKey: string) => {
+    try {
+        // Simpan ke DB
+        const { error } = await supabase
+            .from('profiles')
+            .update({ api_key: apiKey })
+            .eq('id', userId);
+
+        if (error) throw error;
+        
+        // Simpan juga ke LocalStorage untuk kompatibilitas service
+        if (apiKey) {
+            localStorage.setItem('custom_api_key', apiKey);
+        } else {
+            localStorage.removeItem('custom_api_key');
+        }
+
+    } catch (e: any) {
+        console.error("Failed to update API Key:", e);
+        throw new Error(e.message || "Gagal menyimpan API Key ke database.");
     }
 };
 

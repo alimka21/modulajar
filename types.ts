@@ -205,14 +205,16 @@ export type UserStatus = 'active' | 'pending';
 export interface User {
   id: string;
   name: string;
-  username?: string; // New Field
+  username?: string; 
   email: string;
   password?: string; 
+  phoneNumber?: string; // New Field: Phone Number
+  apiKey?: string; // New Field: Stored API Key
   role: UserRole;
   status: UserStatus;
   joinedDate: string;
-  lastLogin?: string; // New Field
-  generationCount?: number; // New Field: Tracks total generations
+  lastLogin?: string; 
+  generationCount?: number; 
 }
 
 export interface AppSettings {

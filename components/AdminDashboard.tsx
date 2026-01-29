@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Phone } from 'lucide-react';
 
 declare var Chart: any;
 
@@ -25,11 +26,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   // ADD User State
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', username: '', email: '', password: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', email: '', phoneNumber: '', password: '' });
 
   // EDIT User State
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [editFormData, setEditFormData] = useState({ name: '', username: '', email: '', password: '', status: '' });
+  const [editFormData, setEditFormData] = useState({ name: '', username: '', email: '', phoneNumber: '', password: '', status: '' });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   // Admin Profile State
@@ -292,6 +293,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
             name: newUser.name,
             username: newUser.username || newUser.email.split('@')[0],
             email: newUser.email,
+            phoneNumber: newUser.phoneNumber,
             password: newUser.password, 
             role: 'user', 
             status: 'active',
@@ -301,7 +303,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
         };
         await saveUser(user);
         setIsAddingUser(false);
-        setNewUser({ name: '', username: '', email: '', password: '' });
+        setNewUser({ name: '', username: '', email: '', phoneNumber: '', password: '' });
         refreshData();
         swal.fire({ title: 'Berhasil!', text: 'Pengguna baru berhasil ditambahkan dan langsung Aktif.', icon: 'success', confirmButtonColor: '#2563eb' });
       } catch (error: any) {
@@ -313,7 +315,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const handleEditClick = (user: User) => {
       setEditingUser(user);
-      setEditFormData({ name: user.name, username: user.username || '', email: user.email, password: '', status: user.status });
+      setEditFormData({ 
+          name: user.name, 
+          username: user.username || '', 
+          email: user.email, 
+          phoneNumber: user.phoneNumber || '',
+          password: '', 
+          status: user.status 
+      });
   };
 
   const handleSaveEditUser = async (e: React.FormEvent) => {
@@ -326,6 +335,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               name: editFormData.name,
               username: editFormData.username,
               email: editFormData.email,
+              phoneNumber: editFormData.phoneNumber,
               status: editFormData.status as 'active' | 'pending'
           };
           setUsers(prev => prev.map(u => u.id === editingUser.id ? updatedUser : u));
@@ -352,7 +362,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const filteredUsers = users.filter(u => {
       const lowerSearch = searchTerm.toLowerCase();
-      const matchSearch = u.name.toLowerCase().includes(lowerSearch) || u.email.toLowerCase().includes(lowerSearch) || (u.username && u.username.toLowerCase().includes(lowerSearch));
+      const matchSearch = u.name.toLowerCase().includes(lowerSearch) || u.email.toLowerCase().includes(lowerSearch) || (u.username && u.username.toLowerCase().includes(lowerSearch)) || (u.phoneNumber && u.phoneNumber.includes(lowerSearch));
       const matchRole = u.role !== 'admin';
       if (userTab === 'ACTIVE') return matchSearch && matchRole && u.status === 'active';
       return matchSearch && matchRole && u.status === 'pending';
@@ -469,12 +479,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                             <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-6 relative animate-fade-in-down">
                                 {isSubmittingUser && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl"><Loader2 className="animate-spin text-blue-600" size={32} /></div>}
                                 <h3 className="font-bold text-base mb-4 text-slate-700">Tambah Pengguna Manual</h3>
-                                <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                                     <div><label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label><input required type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Nama User" /></div>
                                     <div><label className="block text-xs font-bold text-slate-500 mb-1">Username</label><input required type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Username" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Nomor HP</label><input required type="text" value={newUser.phoneNumber} onChange={e => setNewUser({...newUser, phoneNumber: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="08..." /></div>
                                     <div><label className="block text-xs font-bold text-slate-500 mb-1">Email</label><input required type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="email@contoh.com" /></div>
                                     <div><label className="block text-xs font-bold text-slate-500 mb-1">Password</label><input required type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Min 6 karakter" /></div>
-                                    <div className="flex gap-2 md:col-span-4 justify-end mt-2">
+                                    <div className="flex gap-2 md:col-span-5 justify-end mt-2">
                                         <button type="button" onClick={() => setIsAddingUser(false)} disabled={isSubmittingUser} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition disabled:opacity-50">Batal</button>
                                         <button type="submit" disabled={isSubmittingUser} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50">Simpan Data</button>
                                     </div>
@@ -489,20 +500,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                             <div className="p-4">
                                 <div className="relative mb-4 max-w-md">
                                     <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                                    <input type="text" placeholder="Cari Username, Nama atau Email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white" />
+                                    <input type="text" placeholder="Cari Username, Nama atau HP..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white" />
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse min-w-[900px]">
+                                    <table className="w-full text-left border-collapse min-w-[1000px]">
                                         <thead>
                                             <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
                                                 <th className="p-3 font-bold border-b text-center w-12">No</th>
                                                 <th className="p-3 font-bold border-b">Nama Pengguna</th>
                                                 <th className="p-3 font-bold border-b">Username</th>
+                                                <th className="p-3 font-bold border-b">Nomor HP</th>
                                                 <th className="p-3 font-bold border-b">Email</th>
                                                 <th className="p-3 font-bold border-b">Password</th>
                                                 <th className="p-3 font-bold border-b text-center">Jml Gen</th>
                                                 <th className="p-3 font-bold border-b">Tgl Daftar</th>
-                                                <th className="p-3 font-bold border-b">Login Terakhir</th>
                                                 <th className="p-3 font-bold border-b text-center">Aksi</th>
                                             </tr>
                                         </thead>
@@ -512,13 +523,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                     <td className="p-3 border-b text-center text-slate-500">{index + 1}</td>
                                                     <td className="p-3 border-b font-medium">{user.name}</td>
                                                     <td className="p-3 border-b text-blue-600 font-medium">{user.username || '-'}</td>
+                                                    <td className="p-3 border-b text-slate-700">{user.phoneNumber || '-'}</td>
                                                     <td className="p-3 border-b text-slate-600">{user.email}</td>
                                                     <td className="p-3 border-b text-slate-600 font-mono bg-slate-100 px-2 rounded">{user.password || '****'}</td>
                                                     <td className="p-3 border-b text-center font-bold text-slate-700">{user.generationCount || 0}</td>
                                                     <td className="p-3 border-b text-slate-500">{formatDate(user.joinedDate)}</td>
-                                                    <td className="p-3 border-b text-slate-500 text-xs">
-                                                        {user.lastLogin ? formatDateTime(user.lastLogin) : 'Belum pernah'}
-                                                    </td>
                                                     <td className="p-3 border-b">
                                                         <div className="flex justify-center gap-2">
                                                             {user.status === 'pending' ? <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-100 text-green-700 p-1.5 rounded-md hover:bg-green-200 transition" title="Konfirmasi Aktif"><CheckCircle size={16} /></button> : <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-orange-100 text-orange-700 p-1.5 rounded-md hover:bg-orange-200 transition" title="Nonaktifkan"><XCircle size={16} /></button>}
@@ -564,6 +573,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                           <form onSubmit={handleSaveEditUser} className="space-y-4">
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label><input type="text" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Username</label><input type="text" value={editFormData.username} onChange={e => setEditFormData({...editFormData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
+                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Nomor HP</label><input type="text" value={editFormData.phoneNumber} onChange={e => setEditFormData({...editFormData, phoneNumber: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Email</label><input type="email" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Status Akun</label><select value={editFormData.status} onChange={e => setEditFormData({...editFormData, status: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="active">Aktif</option><option value="pending">Pending (Belum Dikonfirmasi)</option></select></div>
                               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
