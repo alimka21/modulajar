@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send, Loader2 } from 'lucide-react';
+import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send, Loader2, Eye, EyeOff } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface LoginPageProps {
@@ -14,6 +14,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
   // Forgot Password State
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -88,17 +89,24 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                 <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Kata Sandi</label>
                     <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
                             <Lock className="text-slate-400" size={18} />
                         </div>
                         <input 
-                            type="password" 
+                            type={showPassword ? "text" : "password"} 
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                            className="w-full pl-10 pr-10 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                             placeholder="Masukkan kata sandi"
                             required
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 z-10"
+                        >
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
                     </div>
                 </div>
 

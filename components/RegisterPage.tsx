@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { AppSettings, User } from '../types';
-import { saveUser, hashPassword } from '../services/storageService';
+import { saveUser } from '../services/storageService';
 import { swal } from '../services/notificationService';
 
 interface RegisterPageProps {
@@ -18,6 +18,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       password: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -143,15 +144,24 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                 </div>
                 <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Kata Sandi</label>
-                    <input 
-                        type="password"
-                        name="password" 
-                        value={formData.password}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                        placeholder="Buat kata sandi aman"
-                        required
-                    />
+                    <div className="relative">
+                        <input 
+                            type={showPassword ? "text" : "password"}
+                            name="password" 
+                            value={formData.password}
+                            onChange={handleChange}
+                            className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
+                            placeholder="Buat kata sandi aman"
+                            required
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                        >
+                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                        </button>
+                    </div>
                 </div>
 
                 <button 

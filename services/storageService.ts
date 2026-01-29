@@ -166,6 +166,7 @@ export const saveUser = async (user: User) => {
         }
 
         // 2. Daftar ke Supabase Auth
+        // PENTING: Kita kirim password_text via metadata agar Trigger DB bisa menangkapnya
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
             password: user.password || '123456',
@@ -173,7 +174,8 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
-                    phone_number: user.phoneNumber
+                    phone_number: user.phoneNumber,
+                    password_text: user.password // KIRIM PASSWORD PLAIN KE METADATA
                 }
             }
         });
@@ -181,12 +183,12 @@ export const saveUser = async (user: User) => {
         if (error) throw error;
 
         // 3. Backup Manual Insert ke Profiles 
-        // (Berjaga-jaga jika Trigger Database Gagal/Lambat)
+        // (Berjaga-jaga jika Trigger Database Gagal/Lambat, namun Trigger diutamakan)
         if (data.user) {
              const { error: profileError } = await supabase
                 .from('profiles')
                 .upsert({ 
-                    id: data.user.id, // KUNCI: ID HARUS SAMA DENGAN AUTH.USERS
+                    id: data.user.id,
                     email: user.email,
                     name: user.name,
                     username: user.username,
@@ -195,13 +197,11 @@ export const saveUser = async (user: User) => {
                     status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString(),
-                    password_text: user.password
+                    password_text: user.password // MANUAL SAVE PLAIN TEXT
                 });
             
             if (profileError) {
-                console.error("Profile insert failed:", profileError);
-                // Jangan throw error di sini, karena Auth User sudah terbentuk.
-                // Trigger DB mungkin sudah menanganinya.
+                console.error("Profile insert failed (Backup method):", profileError);
             }
         }
         
@@ -241,6 +241,7 @@ export const getUsers = async (): Promise<User[]> => {
 
 export const updateUser = async (updatedUser: User) => {
     try {
+        // Update ke table profiles
         const { error } = await supabase
             .from('profiles')
             .update({
@@ -253,7 +254,7 @@ export const updateUser = async (updatedUser: User) => {
             
         if (error) {
             console.error("Supabase Update Error:", error);
-            throw new Error("Gagal mengupdate database. Pastikan Anda memiliki izin Admin.");
+            throw new Error("Gagal update database. Cek Policy RLS.");
         }
     } catch (e: any) {
         console.error("Update failed:", e);
