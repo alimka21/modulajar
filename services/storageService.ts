@@ -5,7 +5,8 @@ import { supabase } from '../lib/supabaseClient';
 const SETTINGS_KEY = 'pakar_settings';
 
 // Hardcoded Admin Email fallback if Env is missing
-const ADMIN_EMAIL = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
+// UPDATED: Set default to alimkamcl@gmail.com as requested
+const ADMIN_EMAIL = process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com';
 
 const DEFAULT_SETTINGS: AppSettings = {
     promoLink: 'https://instagram.com/muh.alimka',
@@ -25,20 +26,23 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 
     try {
         // 1. Coba ambil data profile dari DB (Tabel 'profiles')
+        // Gunakan maybeSingle() untuk menghindari error JSON jika data tidak ada
         const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
-            .single();
+            .maybeSingle();
 
         if (error) {
-             console.warn("Profile fetch warning (User might need to re-register or is Admin):", error.message);
+             console.warn("Profile fetch error:", error.message);
         }
 
         // 2. Tentukan Role & Status
         // FAILSAFE: Jika email adalah Admin, paksa role jadi 'admin' & status 'active'
         // meskipun data di tabel profiles hilang/salah.
-        const isAdminEmail = session.user.email === ADMIN_EMAIL;
+        const sessionEmail = session.user.email || '';
+        const isAdminEmail = sessionEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+        
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
         const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
 
@@ -46,9 +50,9 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 
         return {
             id: session.user.id,
-            name: profile?.name || meta.name || session.user.email?.split('@')[0] || 'User',
-            username: profile?.username || meta.username || session.user.email?.split('@')[0],
-            email: session.user.email || '',
+            name: profile?.name || meta.name || sessionEmail.split('@')[0] || 'User',
+            username: profile?.username || meta.username || sessionEmail.split('@')[0],
+            email: sessionEmail,
             password: profile?.password_text || '', 
             role: userRole,
             status: userStatus,
@@ -89,11 +93,20 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                 .maybeSingle();
 
             if (!profileByUsername) {
-                // Jika username tidak ditemukan di profiles
-                throw new Error("USERNAME_NOT_FOUND");
+                // FALLBACK KHUSUS ADMIN:
+                // Jika username adalah 'admin' (atau variasi), dan profile tidak ketemu di tabel profiles,
+                // Asumsikan ini adalah Admin yang mencoba login tapi profilenya hilang/terhapus.
+                // Kita coba gunakan email admin hardcoded agar login tetap bisa diproses ke Supabase Auth.
+                if (emailToLogin.toLowerCase() === 'admin') {
+                     console.log("Admin username detected, using fallback email:", ADMIN_EMAIL);
+                     emailToLogin = ADMIN_EMAIL;
+                } else {
+                     throw new Error("USERNAME_NOT_FOUND");
+                }
+            } else {
+                // Ganti input menjadi email yang ditemukan
+                emailToLogin = profileByUsername.email;
             }
-            // Ganti input menjadi email yang ditemukan
-            emailToLogin = profileByUsername.email;
         }
 
         // 2. CEK APAKAH EMAIL TERDAFTAR DI TABLE PROFILES (Validasi Ganda)
@@ -105,7 +118,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
         // KHUSUS ADMIN: Jika profile tidak ditemukan di tabel 'profiles' (misal terhapus),
         // TETAP LANJUTKAN ke login Supabase Auth agar Admin tidak terkunci di luar.
-        const isAdmin = emailToLogin === ADMIN_EMAIL;
+        const isAdmin = emailToLogin.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
         if (!profileCheck && !isAdmin) {
             // Jika bukan admin dan tidak ada di profiles, tolak.
@@ -119,7 +132,8 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         });
 
         if (error) {
-            // Supabase Auth gagal (kemungkinan password salah)
+            console.error("Supabase Auth Error:", error.message);
+            // Supabase Auth gagal (kemungkinan password salah atau user auth terhapus)
             throw new Error("INVALID_PASSWORD");
         }
 
