@@ -21,27 +21,43 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
 
     try {
-        // UPDATE: Set email admin sesuai akun Anda
+        // 1. TENTUKAN ADMIN EMAIL (ENV atau HARDCODED)
+        // Gunakan trim() dan toLowerCase() untuk menghindari kesalahan spasi/huruf besar
         const adminEmail = (process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com').toLowerCase().trim();
         const currentUserEmail = (session.user.email || '').toLowerCase().trim();
         
-        // 1. Coba ambil data profile dari DB
+        const isAdminEmail = currentUserEmail === adminEmail;
+
+        // 2. AMBIL DATA PROFILE DARI DB
         const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
 
-        if (error) {
-             console.warn("Profile fetch warning (might be new user):", error.message);
-        }
+        // 3. LOGIKA PENENTUAN ROLE & STATUS (OPTIMIZED)
+        let userRole: 'admin' | 'user' = 'user';
+        let userStatus: 'active' | 'pending' = 'pending';
 
-        // 2. Tentukan Role & Status
-        // Logic: Jika email sama dengan Super Admin, paksa jadi ADMIN dan ACTIVE
-        const isAdminEmail = currentUserEmail === adminEmail;
-        
-        const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
-        const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
+        if (isAdminEmail) {
+            // JIKA EMAIL ADALAH SUPER ADMIN, PAKSA STATUS AKTIF & ROLE ADMIN
+            // Bypass apapun status di database
+            userRole = 'admin';
+            userStatus = 'active';
+
+            // Side-effect: Perbaiki data di DB jika tidak sinkron (agar rapi)
+            if (profile && (profile.role !== 'admin' || profile.status !== 'active')) {
+                console.log("Fixing Admin Permissions in Database...");
+                supabase.from('profiles')
+                    .update({ role: 'admin', status: 'active' })
+                    .eq('id', session.user.id)
+                    .then(() => {});
+            }
+        } else {
+            // User Biasa: Ikuti Database
+            userRole = profile?.role || 'user';
+            userStatus = profile?.status || 'pending';
+        }
 
         const meta = session.user.user_metadata || {};
 
@@ -50,8 +66,8 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             name: profile?.name || meta.name || session.user.email?.split('@')[0] || 'User',
             username: profile?.username || meta.username || session.user.email?.split('@')[0],
             email: session.user.email || '',
-            phoneNumber: profile?.phone_number || '', // Mapped from DB
-            apiKey: profile?.api_key || '', // Mapped from DB
+            phoneNumber: profile?.phone_number || '', 
+            apiKey: profile?.api_key || '', 
             password: profile?.password_text || '', 
             role: userRole,
             status: userStatus,
@@ -61,7 +77,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         };
     } catch (e) {
         console.error("Error mapping session to user:", e);
-        // Fallback object agar tidak crash total
+        // Fallback Error agar tidak crash
         return {
             id: session.user.id,
             name: session.user.user_metadata?.name || 'User',

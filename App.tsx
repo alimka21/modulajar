@@ -144,11 +144,15 @@ const AppContent: React.FC = () => {
         cancelButtonText: 'Batal'
       }).then(async (result: any) => {
         if (result.isConfirmed) {
-            await supabase.auth.signOut();
-            setGeneratedPlan(null);
-            setLessonIdentity(INITIAL_LESSON_IDENTITY);
-            setCurrentHistoryId(null);
-            // AuthProvider updates 'user' to null -> useEffect redirects to LOGIN
+            showLoading('Keluar...', 'Membersihkan sesi...');
+            try {
+                await supabase.auth.signOut();
+                // CLEANUP: Force reload/redirect to ensure all state is cleared
+                window.location.replace('/');
+            } catch (e) {
+                console.error("Logout Error", e);
+                window.location.reload();
+            }
         }
       });
   };
