@@ -113,7 +113,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         value={formData.name}
                         onChange={handleChange}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                        placeholder="Contoh: Budi Santoso"
+                        placeholder="Contoh: Muhammad Alimka"
                         required
                     />
                 </div>
@@ -125,7 +125,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         value={formData.username}
                         onChange={handleChange}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                        placeholder="Contoh: budi123"
+                        placeholder="Contoh: alimka123"
                         required
                     />
                 </div>
@@ -137,7 +137,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         value={formData.email}
                         onChange={handleChange}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                        placeholder="email@sekolah.sch.id"
+                        placeholder="Contoh: emailanda@gmail.com"
                         required
                     />
                 </div>

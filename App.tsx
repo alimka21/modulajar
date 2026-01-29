@@ -127,7 +127,9 @@ const AppContent: React.FC = () => {
         // TANGANI ERROR SPESIFIK DARI AUTHENTICATE
         const msg = e.message;
         
-        if (msg === "EMAIL_NOT_FOUND") {
+        if (msg === "USERNAME_NOT_FOUND") {
+             setAuthError("Username tidak ditemukan. Coba cek kembali.");
+        } else if (msg === "EMAIL_NOT_FOUND") {
             setAuthError("Email Tidak Terdaftar, silahkan Klik Daftar Akun Baru.");
             swal.fire({
                 icon: 'warning',
@@ -138,11 +140,11 @@ const AppContent: React.FC = () => {
                 if(res.isConfirmed) setViewMode('REGISTER');
             });
         } else if (msg === "INVALID_PASSWORD") {
-            setAuthError("Login Gagal - Email atau Password anda mungkin salah.");
+            setAuthError("Login Gagal - Email/Username atau Password anda mungkin salah.");
             swal.fire({
                 icon: 'error',
                 title: 'Kata Sandi Salah',
-                text: 'Login Gagal - Email atau Password anda mungkin salah.',
+                text: 'Login Gagal - Password anda mungkin salah.',
                 confirmButtonColor: '#ef4444'
             });
         } else {

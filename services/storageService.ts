@@ -72,35 +72,52 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     }
 };
 
-// --- AUTHENTICATION ---
-export const authenticate = async (email: string, passwordPlain: string): Promise<User> => {
+// --- AUTHENTICATION (SUPPORT EMAIL OR USERNAME) ---
+export const authenticate = async (emailOrUsername: string, passwordPlain: string): Promise<User> => {
     try {
-        // 1. CEK APAKAH EMAIL TERDAFTAR DI TABLE PROFILES
-        // Ini memungkinkan kita memberikan pesan spesifik "Email Tidak Terdaftar"
-        const { data: profileCheck, error: profileError } = await supabase
+        let emailToLogin = emailOrUsername.trim();
+        let isUsernameLogin = !emailToLogin.includes('@');
+
+        // 1. JIKA USER MEMASUKKAN USERNAME, CARI EMAILNYA DULU
+        if (isUsernameLogin) {
+            const { data: profileByUsername, error: userError } = await supabase
+                .from('profiles')
+                .select('email')
+                .eq('username', emailToLogin)
+                .maybeSingle();
+
+            if (!profileByUsername) {
+                // Jika username tidak ditemukan
+                throw new Error("USERNAME_NOT_FOUND");
+            }
+            // Ganti input menjadi email yang ditemukan
+            emailToLogin = profileByUsername.email;
+        }
+
+        // 2. CEK APAKAH EMAIL TERDAFTAR DI TABLE PROFILES (Validasi Ganda)
+        const { data: profileCheck } = await supabase
             .from('profiles')
-            .select('id, email')
-            .eq('email', email)
-            .maybeSingle(); // Gunakan maybeSingle agar tidak error jika kosong
+            .select('id, email, status')
+            .eq('email', emailToLogin)
+            .maybeSingle();
 
         if (!profileCheck) {
-            // Jika email tidak ditemukan di profiles
             throw new Error("EMAIL_NOT_FOUND");
         }
 
-        // 2. JIKA EMAIL ADA, COBA LOGIN (CEK PASSWORD)
+        // 3. LAKUKAN LOGIN KE SUPABASE AUTH
         const { data, error } = await supabase.auth.signInWithPassword({
-            email: email,
+            email: emailToLogin,
             password: passwordPlain,
         });
 
         if (error) {
-            // Jika login gagal padahal email ada, berarti password salah
+            // Supabase Auth gagal (kemungkinan password salah)
             throw new Error("INVALID_PASSWORD");
         }
 
         if (data && data.session) {
-            // Update last login (async, non-blocking)
+            // Update last login (async)
             const newLastLogin = new Date().toISOString();
             supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id).then(() => {});
             
@@ -112,7 +129,12 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
         throw new Error("Login gagal tanpa pesan error.");
 
     } catch (err: any) {
-        throw err; // Lempar error ke UI untuk ditangani
+        // Mapping Error Message agar lebih rapi saat ditangkap UI
+        if (err.message === "USERNAME_NOT_FOUND") throw new Error("Username tidak ditemukan.");
+        if (err.message === "EMAIL_NOT_FOUND") throw new Error("EMAIL_NOT_FOUND");
+        if (err.message === "INVALID_PASSWORD") throw new Error("INVALID_PASSWORD");
+        
+        throw err;
     }
 };
 
@@ -131,12 +153,11 @@ export const restoreSession = async (): Promise<User | null> => {
 // --- USER MANAGEMENT ---
 export const saveUser = async (user: User) => {
     try {
-        const { data: existingUsers, error: checkError } = await supabase
+        // 1. Cek Duplikasi di Table Profiles dulu (Lebih Cepat & Akurat)
+        const { data: existingUsers } = await supabase
             .from('profiles')
             .select('email, username')
             .or(`email.eq.${user.email},username.eq.${user.username}`);
-
-        if (checkError) throw checkError;
 
         if (existingUsers && existingUsers.length > 0) {
             const match = existingUsers[0];
@@ -144,6 +165,7 @@ export const saveUser = async (user: User) => {
             if (match.username === user.username) throw new Error("Username ini sudah digunakan. Pilih username lain.");
         }
 
+        // 2. Daftar ke Supabase Auth
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
             password: user.password || '123456',
@@ -151,20 +173,20 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
-                    phone_number: user.phoneNumber // Pass phone number to metadata
+                    phone_number: user.phoneNumber
                 }
             }
         });
 
         if (error) throw error;
 
-        // Trigger database akan menangani insert ke profiles, tapi 
-        // kita lakukan manual insert sebagai backup/redundancy jika trigger gagal/lambat
+        // 3. Backup Manual Insert ke Profiles 
+        // (Berjaga-jaga jika Trigger Database Gagal/Lambat)
         if (data.user) {
              const { error: profileError } = await supabase
                 .from('profiles')
-                .upsert({ // Gunakan upsert untuk menghindari race condition dengan trigger
-                    id: data.user.id,
+                .upsert({ 
+                    id: data.user.id, // KUNCI: ID HARUS SAMA DENGAN AUTH.USERS
                     email: user.email,
                     name: user.name,
                     username: user.username,
@@ -178,6 +200,8 @@ export const saveUser = async (user: User) => {
             
             if (profileError) {
                 console.error("Profile insert failed:", profileError);
+                // Jangan throw error di sini, karena Auth User sudah terbentuk.
+                // Trigger DB mungkin sudah menanganinya.
             }
         }
         
@@ -227,8 +251,11 @@ export const updateUser = async (updatedUser: User) => {
             })
             .eq('id', updatedUser.id);
             
-        if (error) throw error;
-    } catch (e) {
+        if (error) {
+            console.error("Supabase Update Error:", error);
+            throw new Error("Gagal mengupdate database. Pastikan Anda memiliki izin Admin.");
+        }
+    } catch (e: any) {
         console.error("Update failed:", e);
         throw e;
     }
