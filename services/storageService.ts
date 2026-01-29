@@ -17,7 +17,6 @@ export const initializeStorage = () => {
 };
 
 // --- HELPER: CONVERT SUPABASE SESSION TO APP USER ---
-// Ini helper penting agar logic pembuatan user konsisten
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
 
@@ -32,12 +31,10 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .single();
 
         // 2. Tentukan Role & Status
-        // Jika email sesuai hardcode admin, paksa jadi admin & active
         const isAdminEmail = session.user.email === adminEmail;
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
         const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
 
-        // 3. Fallback Metadata jika profile null (misal user lama atau deleted profile)
         const meta = session.user.user_metadata || {};
 
         return {
@@ -57,11 +54,9 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     }
 };
 
-// --- AUTHENTICATION VIA SUPABASE ---
-
+// --- AUTHENTICATION ---
 export const authenticate = async (email: string, passwordPlain: string): Promise<User | null> => {
     try {
-        // 1. Auth dengan Supabase Auth
         const { data, error } = await supabase.auth.signInWithPassword({
             email: email,
             password: passwordPlain,
@@ -70,11 +65,8 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
         if (error) throw error;
 
         if (data && data.session) {
-            // Update Last Login saat login eksplisit
             const newLastLogin = new Date().toISOString();
             await supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id);
-            
-            // Gunakan helper yang sama
             return await mapSessionToUser(data.session);
         }
     } catch (err: any) {
@@ -83,7 +75,6 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
     return null;
 };
 
-// --- RESTORE SESSION ON RELOAD ---
 export const restoreSession = async (): Promise<User | null> => {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -96,14 +87,12 @@ export const restoreSession = async (): Promise<User | null> => {
     return null;
 };
 
-// --- USER MANAGEMENT (DB BASED) ---
-
+// --- USER MANAGEMENT ---
 export const saveUser = async (user: User) => {
     try {
-        // 1. Register Auth User
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
-            password: user.password || '123456', // Password asli (raw) diperlukan disini
+            password: user.password || '123456',
             options: {
                 data: {
                     name: user.name,
@@ -115,7 +104,6 @@ export const saveUser = async (user: User) => {
         if (error) throw error;
 
         if (data.user) {
-             // 2. Insert ke Tabel Public Profiles (Agar Admin bisa baca)
              const { error: profileError } = await supabase
                 .from('profiles')
                 .insert({
@@ -124,14 +112,13 @@ export const saveUser = async (user: User) => {
                     name: user.name,
                     username: user.username,
                     role: 'user',
-                    status: 'pending', // Default pending
+                    status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString()
                 });
             
             if (profileError) {
                 console.error("Profile insert failed:", profileError);
-                // Jika user auth berhasil tapi profile gagal (misal duplikat), kita anggap sukses auth saja
             }
         }
         
@@ -169,7 +156,6 @@ export const getUsers = async (): Promise<User[]> => {
 
 export const updateUser = async (updatedUser: User) => {
     try {
-        // Update Profile Data
         const { error } = await supabase
             .from('profiles')
             .update({
@@ -181,9 +167,6 @@ export const updateUser = async (updatedUser: User) => {
             .eq('id', updatedUser.id);
             
         if (error) throw error;
-
-        // Note: Password update requires Admin Auth Client (service role) or user changing own password.
-        // We cannot securely update another user's password from client-side without Admin API enabled.
     } catch (e) {
         console.error("Update failed:", e);
         throw e;
@@ -192,11 +175,8 @@ export const updateUser = async (updatedUser: User) => {
 
 export const incrementGenerationCount = async (userId: string) => {
     try {
-        // Gunakan RPC (Remote Procedure Call) atau fetch-update manual
-        // Cara manual (fetch then update)
         const { data } = await supabase.from('profiles').select('generation_count').eq('id', userId).single();
         const current = data?.generation_count || 0;
-        
         await supabase.from('profiles').update({ generation_count: current + 1 }).eq('id', userId);
     } catch (e) {
         console.warn("Failed to increment count:", e);
@@ -205,7 +185,6 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const deleteUser = async (id: string) => {
     try {
-        // Delete from profiles (Cascade should handle auth if set up, but usually we just remove profile access)
         const { error } = await supabase.from('profiles').delete().eq('id', id);
         if (error) throw error;
     } catch (e) {
@@ -278,8 +257,24 @@ export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
     }
 };
 
-// --- SETTINGS ---
+// NEW FUNCTION: Get all generation timestamps for Admin Chart
+export const getAllGenerationStats = async (): Promise<string[]> => {
+    try {
+        // We only need the timestamp, minimal data transfer
+        const { data, error } = await supabase
+            .from('generation_history')
+            .select('created_at')
+            .order('created_at', { ascending: true });
 
+        if (error) throw error;
+        return data.map((d: any) => d.created_at);
+    } catch (e) {
+        console.error("Failed to fetch all stats:", e);
+        return [];
+    }
+};
+
+// --- SETTINGS ---
 export const getSettings = (): AppSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
     return data ? JSON.parse(data) : DEFAULT_SETTINGS;
@@ -290,5 +285,5 @@ export const saveSettings = (settings: AppSettings) => {
 };
 
 export const hashPassword = async (password: string): Promise<string> => {
-    return password; // No hashing client side for Auth flow, Supabase handles it.
+    return password; 
 };
