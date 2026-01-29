@@ -208,13 +208,13 @@ export interface User {
   username?: string; 
   email: string;
   password?: string; 
-  phoneNumber?: string; // New Field: Phone Number
-  apiKey?: string; // New Field: Stored API Key
   role: UserRole;
   status: UserStatus;
   joinedDate: string;
   lastLogin?: string; 
-  generationCount?: number; 
+  generationCount?: number;
+  apiKey?: string; // New Field: Stores the user's custom API Key
+  phoneNumber?: string;
 }
 
 export interface AppSettings {

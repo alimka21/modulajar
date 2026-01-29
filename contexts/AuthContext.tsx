@@ -27,83 +27,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleSession = async (session: any) => {
     if (!session) {
       setUser(null);
+      localStorage.removeItem('custom_api_key');
       return;
     }
 
     try {
       const mappedUser = await mapSessionToUser(session);
       
-      // STRICT PENDING CHECK - Kecuali Admin
+      // STRICT PENDING CHECK
+      // Note: role 'admin' always passes.
       if (mappedUser && mappedUser.role !== 'admin' && mappedUser.status === 'pending') {
-         console.warn("User status pending.");
-      } 
-      
-      setUser(mappedUser);
+        console.warn("User pending detected in AuthProvider. Forcing logout.");
+        await supabase.auth.signOut();
+        setUser(null);
+        localStorage.removeItem('custom_api_key');
+        swal.fire({
+            icon: 'info',
+            title: 'Menunggu Konfirmasi',
+            text: 'Akun Anda belum diaktifkan oleh Admin. Silakan hubungi Admin.',
+            confirmButtonColor: '#2563eb'
+        });
+      } else {
+        setUser(mappedUser);
+        
+        // SYNC API KEY
+        if (mappedUser?.apiKey) {
+            localStorage.setItem('custom_api_key', mappedUser.apiKey);
+        } else {
+            localStorage.removeItem('custom_api_key');
+        }
+      }
     } catch (error) {
       console.error("Auth Context Mapping Error:", error);
-      setUser(null);
+      // Jangan set User ke null di sini jika error network, biarkan state sebelumnya (jika ada)
+      // atau set null hanya jika fatal. Untuk amannya:
+      // setUser(null); 
     }
   };
 
   const refreshAuth = async () => {
-    setLoading(true);
     const { data } = await supabase.auth.getSession();
     await handleSession(data.session);
-    setLoading(false);
   };
 
   useEffect(() => {
     let mounted = true;
 
-    // --- SAFETY TIMEOUT ---
-    // Mencegah infinite loading jika Supabase lambat merespon
-    // Jika dalam 3 detik tidak ada respon, anggap logout/error dan tampilkan konten
-    const timer = setTimeout(() => {
-        if (mounted && loading) {
-            console.warn("Auth check timed out, forcing render.");
-            setLoading(false);
-        }
-    }, 3000);
-
     const initAuth = async () => {
       try {
-        // 1. Ambil session awal (Get Session saat mount)
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-            console.error("Session error:", error);
-            if (mounted) setUser(null);
-        } else {
-            if (mounted) await handleSession(session);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted) {
+           await handleSession(session);
         }
       } catch (e) {
-        console.error("Init session unexpected error", e);
+        console.error("Init session error", e);
       } finally {
-        if (mounted) {
-            setLoading(false);
-            clearTimeout(timer); // Clear timeout jika sukses load
-        }
+        // PENTING: Selalu set loading false apapun yang terjadi
+        if (mounted) setLoading(false);
       }
     };
 
     initAuth();
 
-    // 2. Listener Realtime (onAuthStateChange)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (mounted) {
         if (event === 'SIGNED_OUT') {
             setUser(null);
-            setLoading(false);
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            localStorage.removeItem('custom_api_key');
+        } else if (session) {
             await handleSession(session);
-            setLoading(false);
         }
+        setLoading(false);
       }
     });
 
     return () => {
       mounted = false;
-      clearTimeout(timer);
       subscription.unsubscribe();
     };
   }, []);

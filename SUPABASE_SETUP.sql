@@ -10,21 +10,21 @@ create table if not exists public.profiles (
   email text,
   name text,
   username text,
-  phone_number text, -- Pastikan kolom ini ada
+  phone_number text, 
   role text default 'user',
   status text default 'pending',
   joined_date timestamptz default now(),
   last_login timestamptz,
   generation_count int default 0,
-  api_key text,
+  api_key text, -- Kolom API Key
   password_text text
 );
 
--- (Opsional/Safety) Jika tabel sudah ada tapi kolom phone_number belum ada
+-- (Opsional/Safety) Jika tabel sudah ada tapi kolom belum ada
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS api_key text;
 
 -- 2. Buat Fungsi Trigger (Handler)
--- Fungsi ini akan dijalankan setiap kali ada baris baru di auth.users
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -51,9 +51,8 @@ begin
       'user', 
       'pending', 
       now(),
-      'encrypted' -- Placeholder keamanan
+      'encrypted' 
   )
-  -- Jika data sudah ada (misal karena manual insert di frontend), update data tersebut.
   on conflict (id) do update set
       email = excluded.email,
       name = excluded.name,
@@ -64,8 +63,7 @@ begin
 end;
 $$;
 
--- 3. Pasang Trigger pada tabel auth.users
--- Hapus trigger lama dulu jika ada agar tidak error saat recreate
+-- 3. Pasang Trigger
 drop trigger if exists on_auth_user_created on auth.users;
 
 create trigger on_auth_user_created
@@ -76,28 +74,24 @@ create trigger on_auth_user_created
 -- SETUP RLS (Row Level Security)
 -- ==========================================
 
--- Izinkan RLS
 alter table public.profiles enable row level security;
 
--- Policy untuk SELECT (Publik boleh baca profile dasar, atau batasi jika perlu)
+-- PENTING: Policy ini diperlukan agar saat login kita bisa mengecek apakah email terdaftar di profiles
 drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
 create policy "Public profiles are viewable by everyone"
   on public.profiles for select
   using ( true );
 
--- Policy untuk INSERT (User boleh insert dirinya sendiri)
 drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
   with check ( auth.uid() = id );
 
--- Policy untuk UPDATE (User boleh update dirinya sendiri)
 drop policy if exists "Users can update own profile" on public.profiles;
 create policy "Users can update own profile"
   on public.profiles for update
   using ( auth.uid() = id );
 
--- Policy untuk DELETE
 drop policy if exists "Users can delete own profile" on public.profiles;
 create policy "Users can delete own profile"
   on public.profiles for delete

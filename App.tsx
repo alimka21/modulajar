@@ -57,11 +57,9 @@ const AppContent: React.FC = () => {
 
   // --- HISTORY SAFE WRAPPER ---
   const safeUpdateHistory = (url: string, replace: boolean = false) => {
-      // Cek lingkungan Sandbox (Blob / File protocol)
-      if (window.location.protocol === 'file:' || window.location.href.startsWith('blob:')) {
-          // Jangan lakukan apa-apa di lingkungan ini untuk menghindari error
-          return;
-      }
+      // Mencegah error pada environment terbatas (misal: preview blob, iframe sandbox, atau file protocol)
+      if (typeof window === 'undefined' || !window.history) return;
+      if (window.location.protocol === 'data:' || window.location.protocol === 'blob:' || window.location.protocol === 'file:') return;
 
       try {
           if (replace) {
@@ -70,8 +68,9 @@ const AppContent: React.FC = () => {
               window.history.pushState(null, '', url);
           }
       } catch (e) {
-          // Suppress error agar tidak memenuhi console
-          // console.warn("History API blocked (Environment restriction)");
+          // Suppress warning: History API sering diblokir di environment preview/sandbox.
+          // Ini tidak mempengaruhi fungsionalitas aplikasi karena navigasi menggunakan State React (viewMode).
+          // console.debug("History API blocked (expected in sandbox):", e);
       }
   };
 
@@ -87,12 +86,6 @@ const AppContent: React.FC = () => {
               safeUpdateHistory('/admin', true);
               setViewMode('ADMIN');
           } else {
-              if (user.status === 'pending') {
-                  // Jika user masih pending dan lolos masuk sini, force logout
-                  handleLogout(true); 
-                  return;
-              }
-
               // Jika user memaksa URL, kita handle di sini
               const path = window.location.pathname;
               if (path === '/admin') {
@@ -106,19 +99,12 @@ const AppContent: React.FC = () => {
               }
           }
       } else {
-          // User Not Logged In (Redirect Logic)
+          // User Not Logged In
           const path = window.location.pathname;
-          
           if (path === '/register') {
               setViewMode('REGISTER');
           } else {
-              // HANDLE DIRECT ACCESS TO PROTECTED ROUTES (Like /admin)
-              // If path is anything other than /register or /auth, force redirect to /auth
-              if (path === '/admin' || path === '/app' || path === '/dashboard') {
-                   safeUpdateHistory('/auth', true);
-              } else if (path !== '/auth') {
-                   safeUpdateHistory('/auth', true);
-              }
+              if (path !== '/auth') safeUpdateHistory('/auth', true);
               setViewMode('LOGIN');
           }
       }
@@ -134,66 +120,69 @@ const AppContent: React.FC = () => {
   const handleLogin = async (email: string, pass: string) => {
     setAuthError(null);
     try {
-        const result = await authenticate(email, pass);
-        // authenticate function in storageService will now throw specific errors
-        if (!result) {
-            // This fallback usually won't be reached if authenticate throws error
-            setAuthError("Login Gagal. Silakan coba lagi.");
-        } else {
-            toast.fire({ icon: 'success', title: `Selamat datang!` });
-        }
+        await authenticate(email, pass);
+        // Jika sukses, AuthProvider akan update 'user' dan useEffect akan redirect
+        toast.fire({ icon: 'success', title: `Selamat datang!` });
     } catch (e: any) {
-        // Tampilkan pesan error spesifik dari storageService (Email tidak terdaftar vs Password salah)
-        setAuthError(e.message || "Terjadi kesalahan sistem.");
+        // TANGANI ERROR SPESIFIK DARI AUTHENTICATE
+        const msg = e.message;
+        
+        if (msg === "EMAIL_NOT_FOUND") {
+            setAuthError("Email Tidak Terdaftar, silahkan Klik Daftar Akun Baru.");
+            swal.fire({
+                icon: 'warning',
+                title: 'Email Belum Terdaftar',
+                text: 'Email yang Anda masukkan tidak ditemukan. Silakan daftar akun baru.',
+                confirmButtonText: 'Daftar Sekarang'
+            }).then((res: any) => {
+                if(res.isConfirmed) setViewMode('REGISTER');
+            });
+        } else if (msg === "INVALID_PASSWORD") {
+            setAuthError("Login Gagal - Email atau Password anda mungkin salah.");
+            swal.fire({
+                icon: 'error',
+                title: 'Kata Sandi Salah',
+                text: 'Login Gagal - Email atau Password anda mungkin salah.',
+                confirmButtonColor: '#ef4444'
+            });
+        } else {
+            // Error umum
+            setAuthError(msg || "Terjadi kesalahan login.");
+            swal.fire({
+                icon: 'error',
+                title: 'Login Gagal',
+                text: msg || "Terjadi kesalahan koneksi.",
+            });
+        }
     }
   };
 
-  const handleLogout = (force: boolean = false) => {
-      const performLogout = async () => {
-          showLoading('Keluar...', 'Membersihkan sesi...');
-          
-          // 1. Clear Local Storage explicitly
-          // Penting untuk membersihkan semua key Supabase
-          Object.keys(localStorage).forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase') || key === 'custom_api_key' || key === 'schoolIdentity') {
-                  localStorage.removeItem(key);
-              }
-          });
-
-          // 2. Try Supabase SignOut (with timeout to prevent hang)
-          try {
-              // Gunakan Promise.race agar tidak hang selamanya jika koneksi socket bermasalah
-              await Promise.race([
-                  supabase.auth.signOut(),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
-              ]);
-          } catch (e) {
-              console.warn("Supabase signOut timed out or failed, forcing local cleanup.");
-          }
-
-          // 3. Hard Redirect
-          // Menggunakan location.href memastikan state React bersih total
-          window.location.href = '/';
-      };
-
-      if (force) {
-          performLogout();
-      } else {
-          swal.fire({
-            title: 'Keluar Aplikasi?',
-            text: "Anda akan kembali ke halaman login.",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonColor: '#ef4444',
-            cancelButtonColor: '#f1f5f9',
-            confirmButtonText: 'Ya, Keluar',
-            cancelButtonText: 'Batal'
-          }).then((result: any) => {
-            if (result.isConfirmed) {
-                performLogout();
-            }
-          });
-      }
+  const handleLogout = async () => {
+      swal.fire({
+        title: 'Keluar Aplikasi?',
+        text: "Anda akan kembali ke halaman login.",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#f1f5f9',
+        confirmButtonText: 'Ya, Keluar',
+        cancelButtonText: 'Batal'
+      }).then(async (result: any) => {
+        if (result.isConfirmed) {
+            // Optimistic Update: Langsung ke login agar terasa cepat
+            setViewMode('LOGIN'); 
+            safeUpdateHistory('/auth', true);
+            
+            // Clean up state
+            setGeneratedPlan(null);
+            setLessonIdentity(INITIAL_LESSON_IDENTITY);
+            setCurrentHistoryId(null);
+            localStorage.removeItem('custom_api_key');
+            
+            // Sign out Supabase (async di background)
+            await supabase.auth.signOut();
+        }
+      });
   };
 
   // --- GENERATION LOGIC ---
@@ -354,7 +343,7 @@ const AppContent: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-4">
                      <span className="text-sm font-semibold text-slate-700 hidden sm:block">{user.name}</span>
-                     <button onClick={() => handleLogout(false)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition"><LogOut size={20} /></button>
+                     <button onClick={handleLogout} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition"><LogOut size={20} /></button>
                   </div>
               </header>
               <UserDashboard user={user} schoolIdentity={schoolIdentity} onSchoolIdentityChange={(data) => { setSchoolIdentity(data); localStorage.setItem('schoolIdentity', JSON.stringify(data)); }} onGoToGenerator={() => navigateTo('APP', '/app')} onLoadHistory={loadHistoryItem} />
@@ -381,7 +370,7 @@ const AppContent: React.FC = () => {
              <button onClick={() => navigateTo('USER_DASHBOARD', '/dashboard')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 font-medium transition-colors">
                  <Settings size={18} /><span className="hidden md:inline">Pengaturan</span>
              </button>
-             <button onClick={() => handleLogout(false)} className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-3 py-2 rounded-lg transition-colors">
+             <button onClick={handleLogout} className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-3 py-2 rounded-lg transition-colors">
                <LogOut size={18} /> <span className="hidden md:inline">Keluar</span>
              </button>
           </div>

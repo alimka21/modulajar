@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
 import { AppSettings, User } from '../types';
-import { saveUser } from '../services/storageService';
+import { saveUser, hashPassword } from '../services/storageService';
 import { swal } from '../services/notificationService';
 
 interface RegisterPageProps {
@@ -15,7 +15,6 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       name: '',
       username: '',
       email: '',
-      phoneNumber: '',
       password: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,75 +36,55 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
           });
           return;
       }
-      if (!formData.phoneNumber) {
-          swal.fire({
-              title: 'Nomor HP Wajib',
-              text: 'Mohon isi nomor WhatsApp/HP aktif.',
-              icon: 'warning',
-          });
-          return;
-      }
 
       setIsSubmitting(true);
       
       try {
+          // Password will be hashed/handled by Supabase Auth
           const userPayload: User = {
               id: '', // Supabase will assign ID
               name: formData.name,
               username: formData.username || formData.email.split('@')[0],
               email: formData.email,
-              phoneNumber: formData.phoneNumber, 
-              password: formData.password, 
+              password: formData.password, // Raw password required for SignUp
               role: 'user',
               status: 'pending',
               joinedDate: new Date().toISOString(),
               lastLogin: ''
           };
           
+          // AWAIT THIS to ensure it saves to Supabase before proceeding
           await saveUser(userPayload);
 
-          // --- PERBAIKAN LOGIKA WHATSAPP ---
-          
-          // 1. Ambil nomor dari settings atau fallback ke nomor default yang diminta
-          let adminNumber = settings.whatsappNumber || '6282335454864';
-          
-          // 2. Sanitasi Nomor Admin
-          // Hapus semua karakter non-digit
-          adminNumber = adminNumber.replace(/\D/g, '');
-          // Ubah 08xxx jadi 628xxx jika perlu
-          if (adminNumber.startsWith('0')) {
-              adminNumber = '62' + adminNumber.slice(1);
-          }
-
-          // 3. Format Pesan Baru (Cukup Username & Email)
-          const finalUsername = formData.username || formData.email.split('@')[0];
-          const message = `Halo Admin Pakar Modul Ajar, mohon konfirmasi akun saya.\n\nUsername: ${finalUsername}\nEmail: ${formData.email}\n\nTerima kasih.`;
-          
+          // 2. Prepare WhatsApp URL
+          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
           const encodedMessage = encodeURIComponent(message);
+          const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
           
-          // Gunakan API WhatsApp universal
-          const waUrl = `https://wa.me/${adminNumber}?text=${encodedMessage}`;
-          
-          // 4. UX: Tampilkan Sukses, lalu REDIRECT (bukan window.open)
-          // window.open sering diblokir browser di mobile/async callback.
-          // location.href lebih aman.
+          // 3. Show SweetAlert and Redirect
           swal.fire({
               title: 'Pendaftaran Berhasil!',
-              text: 'Mengalihkan ke WhatsApp Admin...',
+              text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
               icon: 'success',
-              timer: 2000,
-              showConfirmButton: false,
-              willClose: () => {
-                  window.location.href = waUrl;
+              confirmButtonText: 'Hubungi Admin Sekarang',
+              confirmButtonColor: '#25D366', // WhatsApp color
+              showCancelButton: true,
+              cancelButtonText: 'Tutup',
+              cancelButtonColor: '#f1f5f9', // Slate-100 for button
+          }).then((result: any) => {
+              // Redirect to login page regardless of choice, as the account is created
+              if (result.isConfirmed) {
+                  window.open(waUrl, '_blank');
               }
+              onBack(); // GO BACK TO LOGIN
           });
-
       } catch (error: any) {
           swal.fire({
               title: 'Gagal Mendaftar',
               text: error.message || "Terjadi kesalahan sistem.",
               icon: 'error'
           });
+      } finally {
           setIsSubmitting(false);
       }
   };
@@ -147,18 +126,6 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         onChange={handleChange}
                         className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="Contoh: budi123"
-                        required
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Nomor WhatsApp / HP</label>
-                    <input 
-                        type="tel"
-                        name="phoneNumber" 
-                        value={formData.phoneNumber}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                        placeholder="08123456789"
                         required
                     />
                 </div>

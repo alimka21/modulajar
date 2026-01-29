@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send, Loader2 } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface LoginPageProps {
@@ -13,14 +13,23 @@ interface LoginPageProps {
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings, error }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   // Forgot Password State
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotData, setForgotData] = useState({ name: '', email: '' });
 
+  // Reset loading if error comes back
+  useEffect(() => {
+      if (error) setIsLoggingIn(false);
+  }, [error]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoggingIn(true);
     onLogin(email, password);
+    // Timeout safety untuk mereset button jika tidak ada respon lama
+    setTimeout(() => setIsLoggingIn(false), 5000);
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
@@ -53,7 +62,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
             <h2 className="text-xl font-bold text-slate-800 mb-6">Masuk Akun</h2>
             
             {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg flex items-center gap-2">
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg flex items-center gap-2 animate-fade-in">
                     <div className="w-1 h-8 bg-red-500 rounded-full"></div>
                     <span>{error}</span>
                 </div>
@@ -105,9 +114,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
 
                 <button 
                     type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-2"
+                    disabled={isLoggingIn}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-2 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                    MASUK SEKARANG
+                    {isLoggingIn ? <Loader2 className="animate-spin" size={20} /> : null}
+                    {isLoggingIn ? 'MEMERIKSA...' : 'MASUK SEKARANG'}
                 </button>
             </form>
 
