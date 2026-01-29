@@ -82,6 +82,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 export const authenticate = async (emailOrUsername: string, passwordPlain: string): Promise<User> => {
     try {
         let emailToLogin = emailOrUsername.trim();
+        let passwordToLogin = passwordPlain.trim(); // Trim password to avoid copy-paste spaces
         let isUsernameLogin = !emailToLogin.includes('@');
 
         // 1. JIKA USER MEMASUKKAN USERNAME, CARI EMAILNYA DULU DI PROFILES
@@ -123,11 +124,16 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         // 3. LAKUKAN LOGIN KE SUPABASE AUTH
         const { data, error } = await supabase.auth.signInWithPassword({
             email: emailToLogin,
-            password: passwordPlain,
+            password: passwordToLogin,
         });
 
         if (error) {
             console.error("Supabase Auth Error:", error.message);
+            // Jika Admin gagal login karena password salah, beri pesan spesifik
+            if (isAdmin && (error.message.includes("Invalid login") || error.message.includes("password"))) {
+                console.warn("Admin password failed. Suggesting SQL Reset.");
+                throw new Error("ADMIN_PASSWORD_INVALID");
+            }
             throw new Error("INVALID_PASSWORD");
         }
 
@@ -147,7 +153,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                     role: 'admin',
                     status: 'active',
                     joined_date: new Date().toISOString(),
-                    password_text: passwordPlain
+                    password_text: passwordToLogin
                 });
                 
                 if (insertError) console.error("Auto-create Admin failed:", insertError);
@@ -169,6 +175,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
     } catch (err: any) {
         if (err.message === "USERNAME_NOT_FOUND") throw new Error("Username tidak ditemukan.");
         if (err.message === "EMAIL_NOT_FOUND") throw new Error("EMAIL_NOT_FOUND");
+        if (err.message === "ADMIN_PASSWORD_INVALID") throw new Error("Password Admin Salah. Silakan jalankan script SQL RESET PASSWORD di Supabase.");
         if (err.message === "INVALID_PASSWORD") throw new Error("INVALID_PASSWORD");
         
         throw err;
