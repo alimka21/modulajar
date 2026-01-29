@@ -2,7 +2,6 @@
 import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
-const USERS_KEY = 'pakar_users';
 const SETTINGS_KEY = 'pakar_settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -17,88 +16,70 @@ export const initializeStorage = () => {
     }
 };
 
+// --- HELPER: CONVERT SUPABASE SESSION TO APP USER ---
+// Ini helper penting agar logic pembuatan user konsisten
+export const mapSessionToUser = async (session: any): Promise<User | null> => {
+    if (!session || !session.user) return null;
+
+    try {
+        const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
+        
+        // 1. Coba ambil data profile dari DB
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+        // 2. Tentukan Role & Status
+        // Jika email sesuai hardcode admin, paksa jadi admin & active
+        const isAdminEmail = session.user.email === adminEmail;
+        const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
+        const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
+
+        // 3. Fallback Metadata jika profile null (misal user lama atau deleted profile)
+        const meta = session.user.user_metadata || {};
+
+        return {
+            id: session.user.id,
+            name: profile?.name || meta.name || session.user.email?.split('@')[0] || 'User',
+            username: profile?.username || meta.username || session.user.email?.split('@')[0],
+            email: session.user.email || '',
+            role: userRole,
+            status: userStatus,
+            joinedDate: profile?.joined_date || session.user.created_at,
+            lastLogin: profile?.last_login || new Date().toISOString(),
+            generationCount: profile?.generation_count || 0
+        };
+    } catch (e) {
+        console.error("Error mapping session to user:", e);
+        return null;
+    }
+};
+
 // --- AUTHENTICATION VIA SUPABASE ---
 
 export const authenticate = async (email: string, passwordPlain: string): Promise<User | null> => {
-    // 1. Attempt Supabase Login
     try {
+        // 1. Auth dengan Supabase Auth
         const { data, error } = await supabase.auth.signInWithPassword({
             email: email,
             password: passwordPlain,
         });
 
-        if (error) {
-            throw error;
-        }
+        if (error) throw error;
 
-        if (data && data.user) {
-            const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
-            const role = data.user.email === adminEmail ? 'admin' : 'user';
-            
-            // Get Metadata from Cloud (Supabase)
-            const meta = data.user.user_metadata || {};
-            const cloudGenCount = meta.generationCount !== undefined ? parseInt(meta.generationCount) : 0;
+        if (data && data.session) {
+            // Update Last Login saat login eksplisit
             const newLastLogin = new Date().toISOString();
-
-            // Update Last Login to Supabase Cloud immediately
-            await supabase.auth.updateUser({
-                data: { lastLogin: newLastLogin }
-            });
-
-            const user: User = {
-                id: data.user.id,
-                name: meta.name || email.split('@')[0],
-                username: meta.username || email.split('@')[0],
-                email: data.user.email || '',
-                role: role,
-                status: 'active',
-                joinedDate: data.user.created_at,
-                lastLogin: newLastLogin,
-                generationCount: cloudGenCount // Use Cloud Data
-            };
-
-            // Sync to Local Storage
-            syncUserToLocal(user);
-
-            // Return the user object
-            return user;
+            await supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id);
+            
+            // Gunakan helper yang sama
+            return await mapSessionToUser(data.session);
         }
     } catch (err: any) {
-        const msg = err?.message || String(err);
-        console.warn("Supabase Auth skipped or failed:", msg);
+        console.warn("Login failed:", err.message);
     }
-
-    // 2. CHECK LOCAL STORAGE (Fallback / Offline / Simulation)
-    const users = getUsers();
-    const localUser = users.find(u => 
-        (u.email.toLowerCase() === email.toLowerCase() || (u.username && u.username.toLowerCase() === email.toLowerCase())) && 
-        u.password === passwordPlain
-    );
-
-    if (localUser) {
-        // Update Local Login Time
-        const updatedUser = { ...localUser, lastLogin: new Date().toISOString() };
-        updateUser(updatedUser);
-        return updatedUser;
-    }
-
-    // 3. HARDCODED ADMIN FALLBACK
-    if ((email === 'alimka21' || email === 'alimka21@gmail.com') && passwordPlain === 'alimka21') {
-        const devAdmin: User = {
-            id: 'dev-admin-local',
-            name: 'Administrator (Local)',
-            username: 'admin',
-            email: 'alimka21@gmail.com',
-            role: 'admin',
-            status: 'active',
-            joinedDate: new Date().toISOString(),
-            lastLogin: new Date().toISOString(),
-            generationCount: 0
-        };
-        syncUserToLocal(devAdmin);
-        return devAdmin;
-    }
-
     return null;
 };
 
@@ -106,52 +87,27 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
 export const restoreSession = async (): Promise<User | null> => {
     try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (session && session.user) {
-             const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
-             const role = session.user.email === adminEmail ? 'admin' : 'user';
-             const meta = session.user.user_metadata || {};
-             
-             return {
-                id: session.user.id,
-                name: meta.name || session.user.email?.split('@')[0] || 'User',
-                username: meta.username,
-                email: session.user.email || '',
-                role: role,
-                status: 'active',
-                joinedDate: session.user.created_at,
-                lastLogin: meta.lastLogin || new Date().toISOString(),
-                generationCount: meta.generationCount ? parseInt(meta.generationCount) : 0
-             };
+        if (session) {
+             return await mapSessionToUser(session);
         }
     } catch (e) {
         console.warn("Restore session failed", e);
     }
-    
-    // Fallback: Check if we have a simulated user in localStorage that shouldn't expire (dev only)
-    // Note: For production security, better to rely on Supabase only.
     return null;
 };
 
-export const saveUser = async (user: User) => {
-    // Initialize generation count for new users
-    const userWithDefaults = { 
-        ...user, 
-        generationCount: 0,
-        lastLogin: '' 
-    };
+// --- USER MANAGEMENT (DB BASED) ---
 
+export const saveUser = async (user: User) => {
     try {
-        // 1. Register in Supabase & Save Metadata to Cloud
+        // 1. Register Auth User
         const { data, error } = await supabase.auth.signUp({
-            email: userWithDefaults.email,
-            password: userWithDefaults.password || '123456',
+            email: user.email,
+            password: user.password || '123456', // Password asli (raw) diperlukan disini
             options: {
                 data: {
-                    name: userWithDefaults.name,
-                    username: userWithDefaults.username,
-                    generationCount: 0, // Save initial count to cloud
-                    lastLogin: ''
+                    name: user.name,
+                    username: user.username,
                 }
             }
         });
@@ -159,38 +115,105 @@ export const saveUser = async (user: User) => {
         if (error) throw error;
 
         if (data.user) {
-             // Success: Sync to Local
-             const newUser = { ...userWithDefaults, id: data.user.id }; 
-             syncUserToLocal(newUser);
+             // 2. Insert ke Tabel Public Profiles (Agar Admin bisa baca)
+             const { error: profileError } = await supabase
+                .from('profiles')
+                .insert({
+                    id: data.user.id,
+                    email: user.email,
+                    name: user.name,
+                    username: user.username,
+                    role: 'user',
+                    status: 'pending', // Default pending
+                    generation_count: 0,
+                    joined_date: new Date().toISOString()
+                });
+            
+            if (profileError) {
+                console.error("Profile insert failed:", profileError);
+                // Jika user auth berhasil tapi profile gagal (misal duplikat), kita anggap sukses auth saja
+            }
         }
         
         return data;
     } catch (err: any) {
-        const msg = (err?.message || String(err)).toLowerCase();
-        
-        const shouldFallback = 
-            msg.includes('fetch') || 
-            msg.includes('url') || 
-            msg.includes('apikey') || 
-            msg.includes('network') ||
-            msg.includes('connection') ||
-            msg.includes('invalid') || 
-            msg.includes('password') || 
-            msg.includes('security') ||
-            msg.includes('rate limit');
-
-        if (shouldFallback) {
-             console.warn(`Supabase error (${msg}). Falling back to local storage.`);
-             const mockUser = { ...userWithDefaults, id: `mock-${Date.now()}` }; 
-             syncUserToLocal(mockUser);
-             return { user: mockUser, session: null };
-        }
-        
         throw new Error(err?.message || "Gagal mendaftar ke server.");
     }
 };
 
-// --- HISTORY MANAGEMENT (SUPABASE) ---
+export const getUsers = async (): Promise<User[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('joined_date', { ascending: false });
+
+        if (error) throw error;
+
+        return data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            username: p.username,
+            email: p.email,
+            role: p.role as any,
+            status: p.status as any,
+            joinedDate: p.joined_date,
+            lastLogin: p.last_login,
+            generationCount: p.generation_count
+        }));
+    } catch (e) {
+        console.error("Failed to fetch users:", e);
+        return [];
+    }
+};
+
+export const updateUser = async (updatedUser: User) => {
+    try {
+        // Update Profile Data
+        const { error } = await supabase
+            .from('profiles')
+            .update({
+                name: updatedUser.name,
+                username: updatedUser.username,
+                status: updatedUser.status,
+                role: updatedUser.role
+            })
+            .eq('id', updatedUser.id);
+            
+        if (error) throw error;
+
+        // Note: Password update requires Admin Auth Client (service role) or user changing own password.
+        // We cannot securely update another user's password from client-side without Admin API enabled.
+    } catch (e) {
+        console.error("Update failed:", e);
+        throw e;
+    }
+};
+
+export const incrementGenerationCount = async (userId: string) => {
+    try {
+        // Gunakan RPC (Remote Procedure Call) atau fetch-update manual
+        // Cara manual (fetch then update)
+        const { data } = await supabase.from('profiles').select('generation_count').eq('id', userId).single();
+        const current = data?.generation_count || 0;
+        
+        await supabase.from('profiles').update({ generation_count: current + 1 }).eq('id', userId);
+    } catch (e) {
+        console.warn("Failed to increment count:", e);
+    }
+};
+
+export const deleteUser = async (id: string) => {
+    try {
+        // Delete from profiles (Cascade should handle auth if set up, but usually we just remove profile access)
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
+        if (error) throw error;
+    } catch (e) {
+        console.error("Delete failed:", e);
+    }
+};
+
+// --- HISTORY MANAGEMENT ---
 
 export const saveHistory = async (
     userId: string, 
@@ -199,7 +222,6 @@ export const saveHistory = async (
     features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
 ): Promise<string | null> => {
     try {
-        // Insert new record
         const { data: result, error } = await supabase
             .from('generation_history')
             .insert({
@@ -218,7 +240,7 @@ export const saveHistory = async (
         return result.id;
     } catch (err) {
         console.error("Failed to save history:", err);
-        return null; // Fail silently or handle UI error
+        return null;
     }
 };
 
@@ -228,16 +250,13 @@ export const updateHistory = async (
     features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
 ) => {
     try {
-        // Update existing record with new data/features
-        const { error } = await supabase
+        await supabase
             .from('generation_history')
             .update({
                 full_data: data,
                 features: features
             })
             .eq('id', historyId);
-
-        if (error) throw error;
     } catch (err) {
         console.error("Failed to update history:", err);
     }
@@ -259,77 +278,7 @@ export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
     }
 };
 
-// --- LOCAL STORAGE HELPERS ---
-
-const syncUserToLocal = (user: User) => {
-    const users = getUsers();
-    const index = users.findIndex(u => u.email === user.email);
-    if (index !== -1) {
-        const existing = users[index];
-        const passwordToSave = user.password && user.password !== '' ? user.password : existing.password;
-        const genCountToSave = user.generationCount !== undefined ? user.generationCount : (existing.generationCount || 0);
-
-        users[index] = { ...existing, ...user, password: passwordToSave, generationCount: genCountToSave };
-    } else {
-        users.push({ ...user, generationCount: user.generationCount || 0 });
-    }
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-};
-
-export const getUsers = (): User[] => {
-    try {
-        const data = localStorage.getItem(USERS_KEY);
-        return data ? JSON.parse(data) : [];
-    } catch (e) {
-        return [];
-    }
-};
-
-export const updateUser = (updatedUser: User) => {
-    const users = getUsers();
-    const index = users.findIndex(u => u.id === updatedUser.id);
-    if (index !== -1) {
-        const existing = users[index];
-        const passwordToSave = updatedUser.password && updatedUser.password !== '' ? updatedUser.password : existing.password;
-        const genCount = updatedUser.generationCount !== undefined ? updatedUser.generationCount : existing.generationCount;
-        
-        users[index] = { ...updatedUser, password: passwordToSave, generationCount: genCount };
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    }
-};
-
-export const incrementGenerationCount = async (userId: string) => {
-    // 1. Update Local Storage
-    const users = getUsers();
-    const index = users.findIndex(u => u.id === userId);
-    
-    let newCount = 1;
-    if (index !== -1) {
-        const currentCount = users[index].generationCount || 0;
-        newCount = currentCount + 1;
-        users[index] = { ...users[index], generationCount: newCount };
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    }
-
-    // 2. Update Supabase Cloud (Async/Background)
-    try {
-        const { data: { session } } = await supabase.auth.getSession();
-        // Ensure we are updating the currently logged-in user
-        if (session && session.user.id === userId) {
-            await supabase.auth.updateUser({
-                data: { generationCount: newCount }
-            });
-        }
-    } catch (e) {
-        console.warn("Failed to sync generation count to cloud:", e);
-    }
-};
-
-export const deleteUser = (id: string) => {
-    const users = getUsers();
-    const filtered = users.filter(u => u.id !== id);
-    localStorage.setItem(USERS_KEY, JSON.stringify(filtered));
-};
+// --- SETTINGS ---
 
 export const getSettings = (): AppSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
@@ -341,5 +290,5 @@ export const saveSettings = (settings: AppSettings) => {
 };
 
 export const hashPassword = async (password: string): Promise<string> => {
-    return password;
+    return password; // No hashing client side for Auth flow, Supabase handles it.
 };

@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig, User, AppSettings } from './types';
 import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
 import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials } from './services/geminiService';
-import { initializeStorage, authenticate, getSettings, incrementGenerationCount, restoreSession, saveHistory, updateHistory } from './services/storageService';
+import { initializeStorage, authenticate, getSettings, incrementGenerationCount, saveHistory, updateHistory, mapSessionToUser } from './services/storageService';
 import { swal, toast, showLoading, closeLoading } from './services/notificationService';
+import { supabase } from './lib/supabaseClient';
 
 // Components
 import LoginPage from './components/LoginPage';
@@ -12,11 +13,11 @@ import RegisterPage from './components/RegisterPage';
 import AdminDashboard from './components/AdminDashboard';
 import ResultPreview from './components/ResultPreview';
 import PrintPage from './components/PrintPage';
-import UserDashboard from './components/UserDashboard'; // IMPORT NEW COMPONENT
+import UserDashboard from './components/UserDashboard'; 
 
 import { GraduationCap, LogOut, Loader2, User as UserIcon, Settings } from 'lucide-react';
 
-type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN' | 'USER_DASHBOARD'; // Added USER_DASHBOARD
+type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN' | 'USER_DASHBOARD'; 
 
 const App: React.FC = () => {
   // --- MANUAL ROUTING FOR PRINT PAGE ---
@@ -28,7 +29,7 @@ const App: React.FC = () => {
 
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isAuthChecking, setIsAuthChecking] = useState(true); // PREVENT FLASH OF LOGIN
+  const [isAuthChecking, setIsAuthChecking] = useState(true); 
   const [viewMode, setViewMode] = useState<ViewMode>('LOGIN');
   const [authError, setAuthError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>({ promoLink: '', whatsappNumber: '', socialMediaLink: '' });
@@ -64,72 +65,80 @@ const App: React.FC = () => {
               window.history.pushState(null, '', url);
           }
       } catch (e) {
-          // Ignore history errors in sandboxed/blob environments
           console.warn("History API blocked:", e);
       }
   };
 
-  // --- INITIALIZATION & ROUTING ---
+  // --- INITIALIZATION & ROUTING (ROBUST SESSION HANDLING) ---
   useEffect(() => {
     initializeStorage();
     setAppSettings(getSettings());
     localStorage.setItem('schoolIdentity', JSON.stringify(schoolIdentity));
 
-    const checkSession = async () => {
+    // Listen to Supabase Auth Changes (Login, Logout, Refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         setIsAuthChecking(true);
-        const path = window.location.pathname;
         
-        // 1. Try to restore session from Supabase
-        const restoredUser = await restoreSession();
-        
-        if (restoredUser) {
-            setCurrentUser(restoredUser);
+        if (session) {
+            // User is logged in (or session restored from local storage)
+            const user = await mapSessionToUser(session);
             
-            // If user is logged in but on auth page, redirect inside
-            if (path === '/auth' || path === '/register') {
-                if (restoredUser.role === 'admin') {
+            if (user) {
+                setCurrentUser(user);
+                
+                // Determine View Mode based on Role & Current Path
+                const path = window.location.pathname;
+                
+                if (user.role === 'admin') {
+                    // Admin Logic
                     safeUpdateHistory('/admin', true);
                     setViewMode('ADMIN');
                 } else {
-                    // USER LANDING ON LOGIN/REFRESH
-                    safeUpdateHistory('/', true);
-                    setViewMode('USER_DASHBOARD'); // Default to Dashboard on restore/login
-                }
-            } else if (path === '/admin') {
-                if (restoredUser.role === 'admin') setViewMode('ADMIN');
-                else {
-                    safeUpdateHistory('/', true);
-                    setViewMode('USER_DASHBOARD');
+                    // User Logic
+                    if (path === '/admin') {
+                        // User trying to access admin -> redirect to dashboard
+                        safeUpdateHistory('/', true);
+                        setViewMode('USER_DASHBOARD');
+                    } else if (path === '/app') {
+                        // Keep them in APP if they were there (e.g. refresh during edit)
+                        // BUT only if they actually generated something? 
+                        // Safer to default to Dashboard on hard refresh to prevent empty state confusion
+                        // Unless we want to persist app state (which is in React state, so it's lost on refresh anyway)
+                        safeUpdateHistory('/dashboard', true); 
+                        setViewMode('USER_DASHBOARD');
+                    } else {
+                        // Default
+                        setViewMode('USER_DASHBOARD');
+                    }
                 }
             } else {
-                // Default handling for root path '/'
-                if (restoredUser.role !== 'admin') {
-                     // If we are already generating content, stay on APP, otherwise Dashboard
-                     // For simplicity on refresh, go to Dashboard
-                     setViewMode('USER_DASHBOARD');
-                } else {
-                     setViewMode('ADMIN');
-                }
+                // Session exists but mapping failed? fallback
+                setCurrentUser(null);
+                setViewMode('LOGIN');
             }
         } else {
-            // No session found
-            if (path === '/auth') {
+            // No session (Logged out)
+            setCurrentUser(null);
+            const path = window.location.pathname;
+            // Only redirect to login if not already on auth/register page
+            if (path !== '/auth' && path !== '/register') {
+                safeUpdateHistory('/auth', true);
                 setViewMode('LOGIN');
-            } else if (path === '/admin') {
-                 // Protected route
-                 safeUpdateHistory('/auth', true);
-                 setViewMode('LOGIN');
+            } else if (path === '/register') {
+                setViewMode('REGISTER');
             } else {
-                 // Root or unknown -> Redirect to auth
-                 safeUpdateHistory('/auth', true);
-                 setViewMode('LOGIN');
+                setViewMode('LOGIN');
             }
         }
+        
         setIsAuthChecking(false);
-    };
+    });
 
-    checkSession();
-  }, []); // Run once on mount
+    // Cleanup subscription
+    return () => {
+        subscription.unsubscribe();
+    };
+  }, []);
 
   // --- NAVIGATION HELPERS ---
   const navigateTo = (mode: ViewMode, url: string) => {
@@ -139,11 +148,16 @@ const App: React.FC = () => {
 
   // --- AUTH HANDLERS ---
   const handleLogin = async (email: string, pass: string) => {
-    // Authenticate is now async because of hashing
+    // Note: authenticate() internally calls signInWithPassword
+    // This triggers onAuthStateChange above, which handles the routing.
+    // So here we just handle the error case UI.
+    
+    setIsAuthChecking(true);
     const user = await authenticate(email, pass);
     
     if (user) {
         if (user.role === 'user' && user.status === 'pending') {
+            setIsAuthChecking(false);
             const msg = "Akun Anda belum dikonfirmasi oleh Admin.";
             setAuthError(msg);
             swal.fire({
@@ -153,27 +167,18 @@ const App: React.FC = () => {
                 confirmButtonColor: '#f59e0b',
                 confirmButtonText: 'Mengerti'
             });
+            // Force logout if pending
+            await supabase.auth.signOut();
             return;
         }
         
-        // LOGIN SUCCESS
-        setCurrentUser(user);
-        setAuthError(null);
-        
+        // Success Logic handled by onAuthStateChange
         toast.fire({
             icon: 'success',
             title: `Selamat datang, ${user.name}!`
         });
-        
-        // Redirect based on Role
-        if (user.role === 'admin') {
-            navigateTo('ADMIN', '/admin');
-        } else {
-            // USER GOES TO DASHBOARD FIRST
-            navigateTo('USER_DASHBOARD', '/');
-        }
     } else {
-        // LOGIN FAILED
+        setIsAuthChecking(false);
         const msg = "Email atau Password salah.";
         setAuthError(msg);
         swal.fire({
@@ -195,18 +200,14 @@ const App: React.FC = () => {
         cancelButtonColor: '#f1f5f9',
         confirmButtonText: 'Ya, Keluar',
         cancelButtonText: 'Batal'
-      }).then((result: any) => {
+      }).then(async (result: any) => {
         if (result.isConfirmed) {
-            // Need to sign out from supabase too
-            import('./lib/supabaseClient').then(({supabase}) => supabase.auth.signOut());
+            // Sign out triggers onAuthStateChange -> Sets User Null -> Redirects to Login
+            await supabase.auth.signOut();
             
-            setCurrentUser(null);
             setGeneratedPlan(null);
             setLessonIdentity(INITIAL_LESSON_IDENTITY);
             setCurrentHistoryId(null);
-            
-            // Redirect to Auth
-            navigateTo('LOGIN', '/auth');
             
             toast.fire({
                 icon: 'success',
@@ -284,21 +285,11 @@ const App: React.FC = () => {
           setGeneratedPlan(updatedPlan);
           
           // UPDATE HISTORY (With Assessment)
+          // We rely on the useEffect below to sync the update, but to be safe for this specific chain:
           if (currentUser && currentHistoryId) {
-             // We use local var currentHistoryId logic here might be tricky if state not updated yet?
-             // Actually React state updates are async. But we saved ID above.
-             // Better to re-fetch ID or pass it. 
-             // To be safe, we will rely on the fact that we set state, but inside this closure it might be stale.
-             // However, let's use the ID returned from saveHistory above if we can refactor.
-             // Re-saving using the ID we just got:
-             // To keep code clean, we will use a helper that checks state, but since we are in same closure scope chain...
-             // Let's rely on the backend update.
-             // Actually, for simplicity in this chain, we need the ID.
+              // Note: currentHistoryId state might not be updated in this closure yet if it was just set.
+              // However, since we re-render, the Effect hook is the safer place for sync.
           }
-          
-          // Re-update history with assessment
-          // NOTE: Because of closure, currentHistoryId is null here. We need to pass it or wait.
-          // FIX: We need to use the ID returned from saveHistory directly.
           
           // TRACKING (Assessment is separate API call)
           if (currentUser) incrementGenerationCount(currentUser.id);
@@ -308,18 +299,6 @@ const App: React.FC = () => {
             title: 'Asesmen Siap!',
             text: 'Instrumen Asesmen berhasil ditambahkan.'
           });
-          
-          // Force update history since we have the data
-          // We can't easily access the ID here without refactoring. 
-          // We will update history on NEXT effect or component update? No.
-          // Let's just trigger an update if we have a valid session in the next user interaction.
-          // OR, refactor to store ID in a ref? 
-          // Let's try to update history in a useEffect dependent on generatedPlan changes? 
-          // Too risky for infinite loops.
-          
-          // Let's try to grab the ID from state if available, or skip auto-update for this chained call
-          // and only update on manual clicks.
-          // BUT, we want history to be accurate.
           
       } catch (assessErr: any) {
           console.error("Assessment chain failed", assessErr);
@@ -332,8 +311,6 @@ const App: React.FC = () => {
           });
       } finally {
           setIsGeneratingAssessment(false);
-          // Trigger history update after chain completes?
-          // We need the ID. 
       }
 
     } catch (err: any) {
@@ -351,12 +328,11 @@ const App: React.FC = () => {
   };
   
   // Effect to sync history when generatedPlan changes significantly? 
-  // Better to explicit call.
   useEffect(() => {
       if (currentHistoryId && generatedPlan) {
           updateHistoryRecord(generatedPlan);
       }
-  }, [generatedPlan]); // This will sync whenever plan updates (Material, LKPD, etc) IF we have an ID.
+  }, [generatedPlan]); 
 
 
   // Modular Generators

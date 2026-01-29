@@ -40,24 +40,21 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       setIsSubmitting(true);
       
       try {
-          // Hash password before saving
-          const hashedPassword = await hashPassword(formData.password);
-
-          // 1. Simpan ke LocalStorage sebagai 'Pending'
-          const newUser: User = {
-              id: Date.now().toString(),
+          // Password will be hashed/handled by Supabase Auth
+          const userPayload: User = {
+              id: '', // Supabase will assign ID
               name: formData.name,
               username: formData.username || formData.email.split('@')[0],
               email: formData.email,
-              password: hashedPassword, // Saved Hashed
+              password: formData.password, // Raw password required for SignUp
               role: 'user',
               status: 'pending',
               joinedDate: new Date().toISOString(),
               lastLogin: ''
           };
           
-          // AWAIT THIS to ensure it saves (or handles error) before proceeding
-          await saveUser(newUser);
+          // AWAIT THIS to ensure it saves to Supabase before proceeding
+          await saveUser(userPayload);
 
           // 2. Prepare WhatsApp URL
           const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
