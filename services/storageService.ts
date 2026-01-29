@@ -24,11 +24,16 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
         
         // 1. Coba ambil data profile dari DB
-        const { data: profile } = await supabase
+        const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
+
+        if (error && error.code !== 'PGRST116') {
+             console.warn("Error fetching profile:", error);
+             // Jangan return null jika error koneksi, return data dasar dari session agar tidak stuck
+        }
 
         // 2. Tentukan Role & Status
         const isAdminEmail = session.user.email === adminEmail;
@@ -91,6 +96,19 @@ export const restoreSession = async (): Promise<User | null> => {
 // --- USER MANAGEMENT ---
 export const saveUser = async (user: User) => {
     try {
+        // 1. CEK DUPLIKAT DI PROFILES DULU (Username / Email)
+        const { data: existingUser, error: checkError } = await supabase
+            .from('profiles')
+            .select('id, email, username')
+            .or(`email.eq.${user.email},username.eq.${user.username}`)
+            .maybeSingle(); // Gunakan maybeSingle agar tidak error jika kosong
+
+        if (existingUser) {
+            if (existingUser.email === user.email) throw new Error("Email sudah terdaftar. Silakan login.");
+            if (existingUser.username === user.username) throw new Error("Username sudah digunakan. Pilih username lain.");
+        }
+
+        // 2. DAFTAR KE SUPABASE AUTH
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
             password: user.password || '123456',
@@ -104,6 +122,7 @@ export const saveUser = async (user: User) => {
 
         if (error) throw error;
 
+        // 3. SIMPAN KE PROFILES (Termasuk Password Text)
         if (data.user) {
              const { error: profileError } = await supabase
                 .from('profiles')
@@ -116,11 +135,12 @@ export const saveUser = async (user: User) => {
                     status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString(),
-                    password_text: user.password // SAVE PASSWORD PLAIN TEXT TO PROFILES
+                    password_text: user.password // FIX: PASTIKAN PASSWORD DISIMPAN
                 });
             
             if (profileError) {
                 console.error("Profile insert failed:", profileError);
+                // Jika gagal simpan profile, mungkin perlu rollback atau log
             }
         }
         

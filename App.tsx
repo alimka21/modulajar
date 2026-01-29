@@ -77,61 +77,78 @@ const App: React.FC = () => {
 
     // Listen to Supabase Auth Changes (Login, Logout, Refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        setIsAuthChecking(true);
-        
-        if (session) {
-            // User is logged in (or session restored from local storage)
-            const user = await mapSessionToUser(session);
+        // Fix for "Cache Issue": Always wrap async logic in try/finally to ensure loading state turns off.
+        try {
+            setIsAuthChecking(true);
             
-            if (user) {
-                setCurrentUser(user);
+            if (session) {
+                // User is logged in (or session restored from local storage)
+                const user = await mapSessionToUser(session);
                 
-                // Determine View Mode based on Role & Current Path
-                const path = window.location.pathname;
-                
-                if (user.role === 'admin') {
-                    // Admin Logic
-                    safeUpdateHistory('/admin', true);
-                    setViewMode('ADMIN');
-                } else {
-                    // User Logic
-                    if (path === '/admin') {
-                        // User trying to access admin -> redirect to dashboard
-                        safeUpdateHistory('/', true);
-                        setViewMode('USER_DASHBOARD');
-                    } else if (path === '/app') {
-                        // Keep them in APP if they were there (e.g. refresh during edit)
-                        // BUT only if they actually generated something? 
-                        // Safer to default to Dashboard on hard refresh to prevent empty state confusion
-                        // Unless we want to persist app state (which is in React state, so it's lost on refresh anyway)
-                        safeUpdateHistory('/dashboard', true); 
-                        setViewMode('USER_DASHBOARD');
-                    } else {
-                        // Default
-                        setViewMode('USER_DASHBOARD');
+                if (user) {
+                    // STRICT PENDING CHECK
+                    // If user is pending (and not admin), FORCE LOGOUT immediately.
+                    if (user.role !== 'admin' && user.status === 'pending') {
+                        console.warn("User is pending. Forcing sign out.");
+                        await supabase.auth.signOut();
+                        setCurrentUser(null);
+                        setAuthError("Akun Anda masih dalam antrean konfirmasi Admin.");
+                        swal.fire({
+                            icon: 'info',
+                            title: 'Menunggu Konfirmasi',
+                            text: 'Akun Anda belum diaktifkan oleh Admin. Silakan hubungi Admin jika sudah mendaftar.',
+                            confirmButtonColor: '#2563eb'
+                        });
+                        setViewMode('LOGIN');
+                        return; // Stop execution
                     }
+
+                    setCurrentUser(user);
+                    
+                    // Determine View Mode based on Role & Current Path
+                    const path = window.location.pathname;
+                    
+                    if (user.role === 'admin') {
+                        safeUpdateHistory('/admin', true);
+                        setViewMode('ADMIN');
+                    } else {
+                        // User Logic
+                        if (path === '/admin') {
+                            safeUpdateHistory('/', true);
+                            setViewMode('USER_DASHBOARD');
+                        } else if (path === '/app') {
+                            safeUpdateHistory('/dashboard', true); 
+                            setViewMode('USER_DASHBOARD');
+                        } else {
+                            setViewMode('USER_DASHBOARD');
+                        }
+                    }
+                } else {
+                    // Session exists but mapping failed
+                    setCurrentUser(null);
+                    setViewMode('LOGIN');
                 }
             } else {
-                // Session exists but mapping failed? fallback
+                // No session (Logged out)
                 setCurrentUser(null);
-                setViewMode('LOGIN');
+                const path = window.location.pathname;
+                // Only redirect to login if not already on auth/register page
+                if (path !== '/auth' && path !== '/register') {
+                    safeUpdateHistory('/auth', true);
+                    setViewMode('LOGIN');
+                } else if (path === '/register') {
+                    setViewMode('REGISTER');
+                } else {
+                    setViewMode('LOGIN');
+                }
             }
-        } else {
-            // No session (Logged out)
-            setCurrentUser(null);
-            const path = window.location.pathname;
-            // Only redirect to login if not already on auth/register page
-            if (path !== '/auth' && path !== '/register') {
-                safeUpdateHistory('/auth', true);
-                setViewMode('LOGIN');
-            } else if (path === '/register') {
-                setViewMode('REGISTER');
-            } else {
-                setViewMode('LOGIN');
-            }
+        } catch (error) {
+            console.error("Auth State Change Error:", error);
+            // Fallback to login on critical error
+            setViewMode('LOGIN');
+        } finally {
+            setIsAuthChecking(false);
         }
-        
-        setIsAuthChecking(false);
     });
 
     // Cleanup subscription
@@ -156,6 +173,7 @@ const App: React.FC = () => {
     const user = await authenticate(email, pass);
     
     if (user) {
+        // Double check status here just for immediate feedback
         if (user.role === 'user' && user.status === 'pending') {
             setIsAuthChecking(false);
             const msg = "Akun Anda belum dikonfirmasi oleh Admin.";
@@ -167,7 +185,6 @@ const App: React.FC = () => {
                 confirmButtonColor: '#f59e0b',
                 confirmButtonText: 'Mengerti'
             });
-            // Force logout if pending
             await supabase.auth.signOut();
             return;
         }

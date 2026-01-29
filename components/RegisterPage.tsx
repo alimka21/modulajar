@@ -72,10 +72,11 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
               cancelButtonText: 'Tutup',
               cancelButtonColor: '#f1f5f9', // Slate-100 for button
           }).then((result: any) => {
+              // Redirect to login page regardless of choice, as the account is created
               if (result.isConfirmed) {
                   window.open(waUrl, '_blank');
               }
-              onBack();
+              onBack(); // GO BACK TO LOGIN
           });
       } catch (error: any) {
           swal.fire({
