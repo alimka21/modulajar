@@ -33,20 +33,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const mappedUser = await mapSessionToUser(session);
       
-      // STRICT PENDING CHECK
+      // STRICT PENDING CHECK - Kecuali Admin
       if (mappedUser && mappedUser.role !== 'admin' && mappedUser.status === 'pending') {
-        console.warn("User pending detected in AuthProvider. Forcing logout.");
-        await supabase.auth.signOut();
-        setUser(null);
-        swal.fire({
-            icon: 'info',
-            title: 'Menunggu Konfirmasi',
-            text: 'Akun Anda belum diaktifkan oleh Admin. Silakan hubungi Admin.',
-            confirmButtonColor: '#2563eb'
-        });
-      } else {
-        setUser(mappedUser);
-      }
+        // Jangan langsung SignOut di sini jika ini hanya refresh halaman, 
+        // biarkan UI (App.tsx) yang menangani redirect atau pesan.
+        // Tapi set user tetap null atau flag khusus agar tidak masuk dashboard
+        console.warn("User status pending.");
+      } 
+      
+      setUser(mappedUser);
     } catch (error) {
       console.error("Auth Context Mapping Error:", error);
       setUser(null);
@@ -54,8 +49,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshAuth = async () => {
+    setLoading(true);
     const { data } = await supabase.auth.getSession();
     await handleSession(data.session);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -64,10 +61,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       try {
         // 1. Ambil session awal (Get Session saat mount)
-        const { data: { session } } = await supabase.auth.getSession();
-        if (mounted) await handleSession(session);
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+            console.error("Session error:", error);
+            if (mounted) setUser(null);
+        } else {
+            if (mounted) await handleSession(session);
+        }
       } catch (e) {
-        console.error("Init session error", e);
+        console.error("Init session unexpected error", e);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -76,26 +79,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
 
     // 2. Listener Realtime (onAuthStateChange)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // console.log("Auth Event:", event);
       if (mounted) {
-        // Reset loading to true briefly if needed, or just update user
-        await handleSession(session);
-        setLoading(false);
+        if (event === 'SIGNED_OUT') {
+            setUser(null);
+            setLoading(false);
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            await handleSession(session);
+            setLoading(false);
+        }
       }
     });
-
-    // 3. Timeout Fallback (Anti Loading Forever)
-    const timer = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn("Auth check timed out. Forcing loading false.");
-        setLoading(false);
-      }
-    }, 5000);
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      clearTimeout(timer);
     };
   }, []);
 

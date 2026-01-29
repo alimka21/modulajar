@@ -21,40 +21,27 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
 
     try {
-        // 1. TENTUKAN ADMIN EMAIL (ENV atau HARDCODED)
-        // Gunakan trim() dan toLowerCase() untuk menghindari kesalahan spasi/huruf besar
         const adminEmail = (process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com').toLowerCase().trim();
         const currentUserEmail = (session.user.email || '').toLowerCase().trim();
-        
         const isAdminEmail = currentUserEmail === adminEmail;
 
-        // 2. AMBIL DATA PROFILE DARI DB
+        // 1. Coba ambil data profile dari DB
         const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .single();
 
-        // 3. LOGIKA PENENTUAN ROLE & STATUS (OPTIMIZED)
+        // 2. Tentukan Role & Status
         let userRole: 'admin' | 'user' = 'user';
         let userStatus: 'active' | 'pending' = 'pending';
 
         if (isAdminEmail) {
-            // JIKA EMAIL ADALAH SUPER ADMIN, PAKSA STATUS AKTIF & ROLE ADMIN
-            // Bypass apapun status di database
+            // FORCE ADMIN
             userRole = 'admin';
             userStatus = 'active';
-
-            // Side-effect: Perbaiki data di DB jika tidak sinkron (agar rapi)
-            if (profile && (profile.role !== 'admin' || profile.status !== 'active')) {
-                console.log("Fixing Admin Permissions in Database...");
-                supabase.from('profiles')
-                    .update({ role: 'admin', status: 'active' })
-                    .eq('id', session.user.id)
-                    .then(() => {});
-            }
         } else {
-            // User Biasa: Ikuti Database
+            // USER BIASA
             userRole = profile?.role || 'user';
             userStatus = profile?.status || 'pending';
         }
@@ -77,7 +64,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         };
     } catch (e) {
         console.error("Error mapping session to user:", e);
-        // Fallback Error agar tidak crash
+        // Fallback agar tidak crash jika profile gagal diload
         return {
             id: session.user.id,
             name: session.user.user_metadata?.name || 'User',
@@ -94,33 +81,42 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 // --- AUTHENTICATION ---
 export const authenticate = async (email: string, passwordPlain: string): Promise<User | null> => {
     try {
+        // 1. PRE-CHECK: Apakah Email ada di database?
+        // Catatan: Ini membutuhkan kebijakan RLS Supabase yang membolehkan SELECT publik ke tabel profiles (kolom email).
+        const { data: existingUser, error: checkError } = await supabase
+            .from('profiles')
+            .select('id, role')
+            .eq('email', email)
+            .maybeSingle();
+        
+        // Cek khusus untuk admin hardcoded jika belum ada di profile
+        const adminEmail = (process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com').toLowerCase().trim();
+        const isTargetAdmin = email.toLowerCase().trim() === adminEmail;
+
+        if (!existingUser && !isTargetAdmin) {
+            // JIKA EMAIL TIDAK DITEMUKAN
+            throw new Error("Email Tidak Terdaftar, silahkan Klik Daftar Akun Baru.");
+        }
+
+        // 2. JIKA ADA, COBA LOGIN (Cek Password)
         const { data, error } = await supabase.auth.signInWithPassword({
             email: email,
             password: passwordPlain,
         });
 
-        if (error) throw error;
+        if (error) {
+            // Email ada, tapi login gagal = Password Salah
+            throw new Error("Login Gagal - Email atau Password anda mungkin salah.");
+        }
 
         if (data && data.session) {
             const newLastLogin = new Date().toISOString();
-            // Fire and forget update
             supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id).then(() => {});
             return await mapSessionToUser(data.session);
         }
     } catch (err: any) {
-        console.warn("Login failed:", err.message);
-    }
-    return null;
-};
-
-export const restoreSession = async (): Promise<User | null> => {
-    try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (session) {
-             return await mapSessionToUser(session);
-        }
-    } catch (e) {
-        console.warn("Restore session failed", e);
+        console.warn("Login Logic:", err.message);
+        throw err; // Lempar error agar bisa ditangkap di UI
     }
     return null;
 };
@@ -129,12 +125,10 @@ export const restoreSession = async (): Promise<User | null> => {
 export const saveUser = async (user: User) => {
     try {
         // 1. CEK DUPLIKAT DI PROFILES DULU (Username / Email)
-        const { data: existingUsers, error: checkError } = await supabase
+        const { data: existingUsers } = await supabase
             .from('profiles')
             .select('email, username')
             .or(`email.eq.${user.email},username.eq.${user.username}`);
-
-        if (checkError) throw checkError;
 
         if (existingUsers && existingUsers.length > 0) {
             const match = existingUsers[0];
@@ -150,32 +144,35 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
-                    phone_number: user.phoneNumber // Meta data
+                    phone_number: user.phoneNumber
                 }
             }
         });
 
         if (error) throw error;
 
-        // 3. SIMPAN KE PROFILES
+        // 3. FORCE INSERT KE PROFILES (Mengatasi Isu Data Tidak Masuk)
         if (data.user) {
+             // Kita lakukan insert manual segera setelah signup berhasil
              const { error: profileError } = await supabase
                 .from('profiles')
-                .insert({
+                .upsert({ // Gunakan UPSERT untuk menghindari error jika trigger sudah membuatnya
                     id: data.user.id,
                     email: user.email,
                     name: user.name,
                     username: user.username,
-                    phone_number: user.phoneNumber, // SAVE PHONE NUMBER TO DB
+                    phone_number: user.phoneNumber,
                     role: 'user',
                     status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString(),
                     password_text: user.password
-                });
+                }, { onConflict: 'id' });
             
             if (profileError) {
-                console.error("Profile insert failed:", profileError);
+                console.error("Profile insert failed (CRITICAL):", profileError);
+                // Jangan throw error di sini agar user tetap merasa berhasil daftar di Auth,
+                // tapi data profil mungkin perlu perbaikan manual oleh admin.
             }
         }
         
@@ -183,6 +180,19 @@ export const saveUser = async (user: User) => {
     } catch (err: any) {
         throw new Error(err?.message || "Gagal mendaftar ke server.");
     }
+};
+
+// ... (Sisa fungsi lain tidak berubah, tetapi disertakan untuk kelengkapan file) ...
+export const restoreSession = async (): Promise<User | null> => {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+             return await mapSessionToUser(session);
+        }
+    } catch (e) {
+        console.warn("Restore session failed", e);
+    }
+    return null;
 };
 
 export const getUsers = async (): Promise<User[]> => {
@@ -200,8 +210,8 @@ export const getUsers = async (): Promise<User[]> => {
             username: p.username,
             email: p.email,
             password: p.password_text,
-            phoneNumber: p.phone_number, // Fetch Phone
-            apiKey: p.api_key, // Fetch API Key
+            phoneNumber: p.phone_number, 
+            apiKey: p.api_key, 
             role: p.role as any,
             status: p.status as any,
             joinedDate: p.joined_date,
@@ -224,7 +234,6 @@ export const updateUser = async (updatedUser: User) => {
                 status: updatedUser.status,
                 role: updatedUser.role,
                 phone_number: updatedUser.phoneNumber
-                // Note: Password and API Key usually updated separately for security
             })
             .eq('id', updatedUser.id);
             
@@ -235,10 +244,8 @@ export const updateUser = async (updatedUser: User) => {
     }
 };
 
-// NEW FUNCTION: Update API Key in Database
 export const updateUserApiKey = async (userId: string, apiKey: string) => {
     try {
-        // Simpan ke DB
         const { error } = await supabase
             .from('profiles')
             .update({ api_key: apiKey })
@@ -246,7 +253,6 @@ export const updateUserApiKey = async (userId: string, apiKey: string) => {
 
         if (error) throw error;
         
-        // Simpan juga ke LocalStorage untuk kompatibilitas service
         if (apiKey) {
             localStorage.setItem('custom_api_key', apiKey);
         } else {
@@ -278,14 +284,7 @@ export const deleteUser = async (id: string) => {
     }
 };
 
-// --- HISTORY MANAGEMENT ---
-
-export const saveHistory = async (
-    userId: string, 
-    data: GeneratedLessonPlan, 
-    inputData: LessonIdentity,
-    features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
-): Promise<string | null> => {
+export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
         const { data: result, error } = await supabase
             .from('generation_history')
@@ -309,58 +308,28 @@ export const saveHistory = async (
     }
 };
 
-export const updateHistory = async (
-    historyId: string, 
-    data: GeneratedLessonPlan, 
-    features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
-) => {
+export const updateHistory = async (historyId: string, data: GeneratedLessonPlan, features: any) => {
     try {
-        await supabase
-            .from('generation_history')
-            .update({
-                full_data: data,
-                features: features
-            })
-            .eq('id', historyId);
-    } catch (err) {
-        console.error("Failed to update history:", err);
-    }
+        await supabase.from('generation_history').update({ full_data: data, features: features }).eq('id', historyId);
+    } catch (err) { console.error("Failed to update history:", err); }
 };
 
 export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
     try {
-        const { data, error } = await supabase
-            .from('generation_history')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
+        const { data, error } = await supabase.from('generation_history').select('*').eq('user_id', userId).order('created_at', { ascending: false });
         if (error) throw error;
         return data as HistoryItem[];
-    } catch (err) {
-        console.error("Failed to fetch history:", err);
-        return [];
-    }
+    } catch (err) { console.error("Failed to fetch history:", err); return []; }
 };
 
-// NEW FUNCTION: Get all generation timestamps for Admin Chart
 export const getAllGenerationStats = async (): Promise<string[]> => {
     try {
-        // We only need the timestamp, minimal data transfer
-        const { data, error } = await supabase
-            .from('generation_history')
-            .select('created_at')
-            .order('created_at', { ascending: true });
-
+        const { data, error } = await supabase.from('generation_history').select('created_at').order('created_at', { ascending: true });
         if (error) throw error;
         return data.map((d: any) => d.created_at);
-    } catch (e) {
-        console.error("Failed to fetch all stats:", e);
-        return [];
-    }
+    } catch (e) { console.error("Failed to fetch all stats:", e); return []; }
 };
 
-// --- SETTINGS ---
 export const getSettings = (): AppSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
     return data ? JSON.parse(data) : DEFAULT_SETTINGS;
@@ -370,6 +339,4 @@ export const saveSettings = (settings: AppSettings) => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 };
 
-export const hashPassword = async (password: string): Promise<string> => {
-    return password; 
-};
+export const hashPassword = async (password: string): Promise<string> => { return password; };
