@@ -42,6 +42,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             name: profile?.name || meta.name || session.user.email?.split('@')[0] || 'User',
             username: profile?.username || meta.username || session.user.email?.split('@')[0],
             email: session.user.email || '',
+            password: profile?.password_text || '', // Retrieve password text
             role: userRole,
             status: userStatus,
             joinedDate: profile?.joined_date || session.user.created_at,
@@ -114,7 +115,8 @@ export const saveUser = async (user: User) => {
                     role: 'user',
                     status: 'pending',
                     generation_count: 0,
-                    joined_date: new Date().toISOString()
+                    joined_date: new Date().toISOString(),
+                    password_text: user.password // SAVE PASSWORD PLAIN TEXT TO PROFILES
                 });
             
             if (profileError) {
@@ -142,6 +144,7 @@ export const getUsers = async (): Promise<User[]> => {
             name: p.name,
             username: p.username,
             email: p.email,
+            password: p.password_text, // Map from DB column
             role: p.role as any,
             status: p.status as any,
             joinedDate: p.joined_date,

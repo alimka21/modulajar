@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key } from 'lucide-react';
 
 declare var Chart: any;
 
@@ -102,11 +102,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           const date = new Date(dateString);
           return date.toLocaleString('id-ID', {
               day: '2-digit',
-              month: 'short',
+              month: 'long',
               year: 'numeric',
               hour: '2-digit',
               minute: '2-digit'
-          });
+          }).replace('.', ':');
       } catch (e) {
           return dateString;
       }
@@ -492,9 +492,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                     <input type="text" placeholder="Cari Username, Nama atau Email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white" />
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse min-w-[800px]">
+                                    <table className="w-full text-left border-collapse min-w-[900px]">
                                         <thead>
-                                            <tr className="bg-slate-50 text-slate-500 text-xs uppercase"><th className="p-3 font-bold border-b text-center w-12">No</th><th className="p-3 font-bold border-b">Nama Pengguna</th><th className="p-3 font-bold border-b">Username</th><th className="p-3 font-bold border-b">Email</th><th className="p-3 font-bold border-b text-center">Jml Gen</th><th className="p-3 font-bold border-b">Tgl Daftar</th><th className="p-3 font-bold border-b">Login Terakhir</th><th className="p-3 font-bold border-b text-center">Aksi</th></tr>
+                                            <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                                                <th className="p-3 font-bold border-b text-center w-12">No</th>
+                                                <th className="p-3 font-bold border-b">Nama Pengguna</th>
+                                                <th className="p-3 font-bold border-b">Username</th>
+                                                <th className="p-3 font-bold border-b">Email</th>
+                                                <th className="p-3 font-bold border-b">Password</th>
+                                                <th className="p-3 font-bold border-b text-center">Jml Gen</th>
+                                                <th className="p-3 font-bold border-b">Tgl Daftar</th>
+                                                <th className="p-3 font-bold border-b">Login Terakhir</th>
+                                                <th className="p-3 font-bold border-b text-center">Aksi</th>
+                                            </tr>
                                         </thead>
                                         <tbody className="text-sm">
                                             {filteredUsers.length > 0 ? filteredUsers.map((user, index) => (
@@ -503,9 +513,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                     <td className="p-3 border-b font-medium">{user.name}</td>
                                                     <td className="p-3 border-b text-blue-600 font-medium">{user.username || '-'}</td>
                                                     <td className="p-3 border-b text-slate-600">{user.email}</td>
+                                                    <td className="p-3 border-b text-slate-600 font-mono bg-slate-100 px-2 rounded">{user.password || '****'}</td>
                                                     <td className="p-3 border-b text-center font-bold text-slate-700">{user.generationCount || 0}</td>
                                                     <td className="p-3 border-b text-slate-500">{formatDate(user.joinedDate)}</td>
-                                                    <td className="p-3 border-b text-slate-500 text-xs">{user.lastLogin ? formatDateTime(user.lastLogin) : 'Belum pernah'}</td>
+                                                    <td className="p-3 border-b text-slate-500 text-xs">
+                                                        {user.lastLogin ? formatDateTime(user.lastLogin) : 'Belum pernah'}
+                                                    </td>
                                                     <td className="p-3 border-b">
                                                         <div className="flex justify-center gap-2">
                                                             {user.status === 'pending' ? <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-100 text-green-700 p-1.5 rounded-md hover:bg-green-200 transition" title="Konfirmasi Aktif"><CheckCircle size={16} /></button> : <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-orange-100 text-orange-700 p-1.5 rounded-md hover:bg-orange-200 transition" title="Nonaktifkan"><XCircle size={16} /></button>}
@@ -514,7 +527,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            )) : <tr><td colSpan={8} className="p-8 text-center text-slate-400 italic">Tidak ada data pengguna.</td></tr>}
+                                            )) : <tr><td colSpan={9} className="p-8 text-center text-slate-400 italic">Tidak ada data pengguna.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
