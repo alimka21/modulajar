@@ -21,7 +21,9 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
 
     try {
-        const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
+        // UPDATE: Set email admin sesuai akun Anda
+        const adminEmail = (process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com').toLowerCase().trim();
+        const currentUserEmail = (session.user.email || '').toLowerCase().trim();
         
         // 1. Coba ambil data profile dari DB
         const { data: profile, error } = await supabase
@@ -31,11 +33,13 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .single();
 
         if (error) {
-             console.warn("Error fetching profile (might be new user):", error.message);
+             console.warn("Profile fetch warning (might be new user):", error.message);
         }
 
         // 2. Tentukan Role & Status
-        const isAdminEmail = session.user.email === adminEmail;
+        // Logic: Jika email sama dengan Super Admin, paksa jadi ADMIN dan ACTIVE
+        const isAdminEmail = currentUserEmail === adminEmail;
+        
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
         const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
 
@@ -57,6 +61,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         };
     } catch (e) {
         console.error("Error mapping session to user:", e);
+        // Fallback object agar tidak crash total
         return {
             id: session.user.id,
             name: session.user.user_metadata?.name || 'User',
@@ -82,6 +87,7 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
 
         if (data && data.session) {
             const newLastLogin = new Date().toISOString();
+            // Fire and forget update
             supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id).then(() => {});
             return await mapSessionToUser(data.session);
         }
