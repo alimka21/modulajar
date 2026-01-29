@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
 import { AppSettings, User } from '../types';
-import { saveUser, hashPassword } from '../services/storageService';
+import { saveUser } from '../services/storageService';
 import { swal } from '../services/notificationService';
 
 interface RegisterPageProps {
@@ -49,52 +49,50 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
       setIsSubmitting(true);
       
       try {
-          // Password will be hashed/handled by Supabase Auth
           const userPayload: User = {
               id: '', // Supabase will assign ID
               name: formData.name,
               username: formData.username || formData.email.split('@')[0],
               email: formData.email,
-              phoneNumber: formData.phoneNumber, // Include Phone Number
-              password: formData.password, // Raw password required for SignUp
+              phoneNumber: formData.phoneNumber, 
+              password: formData.password, 
               role: 'user',
               status: 'pending',
               joinedDate: new Date().toISOString(),
               lastLogin: ''
           };
           
-          // AWAIT THIS to ensure it saves to Supabase before proceeding
           await saveUser(userPayload);
 
-          // 2. Prepare WhatsApp URL
+          // PERBAIKAN LOGIKA WHATSAPP
+          // 1. Ambil nomor dari settings atau fallback ke default jika kosong
+          let rawNumber = settings.whatsappNumber || '6282335454864';
+          
+          // 2. Bersihkan nomor (Hapus +, -, spasi) agar formatnya murni angka (contoh: 628123...)
+          const cleanNumber = rawNumber.replace(/\D/g, ''); 
+
           const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\nNo. HP: ${formData.phoneNumber}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
           const encodedMessage = encodeURIComponent(message);
-          const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
+          const waUrl = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
           
-          // 3. Show SweetAlert and Redirect
+          // 3. Gunakan location.href untuk redirect langsung (lebih stabil di HP daripada window.open)
+          // Tampilkan sukses sebentar lalu redirect
           swal.fire({
               title: 'Pendaftaran Berhasil!',
-              text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
+              text: 'Mengalihkan ke WhatsApp Admin...',
               icon: 'success',
-              confirmButtonText: 'Hubungi Admin Sekarang',
-              confirmButtonColor: '#25D366', // WhatsApp color
-              showCancelButton: true,
-              cancelButtonText: 'Tutup',
-              cancelButtonColor: '#f1f5f9', // Slate-100 for button
-          }).then((result: any) => {
-              // Redirect to login page regardless of choice, as the account is created
-              if (result.isConfirmed) {
-                  window.open(waUrl, '_blank');
-              }
-              onBack(); // GO BACK TO LOGIN
+              timer: 2000,
+              showConfirmButton: false
+          }).then(() => {
+              window.location.href = waUrl;
           });
+
       } catch (error: any) {
           swal.fire({
               title: 'Gagal Mendaftar',
               text: error.message || "Terjadi kesalahan sistem.",
               icon: 'error'
           });
-      } finally {
           setIsSubmitting(false);
       }
   };

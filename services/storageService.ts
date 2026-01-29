@@ -82,7 +82,6 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 export const authenticate = async (email: string, passwordPlain: string): Promise<User | null> => {
     try {
         // 1. PRE-CHECK: Apakah Email ada di database?
-        // Catatan: Ini membutuhkan kebijakan RLS Supabase yang membolehkan SELECT publik ke tabel profiles (kolom email).
         const { data: existingUser, error: checkError } = await supabase
             .from('profiles')
             .select('id, role')
@@ -153,10 +152,10 @@ export const saveUser = async (user: User) => {
 
         // 3. FORCE INSERT KE PROFILES (Mengatasi Isu Data Tidak Masuk)
         if (data.user) {
-             // Kita lakukan insert manual segera setelah signup berhasil
+             // Kita lakukan upsert manual segera setelah signup berhasil
              const { error: profileError } = await supabase
                 .from('profiles')
-                .upsert({ // Gunakan UPSERT untuk menghindari error jika trigger sudah membuatnya
+                .upsert({ 
                     id: data.user.id,
                     email: user.email,
                     name: user.name,
@@ -171,8 +170,7 @@ export const saveUser = async (user: User) => {
             
             if (profileError) {
                 console.error("Profile insert failed (CRITICAL):", profileError);
-                // Jangan throw error di sini agar user tetap merasa berhasil daftar di Auth,
-                // tapi data profil mungkin perlu perbaikan manual oleh admin.
+                // Jangan throw error di sini agar user tetap merasa berhasil daftar di Auth.
             }
         }
         
@@ -182,7 +180,6 @@ export const saveUser = async (user: User) => {
     }
 };
 
-// ... (Sisa fungsi lain tidak berubah, tetapi disertakan untuk kelengkapan file) ...
 export const restoreSession = async (): Promise<User | null> => {
     try {
         const { data: { session } } = await supabase.auth.getSession();
