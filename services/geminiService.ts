@@ -20,14 +20,28 @@ const getClient = () => {
 export const validateApiKey = async (apiKey: string): Promise<{ success: boolean; message: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        // Gunakan model paling ringan dan stabil untuk testing
+        // Gunakan model utama yang diinginkan user (gemini-3-flash)
         await ai.models.generateContent({
-            model: 'gemini-1.5-flash', 
+            model: 'gemini-3-flash-preview', 
             contents: 'Test connection',
         });
-        return { success: true, message: "Koneksi Berhasil" };
+        return { success: true, message: "Koneksi Berhasil (Gemini 3 Flash)" };
     } catch (error: any) {
         console.error("API Key Validation Failed:", error);
+        
+        // Jika gagal di model v3, coba fallback cek ke v2 (siapa tahu key lama)
+        if (error.message?.includes("404") || error.message?.includes("not found")) {
+            try {
+                const ai = new GoogleGenAI({ apiKey: apiKey });
+                await ai.models.generateContent({
+                    model: 'gemini-2.0-flash',
+                    contents: 'Test fallback connection',
+                });
+                return { success: true, message: "Koneksi Berhasil (Fallback ke Gemini 2.0)" };
+            } catch (e) {
+                // Ignore, return original error
+            }
+        }
         
         let msg = error.message || "Gagal menghubungi server AI.";
         
@@ -40,6 +54,8 @@ export const validateApiKey = async (apiKey: string): Promise<{ success: boolean
             msg = "Kuota Habis (429). Limit penggunaan API Key ini telah tercapai.";
         } else if (msg.includes("API key not valid")) {
             msg = "API Key Salah. Periksa kembali karakter key Anda.";
+        } else if (msg.includes("not found") || msg.includes("404")) {
+            msg = "Model AI tidak ditemukan. Pastikan API Key Anda mendukung Gemini 3 Flash.";
         }
 
         return { success: false, message: msg };
@@ -52,8 +68,8 @@ export const validateApiKey = async (apiKey: string): Promise<{ success: boolean
 const generateWithRetry = async (
   prompt: string, 
   schema: any, 
-  // UBAH DEFAULT KE 1.5-flash AGAR LEBIH STABIL & HEMAT KUOTA
-  model: string = 'gemini-1.5-flash',
+  // UBAH DEFAULT KE gemini-3-flash-preview
+  model: string = 'gemini-3-flash-preview',
   retries: number = 4
 ): Promise<any> => {
   const ai = getClient();
@@ -96,18 +112,29 @@ const generateWithRetry = async (
         }
       }
       
-      // Jika error 404 (Model not found), coba fallback ke 1.5-pro
+      // Jika error 404 (Model not found), coba fallback ke model alternatif
       if (error.message?.includes('404') || error.message?.includes('not found')) {
-          console.warn("Model not found, retrying with fallback model...");
+          console.warn(`Model ${model} not found (404), retrying with fallback model...`);
           try {
+               // Fallback 1: Gemini 2.0 Flash (Sangat Stabil)
                const fallbackResponse = await ai.models.generateContent({
-                    model: 'gemini-1.5-pro',
+                    model: 'gemini-2.0-flash',
                     contents: prompt,
                     config: { responseMimeType: "application/json", responseSchema: schema }
                });
                return JSON.parse(fallbackResponse.text || "{}");
           } catch (e) {
-              throw error; // Throw original error if fallback fails
+              // Fallback 2: Gemini 2.0 Flash Lite (Lebih ringan)
+              try {
+                  const lastResort = await ai.models.generateContent({
+                        model: 'gemini-2.0-flash-lite-preview',
+                        contents: prompt,
+                        config: { responseMimeType: "application/json", responseSchema: schema }
+                   });
+                   return JSON.parse(lastResort.text || "{}");
+              } catch(finalErr) {
+                 throw error; // Throw original error if all fallbacks fail
+              }
           }
       }
 
