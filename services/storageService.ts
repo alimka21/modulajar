@@ -94,9 +94,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
             if (!profileByUsername) {
                 // FALLBACK KHUSUS ADMIN:
-                // Jika username adalah 'admin' (atau variasi), dan profile tidak ketemu di tabel profiles,
-                // Asumsikan ini adalah Admin yang mencoba login tapi profilenya hilang/terhapus.
-                // Kita coba gunakan email admin hardcoded agar login tetap bisa diproses ke Supabase Auth.
+                // Jika username adalah 'admin' dan profile tidak ketemu, gunakan email admin.
                 if (emailToLogin.toLowerCase() === 'admin') {
                      console.log("Admin username detected, using fallback email:", ADMIN_EMAIL);
                      emailToLogin = ADMIN_EMAIL;
@@ -104,24 +102,21 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                      throw new Error("USERNAME_NOT_FOUND");
                 }
             } else {
-                // Ganti input menjadi email yang ditemukan
                 emailToLogin = profileByUsername.email;
             }
         }
 
-        // 2. CEK APAKAH EMAIL TERDAFTAR DI TABLE PROFILES (Validasi Ganda)
+        // 2. CEK APAKAH EMAIL TERDAFTAR DI TABLE PROFILES
         const { data: profileCheck } = await supabase
             .from('profiles')
             .select('id, email, status')
             .eq('email', emailToLogin)
             .maybeSingle();
 
-        // KHUSUS ADMIN: Jika profile tidak ditemukan di tabel 'profiles' (misal terhapus),
-        // TETAP LANJUTKAN ke login Supabase Auth agar Admin tidak terkunci di luar.
+        // KHUSUS ADMIN: Bypass jika profile tidak ditemukan
         const isAdmin = emailToLogin.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
         if (!profileCheck && !isAdmin) {
-            // Jika bukan admin dan tidak ada di profiles, tolak.
             throw new Error("EMAIL_NOT_FOUND");
         }
 
@@ -133,14 +128,35 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
         if (error) {
             console.error("Supabase Auth Error:", error.message);
-            // Supabase Auth gagal (kemungkinan password salah atau user auth terhapus)
             throw new Error("INVALID_PASSWORD");
         }
 
         if (data && data.session) {
-            // Update last login (async) - hanya jika profile ada
-            if (profileCheck) {
-                supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id).then(() => {});
+            const userId = data.user.id;
+
+            // --- AUTO-HEALING: RECREATE ADMIN PROFILE IF MISSING ---
+            // Jika login sukses TAPI profile tidak ada (misal terhapus), dan ini adalah Admin,
+            // Buat ulang profilnya sekarang juga.
+            if (!profileCheck && isAdmin) {
+                console.log("⚠️ Admin profile missing but Auth success. Auto-creating Admin Profile...");
+                const { error: insertError } = await supabase.from('profiles').upsert({
+                    id: userId,
+                    email: ADMIN_EMAIL,
+                    name: 'Super Admin',
+                    username: 'admin',
+                    role: 'admin',
+                    status: 'active',
+                    joined_date: new Date().toISOString(),
+                    password_text: passwordPlain
+                });
+                
+                if (insertError) console.error("Auto-create Admin failed:", insertError);
+                else console.log("✅ Admin profile restored successfully.");
+            }
+
+            // Update last login (async)
+            if (profileCheck || isAdmin) {
+                supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', userId).then(() => {});
             }
             
             const user = await mapSessionToUser(data.session);
@@ -151,7 +167,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         throw new Error("Login gagal tanpa pesan error.");
 
     } catch (err: any) {
-        // Mapping Error Message agar lebih rapi saat ditangkap UI
         if (err.message === "USERNAME_NOT_FOUND") throw new Error("Username tidak ditemukan.");
         if (err.message === "EMAIL_NOT_FOUND") throw new Error("EMAIL_NOT_FOUND");
         if (err.message === "INVALID_PASSWORD") throw new Error("INVALID_PASSWORD");
