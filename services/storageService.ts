@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabaseClient';
 
 const SETTINGS_KEY = 'pakar_settings';
 
+// Hardcoded Admin Email fallback if Env is missing
+const ADMIN_EMAIL = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
+
 const DEFAULT_SETTINGS: AppSettings = {
     promoLink: 'https://instagram.com/muh.alimka',
     whatsappNumber: '6282335454864',
@@ -21,9 +24,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
 
     try {
-        const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
-        
-        // 1. Coba ambil data profile dari DB
+        // 1. Coba ambil data profile dari DB (Tabel 'profiles')
         const { data: profile, error } = await supabase
             .from('profiles')
             .select('*')
@@ -31,12 +32,13 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .single();
 
         if (error) {
-             console.warn("Error fetching profile (might be new user/network issue):", error.message);
+             console.warn("Profile fetch warning (User might need to re-register or is Admin):", error.message);
         }
 
         // 2. Tentukan Role & Status
-        // Gunakan fallback ke metadata jika profile gagal diload agar user tidak ter-logout tiba-tiba
-        const isAdminEmail = session.user.email === adminEmail;
+        // FAILSAFE: Jika email adalah Admin, paksa role jadi 'admin' & status 'active'
+        // meskipun data di tabel profiles hilang/salah.
+        const isAdminEmail = session.user.email === ADMIN_EMAIL;
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
         const userStatus = isAdminEmail ? 'active' : (profile?.status || 'pending');
 
@@ -78,7 +80,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         let emailToLogin = emailOrUsername.trim();
         let isUsernameLogin = !emailToLogin.includes('@');
 
-        // 1. JIKA USER MEMASUKKAN USERNAME, CARI EMAILNYA DULU
+        // 1. JIKA USER MEMASUKKAN USERNAME, CARI EMAILNYA DULU DI PROFILES
         if (isUsernameLogin) {
             const { data: profileByUsername, error: userError } = await supabase
                 .from('profiles')
@@ -87,7 +89,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                 .maybeSingle();
 
             if (!profileByUsername) {
-                // Jika username tidak ditemukan
+                // Jika username tidak ditemukan di profiles
                 throw new Error("USERNAME_NOT_FOUND");
             }
             // Ganti input menjadi email yang ditemukan
@@ -101,7 +103,12 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
             .eq('email', emailToLogin)
             .maybeSingle();
 
-        if (!profileCheck) {
+        // KHUSUS ADMIN: Jika profile tidak ditemukan di tabel 'profiles' (misal terhapus),
+        // TETAP LANJUTKAN ke login Supabase Auth agar Admin tidak terkunci di luar.
+        const isAdmin = emailToLogin === ADMIN_EMAIL;
+
+        if (!profileCheck && !isAdmin) {
+            // Jika bukan admin dan tidak ada di profiles, tolak.
             throw new Error("EMAIL_NOT_FOUND");
         }
 
@@ -117,9 +124,10 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         }
 
         if (data && data.session) {
-            // Update last login (async)
-            const newLastLogin = new Date().toISOString();
-            supabase.from('profiles').update({ last_login: newLastLogin }).eq('id', data.user.id).then(() => {});
+            // Update last login (async) - hanya jika profile ada
+            if (profileCheck) {
+                supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id).then(() => {});
+            }
             
             const user = await mapSessionToUser(data.session);
             if (!user) throw new Error("Gagal memuat data pengguna.");
@@ -213,6 +221,7 @@ export const saveUser = async (user: User) => {
 
 export const getUsers = async (): Promise<User[]> => {
     try {
+        // PASTIKAN MEMBACA DARI TABLE PROFILES
         const { data, error } = await supabase
             .from('profiles')
             .select('*')
