@@ -1,12 +1,9 @@
 
-import React, { useRef } from 'react';
+import React from 'react';
 import { LessonIdentity } from '../types';
 import { INITIAL_LESSON_IDENTITY } from '../constants'; // Import constants
-import { ArrowLeft, Sparkles, Loader2, Upload } from 'lucide-react';
+import { ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
-
-// Declare mammoth global
-declare var mammoth: any;
 
 interface LessonFormProps {
   data: LessonIdentity;
@@ -17,7 +14,6 @@ interface LessonFormProps {
 }
 
 const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGenerate, isLoading }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -34,29 +30,6 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
       updated = [...current, dimension];
     }
     onChange({ ...data, graduateProfileDimensions: updated });
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      let text = "";
-      if (file.name.endsWith('.docx')) {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-        text = result.value;
-      } else if (file.name.endsWith('.txt')) {
-        text = await file.text();
-      } else {
-        alert("Mohon upload file .docx atau .txt");
-        return;
-      }
-      onChange({ ...data, customStyle: text });
-    } catch (error) {
-      console.error("Error reading file:", error);
-      alert("Gagal membaca file.");
-    }
   };
 
   return (
@@ -107,7 +80,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
              <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Tujuan Pembelajaran</label>
-                  <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Murid mampu..." />
+                  <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Contoh: Murid mampu menganalisis struktur teks..." />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Praktik Pedagogis (Model/Metode)</label>
@@ -157,41 +130,6 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
                  </div>
               </div>
            </div>
-
-          {/* New Custom Format Upload Section */}
-          <div className="border-t pt-4 mt-2">
-            <div className="flex justify-between items-center mb-2">
-               <label className="block text-sm font-bold text-slate-700">Upload Gaya / Referensi</label>
-               <span className="text-[10px] bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">AI Style Match</span>
-            </div>
-            
-            <div className="flex gap-2 mb-2">
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-md transition"
-                >
-                    <Upload size={14} />
-                    <span>Upload .docx / .txt</span>
-                </button>
-                <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload} 
-                    accept=".docx, .txt" 
-                    className="hidden" 
-                />
-            </div>
-
-            <textarea 
-                name="customStyle" 
-                rows={3} 
-                value={data.customStyle} 
-                onChange={handleChange} 
-                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 outline-none text-xs font-mono bg-white" 
-                placeholder="Isi file yang diupload akan muncul di sini..." 
-            />
-          </div>
-
         </div>
       </div>
 

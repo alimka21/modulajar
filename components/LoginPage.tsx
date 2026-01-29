@@ -187,7 +187,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
 
       <div className="mt-8 text-center">
         <p className="text-xs text-slate-400">
-            &copy; {new Date().getFullYear()} EduGen AI.
+            &copy; 2026 Pengembangan AI by <a href="https://instagram.com/muh.alimka" target="_blank" rel="noreferrer" className="hover:text-blue-600 transition-colors font-medium">alimkadigital</a> - Hak Cipta Dilindungi
         </p>
       </div>
     </div>

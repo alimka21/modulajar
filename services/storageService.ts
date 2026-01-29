@@ -1,5 +1,5 @@
 
-import { User, AppSettings } from '../types';
+import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
 const USERS_KEY = 'pakar_users';
@@ -28,33 +28,43 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
         });
 
         if (error) {
-            // Throw to trigger catch block for unified fallback logic
             throw error;
         }
 
         if (data && data.user) {
             const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
             const role = data.user.email === adminEmail ? 'admin' : 'user';
+            
+            // Get Metadata from Cloud (Supabase)
+            const meta = data.user.user_metadata || {};
+            const cloudGenCount = meta.generationCount !== undefined ? parseInt(meta.generationCount) : 0;
+            const newLastLogin = new Date().toISOString();
+
+            // Update Last Login to Supabase Cloud immediately
+            await supabase.auth.updateUser({
+                data: { lastLogin: newLastLogin }
+            });
 
             const user: User = {
                 id: data.user.id,
-                name: data.user.user_metadata?.name || email.split('@')[0],
-                username: data.user.user_metadata?.username || email.split('@')[0],
+                name: meta.name || email.split('@')[0],
+                username: meta.username || email.split('@')[0],
                 email: data.user.email || '',
                 role: role,
                 status: 'active',
                 joinedDate: data.user.created_at,
-                lastLogin: new Date().toISOString()
+                lastLogin: newLastLogin,
+                generationCount: cloudGenCount // Use Cloud Data
             };
 
-            // Sync to Local Storage (Hybrid) & Update Last Login
+            // Sync to Local Storage
             syncUserToLocal(user);
 
+            // Return the user object
             return user;
         }
     } catch (err: any) {
         const msg = err?.message || String(err);
-        // Only log/warn, don't throw. We want to fallback to local.
         console.warn("Supabase Auth skipped or failed:", msg);
     }
 
@@ -82,7 +92,8 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
             role: 'admin',
             status: 'active',
             joinedDate: new Date().toISOString(),
-            lastLogin: new Date().toISOString()
+            lastLogin: new Date().toISOString(),
+            generationCount: 0
         };
         syncUserToLocal(devAdmin);
         return devAdmin;
@@ -91,16 +102,56 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
     return null;
 };
 
-export const saveUser = async (user: User) => {
+// --- RESTORE SESSION ON RELOAD ---
+export const restoreSession = async (): Promise<User | null> => {
     try {
-        // 1. Register in Supabase
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (session && session.user) {
+             const adminEmail = process.env.VITE_ADMIN_EMAIL || 'alimka21@gmail.com';
+             const role = session.user.email === adminEmail ? 'admin' : 'user';
+             const meta = session.user.user_metadata || {};
+             
+             return {
+                id: session.user.id,
+                name: meta.name || session.user.email?.split('@')[0] || 'User',
+                username: meta.username,
+                email: session.user.email || '',
+                role: role,
+                status: 'active',
+                joinedDate: session.user.created_at,
+                lastLogin: meta.lastLogin || new Date().toISOString(),
+                generationCount: meta.generationCount ? parseInt(meta.generationCount) : 0
+             };
+        }
+    } catch (e) {
+        console.warn("Restore session failed", e);
+    }
+    
+    // Fallback: Check if we have a simulated user in localStorage that shouldn't expire (dev only)
+    // Note: For production security, better to rely on Supabase only.
+    return null;
+};
+
+export const saveUser = async (user: User) => {
+    // Initialize generation count for new users
+    const userWithDefaults = { 
+        ...user, 
+        generationCount: 0,
+        lastLogin: '' 
+    };
+
+    try {
+        // 1. Register in Supabase & Save Metadata to Cloud
         const { data, error } = await supabase.auth.signUp({
-            email: user.email,
-            password: user.password || '123456',
+            email: userWithDefaults.email,
+            password: userWithDefaults.password || '123456',
             options: {
                 data: {
-                    name: user.name,
-                    username: user.username
+                    name: userWithDefaults.name,
+                    username: userWithDefaults.username,
+                    generationCount: 0, // Save initial count to cloud
+                    lastLogin: ''
                 }
             }
         });
@@ -109,9 +160,7 @@ export const saveUser = async (user: User) => {
 
         if (data.user) {
              // Success: Sync to Local
-             // NOTE: Saving password to local storage allows admin to see it in table (per user request).
-             // In a real high-security app, we would NOT save the password here.
-             const newUser = { ...user, id: data.user.id }; 
+             const newUser = { ...userWithDefaults, id: data.user.id }; 
              syncUserToLocal(newUser);
         }
         
@@ -119,27 +168,94 @@ export const saveUser = async (user: User) => {
     } catch (err: any) {
         const msg = (err?.message || String(err)).toLowerCase();
         
-        // Expanded Fallback Logic:
         const shouldFallback = 
             msg.includes('fetch') || 
             msg.includes('url') || 
             msg.includes('apikey') || 
             msg.includes('network') ||
             msg.includes('connection') ||
-            msg.includes('invalid') || // Handles 'Email address is invalid'
-            msg.includes('password') || // Handles 'Password too short' (if UI check missed it)
+            msg.includes('invalid') || 
+            msg.includes('password') || 
             msg.includes('security') ||
             msg.includes('rate limit');
 
         if (shouldFallback) {
              console.warn(`Supabase error (${msg}). Falling back to local storage.`);
-             // Save locally with password
-             const mockUser = { ...user, id: `mock-${Date.now()}` }; 
+             const mockUser = { ...userWithDefaults, id: `mock-${Date.now()}` }; 
              syncUserToLocal(mockUser);
              return { user: mockUser, session: null };
         }
         
         throw new Error(err?.message || "Gagal mendaftar ke server.");
+    }
+};
+
+// --- HISTORY MANAGEMENT (SUPABASE) ---
+
+export const saveHistory = async (
+    userId: string, 
+    data: GeneratedLessonPlan, 
+    inputData: LessonIdentity,
+    features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
+): Promise<string | null> => {
+    try {
+        // Insert new record
+        const { data: result, error } = await supabase
+            .from('generation_history')
+            .insert({
+                user_id: userId,
+                subject: inputData.subject,
+                grade: inputData.grade,
+                topic: inputData.topic,
+                features: features,
+                full_data: data,
+                input_data: inputData
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return result.id;
+    } catch (err) {
+        console.error("Failed to save history:", err);
+        return null; // Fail silently or handle UI error
+    }
+};
+
+export const updateHistory = async (
+    historyId: string, 
+    data: GeneratedLessonPlan, 
+    features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
+) => {
+    try {
+        // Update existing record with new data/features
+        const { error } = await supabase
+            .from('generation_history')
+            .update({
+                full_data: data,
+                features: features
+            })
+            .eq('id', historyId);
+
+        if (error) throw error;
+    } catch (err) {
+        console.error("Failed to update history:", err);
+    }
+};
+
+export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('generation_history')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return data as HistoryItem[];
+    } catch (err) {
+        console.error("Failed to fetch history:", err);
+        return [];
     }
 };
 
@@ -150,12 +266,12 @@ const syncUserToLocal = (user: User) => {
     const index = users.findIndex(u => u.email === user.email);
     if (index !== -1) {
         const existing = users[index];
-        // Merge existing data with new data, preferring new data
-        // Preserve password if new one is empty/undefined
         const passwordToSave = user.password && user.password !== '' ? user.password : existing.password;
-        users[index] = { ...existing, ...user, password: passwordToSave };
+        const genCountToSave = user.generationCount !== undefined ? user.generationCount : (existing.generationCount || 0);
+
+        users[index] = { ...existing, ...user, password: passwordToSave, generationCount: genCountToSave };
     } else {
-        users.push(user);
+        users.push({ ...user, generationCount: user.generationCount || 0 });
     }
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
 };
@@ -175,8 +291,37 @@ export const updateUser = (updatedUser: User) => {
     if (index !== -1) {
         const existing = users[index];
         const passwordToSave = updatedUser.password && updatedUser.password !== '' ? updatedUser.password : existing.password;
-        users[index] = { ...updatedUser, password: passwordToSave };
+        const genCount = updatedUser.generationCount !== undefined ? updatedUser.generationCount : existing.generationCount;
+        
+        users[index] = { ...updatedUser, password: passwordToSave, generationCount: genCount };
         localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    }
+};
+
+export const incrementGenerationCount = async (userId: string) => {
+    // 1. Update Local Storage
+    const users = getUsers();
+    const index = users.findIndex(u => u.id === userId);
+    
+    let newCount = 1;
+    if (index !== -1) {
+        const currentCount = users[index].generationCount || 0;
+        newCount = currentCount + 1;
+        users[index] = { ...users[index], generationCount: newCount };
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    }
+
+    // 2. Update Supabase Cloud (Async/Background)
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        // Ensure we are updating the currently logged-in user
+        if (session && session.user.id === userId) {
+            await supabase.auth.updateUser({
+                data: { generationCount: newCount }
+            });
+        }
+    } catch (e) {
+        console.warn("Failed to sync generation count to cloud:", e);
     }
 };
 

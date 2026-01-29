@@ -212,10 +212,28 @@ export interface User {
   status: UserStatus;
   joinedDate: string;
   lastLogin?: string; // New Field
+  generationCount?: number; // New Field: Tracks total generations
 }
 
 export interface AppSettings {
   promoLink: string;
   whatsappNumber: string;
   socialMediaLink: string;
+}
+
+export interface HistoryItem {
+    id: string;
+    created_at: string;
+    subject: string;
+    grade: string;
+    topic: string;
+    features: {
+        rpp: boolean;
+        materials: boolean;
+        lkpd: boolean;
+        assessment: boolean;
+        questionBank: boolean;
+    };
+    full_data: GeneratedLessonPlan;
+    input_data: LessonIdentity;
 }

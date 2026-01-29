@@ -5,14 +5,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PAKAR MODUL AJAR - AI Lesson Plan Generator</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'system-ui', 'sans-serif'], // UI Font
-              serif: ['Cambria', 'Georgia', 'serif'], // Document Font
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              serif: ['Cambria', 'Georgia', 'serif'],
             },
             animation: {
               'fade-in': 'fadeIn 0.5s ease-out',
@@ -38,23 +39,10 @@
       }
     </script>
     
-    <!-- Chart.js for Dashboard Analytics -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- External Libraries via CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/pdfmake.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.9/vfs_fonts.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <!-- PDF.js for reading PDF files -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
-    <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
-    <!-- MathJax for Math Rendering -->
     <script>
       window.MathJax = {
         tex: {
@@ -71,7 +59,6 @@
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
-    <!-- Google Fonts for UI -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
@@ -79,13 +66,11 @@
         font-family: 'Inter', system-ui, sans-serif; 
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        background-color: #f8f9fa;
+        background-color: #f0f2f5;
       }
       
-      /* Dokumen Preview Font set to Cambria */
       .document-font { font-family: 'Cambria', Georgia, serif; }
       
-      /* Custom Scrollbar for cleaner look */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -101,7 +86,6 @@
         background: #bdc1c6; 
       }
 
-      /* Markdown Styles for ResultPreview */
       .prose blockquote {
         border-left: 4px solid #facc15; 
         background-color: #fefce8; 
@@ -127,105 +111,92 @@
           padding: 2rem !important;
           border: 1px solid #e2e8f0;
       }
-      div:where(.swal2-title) {
-          font-size: 1.25rem !important;
-          font-weight: 700 !important;
-          color: #1e293b !important;
-          padding-top: 0.5rem !important;
-      }
-      div:where(.swal2-html-container) {
-          font-size: 0.95rem !important;
-          color: #64748b !important;
-          line-height: 1.5 !important;
-      }
-      div:where(.swal2-actions) {
-          gap: 0.75rem !important;
-          margin-top: 1.5rem !important;
-      }
-      div:where(.swal2-icon) {
-          transform: scale(0.9);
-          margin-top: 0 !important;
-      }
 
       /* =========================================
-         PRINT CSS (REVISED)
+         PRINT CSS OVERRIDE (MANDATORY CLEAN)
          ========================================= */
       @media print {
-        /* Sembunyikan elemen UI */
-        nav, header, button, .no-print, .sidebar, .tabs-bar, .flex-none {
-            display: none !important;
+
+        html,
+        body,
+        #root,
+        #root > div,
+        #konten-dokumen {
+          height: auto !important;
+          overflow: visible !important;
+        }
+
+        .no-print {
+          display: none !important;
+        }
+
+        @page {
+          size: A4 portrait;
+          margin: 20mm;
         }
         
-        /* Reset Layout Container untuk membiarkan konten mengalir ke halaman berikutnya */
-        body, #root, main, .h-screen, .overflow-hidden, .flex, .flex-col, .flex-1, .relative {
-            display: block !important;
-            height: auto !important;
-            overflow: visible !important;
-            position: static !important;
-            width: 100% !important;
+        /* Layout Reset for Print */
+        body {
             background-color: white !important;
         }
 
-        /* Styling khusus Konten Dokumen */
+        /* Target document explicitly */
         #konten-dokumen {
             width: 100% !important;
+            max-width: none !important;
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
             box-shadow: none !important;
-            position: static !important;
-            background-color: white !important;
-            
-            /* Pastikan font cetak benar */
-            font-family: 'Cambria', Georgia, serif !important;
-            font-size: 12pt !important;
-            color: black !important;
-            line-height: 1.5 !important;
+            position: relative !important;
+            left: 0 !important;
+            top: 0 !important;
         }
 
-        /* Atur margin halaman kertas fisik */
-        @page {
-            size: A4 portrait;
-            margin: 2.5cm; /* Margin fisik kertas */
+        /* Hiding specific UI elements just in case .no-print wasn't added to them */
+        header, nav, aside, .sidebar, .tabs, .toolbar {
+            display: none !important;
         }
-        
-        /* Penanganan Page Break */
+
+        /* Page Breaks */
         .page-break {
             page-break-before: always !important;
-            break-before: page;
+            break-before: page !important;
+            display: block !important;
+            height: 1px !important; 
+            margin: 0 !important;
         }
         
-        /* Hindari pemotongan elemen di tengah */
-        tr, td, th, li {
-            page-break-inside: avoid;
+        .break-inside-avoid {
+            page-break-inside: avoid !important;
         }
         
-        /* Override background colors */
-        * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
+        /* Force text colors */
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        .text-slate-600, .text-slate-500 { color: black !important; }
+        thead th, .bg-\[\#87CEFA\] { background-color: #f0f0f0 !important; }
       }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
-    "docx": "https://esm.sh/docx@^9.5.1",
-    "file-saver": "https://esm.sh/file-saver@^2.0.5",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom": "https://esm.sh/react-dom@^19.2.4",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.93.2",
+    "@google/genai": "https://esm.sh/@google/genai@0.2.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
     "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "file-saver": "https://esm.sh/file-saver@^2.0.5",
+    "docx": "https://esm.sh/docx@^9.5.1"
   }
 }
 </script>
 </head>
-  <body class="bg-white text-[#1f1f1f] antialiased h-screen overflow-hidden flex flex-col font-sans">
-    <div id="root" class="h-full flex flex-col"></div>
+  <body class="bg-[#f0f2f5] text-[#1f1f1f] antialiased min-h-screen flex flex-col font-sans">
+    <div id="root" class="min-h-screen flex flex-col w-full max-w-[1600px] mx-auto bg-white shadow-2xl relative"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

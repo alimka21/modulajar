@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, hashPassword } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, GraduationCap, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap } from 'lucide-react';
 
 declare var Chart: any;
 
@@ -72,6 +72,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               day: '2-digit',
               month: 'long',
               year: 'numeric'
+          });
+      } catch (e) {
+          return dateString;
+      }
+  };
+
+  const formatDateTime = (dateString: string) => {
+      if (!dateString) return "-";
+      try {
+          const date = new Date(dateString);
+          return date.toLocaleString('id-ID', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
           });
       } catch (e) {
           return dateString;
@@ -219,7 +235,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
             role: 'user', // FORCE ROLE USER -> Masuk ke Halaman Utama APP saat login
             status: 'active', // Manual add is directly active
             joinedDate: new Date().toISOString(),
-            lastLogin: ''
+            lastLogin: '',
+            generationCount: 0
         };
         
         await saveUser(user);
@@ -356,6 +373,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   // Stats
   const activeCount = users.filter(u => u.status === 'active' && u.role !== 'admin').length;
   const pendingCount = users.filter(u => u.status === 'pending').length;
+  const totalGenerations = users.reduce((acc, user) => acc + (user.generationCount || 0), 0);
 
   const filteredUsers = users.filter(u => {
       const lowerSearch = searchTerm.toLowerCase();
@@ -458,19 +476,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
                               <div className="flex justify-between items-start mb-4">
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Total Aktivitas (Gen)</div>
+                                  <div className="bg-purple-50 p-2 rounded-lg text-purple-600"><Zap size={20} /></div>
+                              </div>
+                              <div className="text-4xl font-black text-slate-800">{totalGenerations}</div>
+                              <div className="text-xs text-purple-600 font-medium mt-2">Kali Generate Modul</div>
+                          </div>
+                          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
+                              <div className="flex justify-between items-start mb-4">
                                   <div className="text-slate-500 text-xs font-bold uppercase">Menunggu Konfirmasi</div>
                                   <div className="bg-orange-50 p-2 rounded-lg text-orange-600"><CheckCircle size={20} /></div>
                               </div>
                               <div className="text-4xl font-black text-slate-800">{pendingCount}</div>
                               <div className="text-xs text-orange-600 font-medium mt-2">Butuh tindakan segera</div>
-                          </div>
-                          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
-                              <div className="flex justify-between items-start mb-4">
-                                  <div className="text-slate-500 text-xs font-bold uppercase">Total Akun</div>
-                                  <div className="bg-purple-50 p-2 rounded-lg text-purple-600"><ShieldCheck size={20} /></div>
-                              </div>
-                              <div className="text-4xl font-black text-slate-800">{users.length}</div>
-                              <div className="text-xs text-slate-400 font-medium mt-2">Termasuk Admin & Pending</div>
                           </div>
                       </div>
 
@@ -583,7 +601,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                             <th className="p-3 font-bold border-b">Nama Pengguna</th>
                                             <th className="p-3 font-bold border-b">Username</th>
                                             <th className="p-3 font-bold border-b">Email</th>
-                                            <th className="p-3 font-bold border-b">Password</th>
+                                            <th className="p-3 font-bold border-b text-center">Jml Gen</th>
                                             <th className="p-3 font-bold border-b">Tgl Daftar</th>
                                             <th className="p-3 font-bold border-b">Login Terakhir</th>
                                             <th className="p-3 font-bold border-b text-center">Aksi</th>
@@ -596,12 +614,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                 <td className="p-3 border-b font-medium">{user.name}</td>
                                                 <td className="p-3 border-b text-blue-600 font-medium">{user.username || '-'}</td>
                                                 <td className="p-3 border-b text-slate-600">{user.email}</td>
-                                                <td className="p-3 border-b font-mono text-xs text-slate-500">
-                                                    {user.password ? (user.password.length > 20 ? '(Enkripsi)' : user.password) : '-'}
-                                                </td>
+                                                <td className="p-3 border-b text-center font-bold text-slate-700">{user.generationCount || 0}</td>
                                                 <td className="p-3 border-b text-slate-500">{formatDate(user.joinedDate)}</td>
                                                 <td className="p-3 border-b text-slate-500 text-xs">
-                                                    {user.lastLogin ? formatDate(user.lastLogin) : 'Belum pernah'}
+                                                    {user.lastLogin ? formatDateTime(user.lastLogin) : 'Belum pernah'}
                                                 </td>
                                                 <td className="p-3 border-b">
                                                     <div className="flex justify-center gap-2">
