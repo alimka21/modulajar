@@ -64,27 +64,37 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
           
           await saveUser(userPayload);
 
-          // PERBAIKAN LOGIKA WHATSAPP
-          // 1. Ambil nomor dari settings atau fallback ke default jika kosong
-          let rawNumber = settings.whatsappNumber || '6282335454864';
+          // --- PERBAIKAN LOGIKA WHATSAPP ---
           
-          // 2. Bersihkan nomor (Hapus +, -, spasi) agar formatnya murni angka (contoh: 628123...)
-          const cleanNumber = rawNumber.replace(/\D/g, ''); 
+          // 1. Ambil nomor dari settings atau fallback
+          let adminNumber = settings.whatsappNumber || '6282335454864';
+          
+          // 2. Sanitasi Nomor Admin
+          // Hapus semua karakter non-digit
+          adminNumber = adminNumber.replace(/\D/g, '');
+          // Ubah 08xxx jadi 628xxx jika perlu
+          if (adminNumber.startsWith('0')) {
+              adminNumber = '62' + adminNumber.slice(1);
+          }
 
           const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\nNo. HP: ${formData.phoneNumber}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
           const encodedMessage = encodeURIComponent(message);
-          const waUrl = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
           
-          // 3. Gunakan location.href untuk redirect langsung (lebih stabil di HP daripada window.open)
-          // Tampilkan sukses sebentar lalu redirect
+          // Gunakan API WhatsApp universal
+          const waUrl = `https://wa.me/${adminNumber}?text=${encodedMessage}`;
+          
+          // 3. UX: Tampilkan Sukses, lalu REDIRECT (bukan window.open)
+          // window.open sering diblokir browser di mobile/async callback.
+          // location.href lebih aman.
           swal.fire({
               title: 'Pendaftaran Berhasil!',
               text: 'Mengalihkan ke WhatsApp Admin...',
               icon: 'success',
               timer: 2000,
-              showConfirmButton: false
-          }).then(() => {
-              window.location.href = waUrl;
+              showConfirmButton: false,
+              willClose: () => {
+                  window.location.href = waUrl;
+              }
           });
 
       } catch (error: any) {

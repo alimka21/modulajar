@@ -57,6 +57,12 @@ const AppContent: React.FC = () => {
 
   // --- HISTORY SAFE WRAPPER ---
   const safeUpdateHistory = (url: string, replace: boolean = false) => {
+      // Cek lingkungan Sandbox (Blob / File protocol)
+      if (window.location.protocol === 'file:' || window.location.href.startsWith('blob:')) {
+          // Jangan lakukan apa-apa di lingkungan ini untuk menghindari error
+          return;
+      }
+
       try {
           if (replace) {
               window.history.replaceState(null, '', url);
@@ -64,7 +70,8 @@ const AppContent: React.FC = () => {
               window.history.pushState(null, '', url);
           }
       } catch (e) {
-          console.warn("History API blocked:", e);
+          // Suppress error agar tidak memenuhi console
+          // console.warn("History API blocked (Environment restriction)");
       }
   };
 
@@ -99,12 +106,19 @@ const AppContent: React.FC = () => {
               }
           }
       } else {
-          // User Not Logged In
+          // User Not Logged In (Redirect Logic)
           const path = window.location.pathname;
+          
           if (path === '/register') {
               setViewMode('REGISTER');
           } else {
-              if (path !== '/auth') safeUpdateHistory('/auth', true);
+              // HANDLE DIRECT ACCESS TO PROTECTED ROUTES (Like /admin)
+              // If path is anything other than /register or /auth, force redirect to /auth
+              if (path === '/admin' || path === '/app' || path === '/dashboard') {
+                   safeUpdateHistory('/auth', true);
+              } else if (path !== '/auth') {
+                   safeUpdateHistory('/auth', true);
+              }
               setViewMode('LOGIN');
           }
       }

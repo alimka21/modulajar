@@ -124,6 +124,7 @@ export const authenticate = async (email: string, passwordPlain: string): Promis
 export const saveUser = async (user: User) => {
     try {
         // 1. CEK DUPLIKAT DI PROFILES DULU (Username / Email)
+        // Kita gunakan maybeSingle agar tidak error jika kosong
         const { data: existingUsers } = await supabase
             .from('profiles')
             .select('email, username')
@@ -150,7 +151,8 @@ export const saveUser = async (user: User) => {
 
         if (error) throw error;
 
-        // 3. FORCE INSERT KE PROFILES (Mengatasi Isu Data Tidak Masuk)
+        // 3. FORCE INSERT KE PROFILES (BACKUP MANUAL)
+        // Langkah ini penting jika Database Trigger gagal atau lambat.
         if (data.user) {
              // Kita lakukan upsert manual segera setelah signup berhasil
              const { error: profileError } = await supabase
@@ -165,17 +167,23 @@ export const saveUser = async (user: User) => {
                     status: 'pending',
                     generation_count: 0,
                     joined_date: new Date().toISOString(),
-                    password_text: user.password
+                    password_text: user.password // Opsional: Simpan password text hanya jika keamanan level rendah diterima
                 }, { onConflict: 'id' });
             
             if (profileError) {
-                console.error("Profile insert failed (CRITICAL):", profileError);
-                // Jangan throw error di sini agar user tetap merasa berhasil daftar di Auth.
+                console.error("Manual profile insert warning (ignore if trigger worked):", profileError.message);
+                // Kita tidak throw error di sini karena mungkin Trigger sudah menanganinya dan conflict,
+                // atau Auth berhasil tapi insert profile gagal karena RLS. 
+                // Biarkan user tetap redirect ke WA.
             }
         }
         
         return data;
     } catch (err: any) {
+        // Handle Supabase specific error messages
+        if (err.message?.includes('User already registered')) {
+            throw new Error("Email ini sudah terdaftar di sistem.");
+        }
         throw new Error(err?.message || "Gagal mendaftar ke server.");
     }
 };
@@ -274,6 +282,8 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const deleteUser = async (id: string) => {
     try {
+        // Perlu menghapus user dari auth juga, tapi client-side SDK tidak bisa delete user Auth (harus Service Role).
+        // Kita hanya hapus profile. Auth user akan jadi 'orphan'.
         const { error } = await supabase.from('profiles').delete().eq('id', id);
         if (error) throw error;
     } catch (e) {

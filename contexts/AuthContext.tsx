@@ -35,10 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // STRICT PENDING CHECK - Kecuali Admin
       if (mappedUser && mappedUser.role !== 'admin' && mappedUser.status === 'pending') {
-        // Jangan langsung SignOut di sini jika ini hanya refresh halaman, 
-        // biarkan UI (App.tsx) yang menangani redirect atau pesan.
-        // Tapi set user tetap null atau flag khusus agar tidak masuk dashboard
-        console.warn("User status pending.");
+         console.warn("User status pending.");
       } 
       
       setUser(mappedUser);
@@ -58,6 +55,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
+    // --- SAFETY TIMEOUT ---
+    // Mencegah infinite loading jika Supabase lambat merespon
+    // Jika dalam 3 detik tidak ada respon, anggap logout/error dan tampilkan konten
+    const timer = setTimeout(() => {
+        if (mounted && loading) {
+            console.warn("Auth check timed out, forcing render.");
+            setLoading(false);
+        }
+    }, 3000);
+
     const initAuth = async () => {
       try {
         // 1. Ambil session awal (Get Session saat mount)
@@ -72,7 +79,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (e) {
         console.error("Init session unexpected error", e);
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+            setLoading(false);
+            clearTimeout(timer); // Clear timeout jika sukses load
+        }
       }
     };
 
@@ -80,7 +90,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 2. Listener Realtime (onAuthStateChange)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // console.log("Auth Event:", event);
       if (mounted) {
         if (event === 'SIGNED_OUT') {
             setUser(null);
@@ -94,6 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false;
+      clearTimeout(timer);
       subscription.unsubscribe();
     };
   }, []);
