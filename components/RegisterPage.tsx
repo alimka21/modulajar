@@ -66,7 +66,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
 
           // --- PERBAIKAN LOGIKA WHATSAPP ---
           
-          // 1. Ambil nomor dari settings atau fallback
+          // 1. Ambil nomor dari settings atau fallback ke nomor default yang diminta
           let adminNumber = settings.whatsappNumber || '6282335454864';
           
           // 2. Sanitasi Nomor Admin
@@ -77,13 +77,16 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
               adminNumber = '62' + adminNumber.slice(1);
           }
 
-          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\nNo. HP: ${formData.phoneNumber}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
+          // 3. Format Pesan Baru (Cukup Username & Email)
+          const finalUsername = formData.username || formData.email.split('@')[0];
+          const message = `Halo Admin Pakar Modul Ajar, mohon konfirmasi akun saya.\n\nUsername: ${finalUsername}\nEmail: ${formData.email}\n\nTerima kasih.`;
+          
           const encodedMessage = encodeURIComponent(message);
           
           // Gunakan API WhatsApp universal
           const waUrl = `https://wa.me/${adminNumber}?text=${encodedMessage}`;
           
-          // 3. UX: Tampilkan Sukses, lalu REDIRECT (bukan window.open)
+          // 4. UX: Tampilkan Sukses, lalu REDIRECT (bukan window.open)
           // window.open sering diblokir browser di mobile/async callback.
           // location.href lebih aman.
           swal.fire({
