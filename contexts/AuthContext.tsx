@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
@@ -70,38 +69,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // Optimasi: Jika user ID sama dengan yang sekarang, mungkin tidak perlu fetch ulang profile penuh kecuali refresh eksplisit
-      // Namun untuk keamanan (role/status check), kita fetch ulang.
       const mappedUser = await mapSessionToUser(session);
       
-      if (mappedUser && mappedUser.role !== 'admin' && mappedUser.status === 'pending') {
-        // User ada sesi tapi status PENDING di database
-        await supabase.auth.signOut();
-        setUser(null);
-        sessionStorage.removeItem('custom_api_key');
-        
-        // Hanya tampilkan pesan jika user memang mencoba login aktif (bukan saat init background)
-        if (!loading) {
-            swal.fire({
-                icon: 'info',
-                title: 'Akses Dicabut',
-                text: 'Akun Anda memerlukan konfirmasi ulang dari Admin.',
-                confirmButtonColor: '#2563eb'
-            });
-        }
-      } else {
+      // PERBAIKAN: Jangan logout otomatis untuk user pending
+      // Biarkan login page handle pengecekan status
+      if (mappedUser) {
         setUser(mappedUser);
         
         // SYNC API KEY KE SESSION STORAGE
-        if (mappedUser?.apiKey) {
+        if (mappedUser.apiKey) {
             sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
         }
         
         resetIdleTimer();
+      } else {
+        setUser(null);
+        sessionStorage.removeItem('custom_api_key');
       }
     } catch (error) {
       console.error("Auth Context Mapping Error:", error);
-      // Fallback: jangan logout paksa jika hanya error jaringan sesaat, biarkan user null sementara atau retry
+      setUser(null);
+      sessionStorage.removeItem('custom_api_key');
     }
   };
 
@@ -150,8 +138,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Throttled Activity Listener
-    // Kita tidak perlu reset timer di SETIAP event mousemove, cukup sekali tiap menit misal.
-    // Tapi sederhananya, kita pakai debounce sederhana via resetIdleTimer yang clearTimeout.
     const activityEvents = ['mousedown', 'keydown', 'touchstart', 'scroll'];
     const activityHandler = () => resetIdleTimer();
 

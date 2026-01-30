@@ -23,15 +23,7 @@ type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN' | 'USER_DASHBOARD';
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
   
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-      const path = window.location.pathname;
-      if (path === '/register') return 'REGISTER';
-      if (path === '/admin') return 'ADMIN';
-      if (path === '/app') return 'APP';
-      if (path === '/dashboard') return 'USER_DASHBOARD';
-      return 'LOGIN';
-  });
-
+  const [viewMode, setViewMode] = useState<ViewMode>('LOGIN');
   const [appSettings, setAppSettings] = useState<AppSettings>({ promoLink: '', whatsappNumber: '', socialMediaLink: '' });
   const [authError, setAuthError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -69,34 +61,53 @@ const AppContent: React.FC = () => {
       } catch (e) { }
   };
 
+  // PERBAIKAN: useEffect untuk routing yang lebih stabil
   useEffect(() => {
+      // Tunggu sampai loading selesai
       if (loading) return;
 
+      const path = window.location.pathname;
+
       if (user) {
+          // User sudah login
           setAuthError(null);
-          const path = window.location.pathname;
           
           if (user.role === 'admin') {
-              if (path !== '/admin' && viewMode !== 'APP') {
-                  safeUpdateHistory('/admin', true);
-                  setViewMode('ADMIN');
-              }
-          } else {
+              // Admin
               if (path === '/app') {
+                  // Admin bisa akses APP
                   setViewMode('APP');
-              } else if (path === '/register' || path === '/auth' || path === '/') {
-                  safeUpdateHistory('/dashboard', true);
+              } else if (path === '/dashboard') {
+                  // Admin bisa akses USER_DASHBOARD
                   setViewMode('USER_DASHBOARD');
               } else {
+                  // Default admin ke ADMIN dashboard
+                  if (viewMode !== 'ADMIN' && viewMode !== 'APP' && viewMode !== 'USER_DASHBOARD') {
+                      safeUpdateHistory('/admin', true);
+                      setViewMode('ADMIN');
+                  } else if (path !== '/admin' && path !== '/app' && path !== '/dashboard') {
+                      safeUpdateHistory('/admin', true);
+                      setViewMode('ADMIN');
+                  }
+              }
+          } else {
+              // User biasa
+              if (path === '/app') {
+                  setViewMode('APP');
+              } else if (path === '/dashboard') {
+                  setViewMode('USER_DASHBOARD');
+              } else {
+                  // Default user ke USER_DASHBOARD
+                  safeUpdateHistory('/dashboard', true);
                   setViewMode('USER_DASHBOARD');
               }
           }
       } else {
-          const path = window.location.pathname;
+          // User belum login
           if (path === '/register') {
               setViewMode('REGISTER');
           } else {
-              if (path !== '/auth') safeUpdateHistory('/auth', true);
+              safeUpdateHistory('/auth', true);
               setViewMode('LOGIN');
           }
       }
@@ -111,9 +122,36 @@ const AppContent: React.FC = () => {
     setAuthError(null);
     try {
         await authenticate(email, pass);
-        toast.fire({ icon: 'success', title: `Selamat datang!` });
+        // Toast success akan otomatis muncul dari AuthContext saat user berhasil login
     } catch (e: any) {
-        setAuthError(e.message || "Gagal login.");
+        const errorMessage = e.message || "Gagal login.";
+        
+        // Handle error messages yang lebih user-friendly
+        if (errorMessage === "USERNAME_NOT_FOUND") {
+            setAuthError("Username tidak ditemukan. Silakan periksa kembali username Anda.");
+        } else if (errorMessage === "EMAIL_NOT_FOUND") {
+            setAuthError("Email tidak terdaftar. Silakan daftar terlebih dahulu.");
+        } else if (errorMessage === "INVALID_PASSWORD") {
+            setAuthError("Password salah. Silakan coba lagi.");
+        } else if (errorMessage === "ACCOUNT_PENDING") {
+            setAuthError("Akun Anda sedang menunggu verifikasi dari Admin. Mohon tunggu konfirmasi.");
+            swal.fire({
+                icon: 'info',
+                title: 'Akun Belum Diverifikasi',
+                text: 'Akun Anda telah terdaftar namun masih menunggu verifikasi dari Admin. Silakan hubungi Admin untuk mempercepat proses verifikasi.',
+                confirmButtonColor: '#2563eb'
+            });
+        } else if (errorMessage === "ACCOUNT_INACTIVE") {
+            setAuthError("Akun Anda telah dinonaktifkan oleh Admin. Silakan hubungi Admin.");
+            swal.fire({
+                icon: 'warning',
+                title: 'Akun Nonaktif',
+                text: 'Akun Anda telah dinonaktifkan. Silakan hubungi Admin untuk informasi lebih lanjut.',
+                confirmButtonColor: '#ef4444'
+            });
+        } else {
+            setAuthError(errorMessage);
+        }
     }
   };
 
@@ -161,7 +199,7 @@ const AppContent: React.FC = () => {
       if (currentHistoryId && generatedPlan) {
           updateHistoryRecord(generatedPlan);
       }
-  }, [generatedPlan]);
+  }, [generatedPlan, currentHistoryId, user]);
 
   const handleGenerateRPP = async () => {
     if (!schoolIdentity.schoolName || !lessonIdentity.topic || !lessonIdentity.subject) {
@@ -193,15 +231,15 @@ const AppContent: React.FC = () => {
           if (newId) setCurrentHistoryId(newId);
       }
 
-      closeLoading();
-      toast.fire({ icon: 'success', title: 'Modul & Asesmen Selesai!' });
-    } catch (err: any) {
-      setError(err.message);
-      closeLoading();
-      swal.fire({ icon: 'error', title: 'Gagal', text: err.message });
-    } finally {
-      setIsLoading(false);
       setIsGeneratingAssessment(false);
+      closeLoading();
+      toast.fire({ icon: 'success', title: 'RPM & Asesmen Berhasil!' });
+    } catch (e: any) {
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
+        setIsGeneratingAssessment(false);
+    } finally {
+        setIsLoading(false);
+        closeLoading();
     }
   };
 
@@ -211,7 +249,6 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
     try {
         const data = await generateMaterials(generatedPlan);
-        // USE FUNCTIONAL UPDATE TO PRESERVE OTHER FIELDS
         setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
@@ -229,7 +266,6 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
     try {
         const data = await generateLKPD(generatedPlan);
-        // USE FUNCTIONAL UPDATE TO PRESERVE OTHER FIELDS
         setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
