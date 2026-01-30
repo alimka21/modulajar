@@ -57,7 +57,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
             <div className="bg-white/20 backdrop-blur-md p-6 rounded-3xl mb-8 shadow-xl border border-white/20 transform hover:scale-105 transition-transform duration-500">
                 <GraduationCap size={80} strokeWidth={1.5} className="text-white drop-shadow-md" />
             </div>
-            <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight mb-4 drop-shadow-sm">
+            <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight mb-4 drop-shadow-sm uppercase">
                 PAKAR MODUL AJAR <br/> <span className="text-blue-200">AI GENERATOR</span>
             </h1>
             <p className="text-blue-100 text-lg font-medium leading-relaxed mb-8">
@@ -78,7 +78,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                 <div className="text-blue-600 bg-blue-50 p-4 rounded-2xl mb-3">
                     <GraduationCap size={40} />
                 </div>
-                <h2 className="text-2xl font-black text-slate-800 uppercase">Pakar Modul Ajar</h2>
+                <h2 className="text-2xl font-black text-slate-800 uppercase text-center leading-tight">
+                    PAKAR MODUL AJAR
+                    <br />
+                    <span className="text-blue-600 text-sm">AI GENERATOR</span>
+                </h2>
             </div>
 
             <div className="bg-white p-8 lg:p-10 rounded-2xl shadow-xl border border-slate-100">

@@ -61,7 +61,6 @@ const AppContent: React.FC = () => {
       } catch (e) { }
   };
 
-  // PERBAIKAN: useEffect untuk routing yang lebih stabil
   useEffect(() => {
       // Tunggu sampai loading selesai
       if (loading) return;
@@ -75,13 +74,10 @@ const AppContent: React.FC = () => {
           if (user.role === 'admin') {
               // Admin
               if (path === '/app') {
-                  // Admin bisa akses APP
                   setViewMode('APP');
               } else if (path === '/dashboard') {
-                  // Admin bisa akses USER_DASHBOARD
                   setViewMode('USER_DASHBOARD');
               } else {
-                  // Default admin ke ADMIN dashboard
                   if (viewMode !== 'ADMIN' && viewMode !== 'APP' && viewMode !== 'USER_DASHBOARD') {
                       safeUpdateHistory('/admin', true);
                       setViewMode('ADMIN');
@@ -97,7 +93,6 @@ const AppContent: React.FC = () => {
               } else if (path === '/dashboard') {
                   setViewMode('USER_DASHBOARD');
               } else {
-                  // Default user ke USER_DASHBOARD
                   safeUpdateHistory('/dashboard', true);
                   setViewMode('USER_DASHBOARD');
               }
@@ -122,11 +117,9 @@ const AppContent: React.FC = () => {
     setAuthError(null);
     try {
         await authenticate(email, pass);
-        // Toast success akan otomatis muncul dari AuthContext saat user berhasil login
     } catch (e: any) {
         const errorMessage = e.message || "Gagal login.";
         
-        // Handle error messages yang lebih user-friendly
         if (errorMessage === "USERNAME_NOT_FOUND") {
             setAuthError("Username tidak ditemukan. Silakan periksa kembali username Anda.");
         } else if (errorMessage === "EMAIL_NOT_FOUND") {
@@ -148,6 +141,13 @@ const AppContent: React.FC = () => {
                 title: 'Akun Nonaktif',
                 text: 'Akun Anda telah dinonaktifkan. Silakan hubungi Admin untuk informasi lebih lanjut.',
                 confirmButtonColor: '#ef4444'
+            });
+        } else if (errorMessage === "CONNECTION_ERROR") {
+            setAuthError("Gagal terhubung ke server. Periksa koneksi internet Anda.");
+            swal.fire({
+                icon: 'error',
+                title: 'Koneksi Gagal',
+                text: 'Sistem tidak dapat menghubungi server database. Pastikan perangkat terhubung ke internet.',
             });
         } else {
             setAuthError(errorMessage);

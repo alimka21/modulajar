@@ -1,3 +1,4 @@
+
 import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
@@ -25,6 +26,8 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .eq('id', session.user.id)
             .maybeSingle();
 
+        // If connection fails silently here, profile might be null. We should handle it gracefully.
+        
         const sessionEmail = session.user.email || '';
         const isAdminEmail = sessionEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
@@ -55,114 +58,135 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
     let passwordToLogin = passwordPlain.trim();
     let isUsernameLogin = !emailToLogin.includes('@');
 
-    // STEP 1: Cari email dari username jika login menggunakan username
-    if (isUsernameLogin) {
-        const { data: profileByUsername } = await supabase
+    try {
+        // STEP 1: Cari email dari username jika login menggunakan username
+        if (isUsernameLogin) {
+            const { data: profileByUsername, error: usernameError } = await supabase
+                .from('profiles')
+                .select('email')
+                .eq('username', emailToLogin)
+                .maybeSingle();
+            
+            if (usernameError) throw usernameError;
+
+            if (!profileByUsername) {
+                if (emailToLogin.toLowerCase() === 'admin') emailToLogin = ADMIN_EMAIL;
+                else throw new Error("USERNAME_NOT_FOUND");
+            } else {
+                emailToLogin = profileByUsername.email;
+            }
+        }
+
+        // STEP 2: Cek apakah email/user terdaftar dan statusnya
+        const { data: profileCheck, error: profileError } = await supabase
             .from('profiles')
-            .select('email')
-            .eq('username', emailToLogin)
+            .select('id, email, status, role')
+            .eq('email', emailToLogin)
             .maybeSingle();
-
-        if (!profileByUsername) {
-            if (emailToLogin.toLowerCase() === 'admin') emailToLogin = ADMIN_EMAIL;
-            else throw new Error("USERNAME_NOT_FOUND");
-        } else {
-            emailToLogin = profileByUsername.email;
-        }
-    }
-
-    // STEP 2: Cek apakah email/user terdaftar dan statusnya
-    const { data: profileCheck } = await supabase
-        .from('profiles')
-        .select('id, email, status, role')
-        .eq('email', emailToLogin)
-        .maybeSingle();
-
-    const isAdmin = emailToLogin.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-    
-    // Jika bukan admin dan tidak ditemukan profile
-    if (!profileCheck && !isAdmin) {
-        throw new Error("EMAIL_NOT_FOUND");
-    }
-
-    // STEP 3: CEK STATUS PENDING - INI YANG PENTING!
-    if (profileCheck && !isAdmin) {
-        if (profileCheck.status === 'pending') {
-            throw new Error("ACCOUNT_PENDING");
-        }
-        if (profileCheck.status === 'inactive') {
-            throw new Error("ACCOUNT_INACTIVE");
-        }
-    }
-
-    // STEP 4: Login ke Supabase Auth
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email: emailToLogin,
-        password: passwordToLogin,
-    });
-
-    if (error) {
-        throw new Error("INVALID_PASSWORD");
-    }
-
-    // STEP 5: Update last login dan buat profile admin jika belum ada
-    if (data && data.session) {
-        const userId = data.user.id;
         
-        // Buat profile admin jika belum ada
-        if (!profileCheck && isAdmin) {
-            await supabase.from('profiles').upsert({
-                id: userId,
-                email: ADMIN_EMAIL,
-                name: 'Super Admin',
-                username: 'admin',
-                role: 'admin',
-                status: 'active',
-                joined_date: new Date().toISOString(),
-                password_text: passwordToLogin
-            });
+        if (profileError) throw profileError;
+
+        const isAdmin = emailToLogin.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+        
+        // Jika bukan admin dan tidak ditemukan profile
+        if (!profileCheck && !isAdmin) {
+            throw new Error("EMAIL_NOT_FOUND");
         }
-        
-        // Update last login
-        await supabase.from('profiles')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', userId);
-        
-        const user = await mapSessionToUser(data.session);
-        if (!user) throw new Error("Gagal memuat data pengguna.");
-        
-        return user;
+
+        // STEP 3: CEK STATUS PENDING - INI YANG PENTING!
+        if (profileCheck && !isAdmin) {
+            if (profileCheck.status === 'pending') {
+                throw new Error("ACCOUNT_PENDING");
+            }
+            if (profileCheck.status === 'inactive') {
+                throw new Error("ACCOUNT_INACTIVE");
+            }
+        }
+
+        // STEP 4: Login ke Supabase Auth
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: emailToLogin,
+            password: passwordToLogin,
+        });
+
+        if (error) {
+            throw new Error("INVALID_PASSWORD");
+        }
+
+        // STEP 5: Update last login dan buat profile admin jika belum ada
+        if (data && data.session) {
+            const userId = data.user.id;
+            
+            // Buat profile admin jika belum ada
+            if (!profileCheck && isAdmin) {
+                await supabase.from('profiles').upsert({
+                    id: userId,
+                    email: ADMIN_EMAIL,
+                    name: 'Super Admin',
+                    username: 'admin',
+                    role: 'admin',
+                    status: 'active',
+                    joined_date: new Date().toISOString(),
+                    password_text: passwordToLogin
+                });
+            }
+            
+            // Update last login
+            await supabase.from('profiles')
+                .update({ last_login: new Date().toISOString() })
+                .eq('id', userId);
+            
+            const user = await mapSessionToUser(data.session);
+            if (!user) throw new Error("Gagal memuat data pengguna.");
+            
+            return user;
+        }
+    } catch (error: any) {
+        // Tangani Failed to fetch khusus (masalah koneksi/URL supabase salah)
+        if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('Network request failed'))) {
+            throw new Error("CONNECTION_ERROR");
+        }
+        throw error;
     }
     
     throw new Error("Login gagal.");
 };
 
 export const saveUser = async (user: User) => {
-    const { data: existingUsers } = await supabase
-        .from('profiles')
-        .select('email, username')
-        .or(`email.eq.${user.email},username.eq.${user.username}`);
+    try {
+        const { data: existingUsers, error: checkError } = await supabase
+            .from('profiles')
+            .select('email, username')
+            .or(`email.eq.${user.email},username.eq.${user.username}`);
 
-    if (existingUsers && existingUsers.length > 0) {
-        const match = existingUsers[0];
-        if (match.email === user.email) throw new Error("Email ini sudah terdaftar.");
-        if (match.username === user.username) throw new Error("Username ini sudah digunakan.");
-    }
+        if (checkError) throw checkError;
 
-    const { data, error } = await supabase.auth.signUp({
-        email: user.email,
-        password: user.password || '123456',
-        options: {
-            data: {
-                name: user.name,
-                username: user.username,
-                password_text: user.password
-            }
+        if (existingUsers && existingUsers.length > 0) {
+            const match = existingUsers[0];
+            if (match.email === user.email) throw new Error("Email ini sudah terdaftar.");
+            if (match.username === user.username) throw new Error("Username ini sudah digunakan.");
         }
-    });
 
-    if (error) throw error;
-    return data;
+        const { data, error } = await supabase.auth.signUp({
+            email: user.email,
+            password: user.password || '123456',
+            options: {
+                data: {
+                    name: user.name,
+                    username: user.username,
+                    password_text: user.password
+                }
+            }
+        });
+
+        if (error) throw error;
+        return data;
+    } catch (error: any) {
+        if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('Network request failed'))) {
+            throw new Error("Koneksi gagal. Cek internet atau konfigurasi server.");
+        }
+        throw error;
+    }
 };
 
 export const getUsers = async (): Promise<User[]> => {

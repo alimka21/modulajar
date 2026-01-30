@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
@@ -17,7 +17,7 @@ const getClient = () => {
 export const validateApiKey = async (apiKey: string): Promise<{ success: boolean; message: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        // Menggunakan flash untuk validasi agar cepat dan hemat kuota
+        // Use a simple prompt and model to validate
         await ai.models.generateContent({
             model: 'gemini-3-flash-preview', 
             contents: 'Test connection',
@@ -28,6 +28,7 @@ export const validateApiKey = async (apiKey: string): Promise<{ success: boolean
         let msg = error.message || "Gagal menghubungi server AI.";
         if (msg.includes("403")) msg = "Akses Ditolak (403). Periksa API Restrictions.";
         else if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) msg = "Kuota Habis (429). Silakan gunakan API Key lain.";
+        else if (msg.includes("Failed to fetch")) msg = "Koneksi Gagal. Periksa internet atau API Key Anda.";
         return { success: false, message: msg };
     }
 };
@@ -39,14 +40,12 @@ Tugas Anda adalah menyusun perangkat ajar yang:
 2. Mengikuti siklus Deep Learning: Memahami (Understanding), Mengaplikasi (Applying), Merefleksi (Reflecting).
 3. Menggunakan bahasa yang operasional, konkret, dan menggembirakan.
 4. Menghasilkan output strictly valid JSON sesuai schema yang diminta.
-5. Tidak menggunakan markdown formatting (seperti \`\`\`json) di dalam response text, hanya raw JSON.
 `;
 
 const generateWithRetry = async (
   prompt: string, 
-  schema: any, 
+  schema: Schema, 
   systemInstruction: string = DEEP_LEARNING_INSTRUCTION,
-  // Optimization: Default model switched to Flash for speed, stability & preventing 429 errors
   model: string = 'gemini-3-flash-preview', 
   retries: number = 3
 ): Promise<any> => {
@@ -71,7 +70,7 @@ const generateWithRetry = async (
          throw new Error("AI memberikan respons kosong.");
       }
       
-      // Sanitasi response text jika model terkadang memberikan markdown wrapper
+      // Sanitasi response text
       let cleanText = response.text.trim();
       if (cleanText.startsWith('```json')) {
           cleanText = cleanText.replace(/^```json\n/, '').replace(/\n```$/, '');
@@ -90,8 +89,14 @@ const generateWithRetry = async (
           error.message?.includes('RESOURCE_EXHAUSTED') ||
           JSON.stringify(error).includes('RESOURCE_EXHAUSTED');
 
+      const isNetworkError = error.message?.includes('Failed to fetch');
+
       if (isResourceExhausted) {
           throw new Error("Kuota API Habis (Limit Harian/Menit Tercapai). Mohon ganti API Key pribadi di menu Dashboard atau tunggu beberapa saat.");
+      }
+
+      if (isNetworkError && attempt === retries - 1) {
+          throw new Error("Gagal terhubung ke Google AI (Network Error). Periksa koneksi internet Anda atau status API Key.");
       }
 
       if (attempt < retries - 1) {
@@ -104,7 +109,11 @@ const generateWithRetry = async (
   }
 };
 
-const LEARNING_STEP_SCHEMA = {
+// --- SCHEMAS ---
+// Using explicit string types if Type enum is unstable, but based on SDK it should be fine.
+// We strictly follow the provided SDK format.
+
+const LEARNING_STEP_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
     meetingNo: { type: Type.INTEGER },
@@ -126,7 +135,7 @@ const LEARNING_STEP_SCHEMA = {
   required: ['meetingNo', 'intro', 'introPrinciple', 'core', 'corePrinciple', 'closing', 'closingPrinciple']
 };
 
-const RPP_SCHEMA = {
+const RPP_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
     identitySection: {
@@ -175,7 +184,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   const availableDimensions = GRADUATE_PROFILE_DIMENSIONS.join(", ");
   
   // Extract number from string "1 Pertemuan", "2 Pertemuan" etc.
-  const meetingNum = parseInt(lessonData.meetingCount.split(' ')[0]) || 1;
+  const meetingNum = parseInt((lessonData.meetingCount || '1').split(' ')[0]) || 1;
 
   const prompt = `
     Susun MODUL AJAR (RPM) Lengkap berbasis Deep Learning.
@@ -235,7 +244,7 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
         Tabel ini digunakan untuk perbandingan, klasifikasi, atau rangkuman agar mudah dibaca.
     `;
     
-    const MATERIALS_SCHEMA = {
+    const MATERIALS_SCHEMA: Schema = {
       type: Type.OBJECT,
       properties: {
         judul: { type: Type.STRING },
@@ -285,7 +294,7 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
       "Lakukan pengamatan lalu isi tabel berikut:\n\n| No | Objek | Hasil |\n|----|-------|-------|\n| 1  | ...   | ...   |\n| 2  | ...   | ...   |"
   `;
   
-  const LKPD_SCHEMA = {
+  const LKPD_SCHEMA: Schema = {
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING },
@@ -320,7 +329,7 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
     3. Kisi-kisi sumatif (Indikator soal, Level Kognitif).
   `;
   
-  const ASSESSMENT_SCHEMA = {
+  const ASSESSMENT_SCHEMA: Schema = {
     type: Type.OBJECT,
     properties: {
       kktp: { 
@@ -400,7 +409,7 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
     - Soal HOTS harus disertai stimulus (teks/data/gambar deskriptif).
   `;
   
-  const QUESTION_BANK_SCHEMA = {
+  const QUESTION_BANK_SCHEMA: Schema = {
     type: Type.OBJECT,
     properties: {
       items: {
