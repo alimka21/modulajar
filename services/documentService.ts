@@ -3,8 +3,9 @@ import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, Width
 import * as FileSaver from "file-saver";
 import { GeneratedLessonPlan, DocumentSettings, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
 
-const LINE_SPACING_BODY = 360; 
+const LINE_SPACING_BODY = 312; // 1.3 Line Spacing (240 * 1.3)
 const LINE_SPACING_TABLE = 312;
+const LINE_SPACING_SIG = 264; // 1.1 Line Spacing for Signature
 const SPACING_AFTER_PARA = 160;
 const SPACING_AFTER_LIST = 120;
 const FONT_FACE = "Cambria";
@@ -46,20 +47,20 @@ const createMultilineText = (text: string) => {
              return new Paragraph({
                 children: [new TextRun({ text: trimmed.substring(2), font: FONT_FACE, size: SIZE_BODY })],
                 bullet: { level: 0 },
-                spacing: { after: 120 }
+                spacing: { after: 120, line: LINE_SPACING_BODY }
              });
         }
         // Numbered list approximation
         if (/^\d+\./.test(trimmed)) {
              return new Paragraph({
                 children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
-                spacing: { after: 120 },
+                spacing: { after: 120, line: LINE_SPACING_BODY },
                 indent: { left: 425, hanging: 283 }
              });
         }
         return new Paragraph({
             children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
-            spacing: { after: 120 } // Slightly tighter than standard paragraphs
+            spacing: { after: 120, line: LINE_SPACING_BODY } // Slightly tighter than standard paragraphs
         });
     }).filter(Boolean) as Paragraph[];
 };
@@ -77,26 +78,27 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       ...options
   });
 
-  const createHeading = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H1 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0, line: LINE_SPACING_BODY } });
+  const createHeading = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H1 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 240, line: LINE_SPACING_BODY } });
   
   const createSectionTitle = (text: string, pageBreak = false) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H2 })], { 
       alignment: AlignmentType.CENTER, 
-      spacing: { before: 240, after: 240 }, 
+      spacing: { before: 240, after: 240, line: LINE_SPACING_BODY }, 
       pageBreakBefore: pageBreak, 
       keepNext: true // Keep with following content
   });
   
+  // Adjusted spacing after to 80 (approx 4pt)
   const createSubSectionTitle = (text: string, hasUnderline = true) => createPara([createText(safeString(text), { bold: true, size: SIZE_H3 })], { 
-      spacing: { before: 240, after: 160 }, 
+      spacing: { before: 240, after: 80, line: LINE_SPACING_BODY }, 
       keepNext: true, // Crucial: Keep header with content
       border: hasUnderline ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLOR_ACCENT } } : undefined 
   });
   
-  const createTopicSubTitle = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H3 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 360 } });
+  const createTopicSubTitle = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H3 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 360, line: LINE_SPACING_BODY } });
 
   const createListItem = (text: string, level = 0) => {
       const cleanLine = cleanText(text).replace(/^\d+\.\s*/, '');
-      return createPara([createText(cleanLine)], { bullet: { level }, spacing: { after: SPACING_AFTER_LIST }, indent: { left: 425, hanging: 283 } });
+      return createPara([createText(cleanLine)], { bullet: { level }, spacing: { after: SPACING_AFTER_LIST, line: LINE_SPACING_BODY }, indent: { left: 425, hanging: 283 } });
   };
 
   // --- CONTENT BUILDERS ---
@@ -105,9 +107,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   const createIdentityTable = (data: GeneratedLessonPlan) => {
     const createRow = (label: string, value: any) => new TableRow({
       children: [
-        new TableCell({ children: [createPara([createText(label, { bold: true })], { spacing: { after: 0 } })], width: { size: 30, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
-        new TableCell({ children: [createPara([createText(":")], { spacing: { after: 0 } })], width: { size: 2, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
-        new TableCell({ children: [createPara([createText(safeString(value) || "-")], { spacing: { after: 0 } })], width: { size: 68, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
+        new TableCell({ children: [createPara([createText(label, { bold: true })], { spacing: { after: 0, line: LINE_SPACING_TABLE } })], width: { size: 30, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
+        new TableCell({ children: [createPara([createText(":")], { spacing: { after: 0, line: LINE_SPACING_TABLE } })], width: { size: 2, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
+        new TableCell({ children: [createPara([createText(safeString(value) || "-")], { spacing: { after: 0, line: LINE_SPACING_TABLE } })], width: { size: 68, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
       ],
     });
     return new Table({
@@ -172,7 +174,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   
   data.learningExperience.forEach(step => {
       rppSections.push(
-          createPara([createText(`PERTEMUAN ${step.meetingNo}`, { bold: true })], { alignment: AlignmentType.CENTER, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, spacing: { before: 240, after: 240 } })
+          createPara([createText(`PERTEMUAN ${step.meetingNo}`, { bold: true })], { alignment: AlignmentType.CENTER, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, spacing: { before: 240, after: 240, line: LINE_SPACING_BODY } })
       );
 
       // Pendahuluan
@@ -184,13 +186,13 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       rppSections.push(createSubSectionTitle("B. Kegiatan Inti", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.corePrinciple)}`, { italics: true })]));
       
-      rppSections.push(createPara([createText("1. Memahami:", { bold: true })], { spacing: { before: 120, after: 60 }}));
+      rppSections.push(createPara([createText("1. Memahami:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
       step.core.memahami.forEach(i => rppSections.push(createListItem(i, 1)));
       
-      rppSections.push(createPara([createText("2. Mengaplikasi:", { bold: true })], { spacing: { before: 120, after: 60 }}));
+      rppSections.push(createPara([createText("2. Mengaplikasi:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
       step.core.mengaplikasi.forEach(i => rppSections.push(createListItem(i, 1)));
       
-      rppSections.push(createPara([createText("3. Merefleksi:", { bold: true })], { spacing: { before: 120, after: 60 }}));
+      rppSections.push(createPara([createText("3. Merefleksi:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
       step.core.merefleksi.forEach(i => rppSections.push(createListItem(i, 1)));
 
       // Penutup
@@ -329,21 +331,21 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                   children: [
                       new TableCell({
                           children: [
-                              createPara([createText("Mengetahui,")], { alignment: AlignmentType.CENTER }),
-                              createPara([createText("Kepala Sekolah")], { alignment: AlignmentType.CENTER }),
-                              createPara([], { spacing: { after: 1200 } }), // Space for sign
-                              createPara([createText(safeString(approval.principalName), { bold: true, underline: true })], { alignment: AlignmentType.CENTER }),
-                              createPara([createText(`NIP. ${safeString(approval.principalNip)}`)], { alignment: AlignmentType.CENTER }),
+                              createPara([createText("Mengetahui,")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([createText("Kepala Sekolah")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([], { spacing: { after: 1200, line: LINE_SPACING_SIG } }), // Space for sign
+                              createPara([createText(safeString(approval.principalName), { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([createText(`NIP. ${safeString(approval.principalNip)}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
                           ],
                           width: { size: 50, type: WidthType.PERCENTAGE }
                       }),
                       new TableCell({
                           children: [
-                              createPara([createText(`${safeString(approval.location)}, ${safeString(approval.date)}`)], { alignment: AlignmentType.CENTER }),
-                              createPara([createText("Guru Mata Pelajaran")], { alignment: AlignmentType.CENTER }),
-                              createPara([], { spacing: { after: 1200 } }), // Space for sign
-                              createPara([createText(safeString(approval.authorName), { bold: true, underline: true })], { alignment: AlignmentType.CENTER }),
-                              createPara([createText(`NIP. ${safeString(approval.authorNip)}`)], { alignment: AlignmentType.CENTER }),
+                              createPara([createText(`${safeString(approval.location)}, ${safeString(approval.date)}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([createText("Guru Mata Pelajaran")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([], { spacing: { after: 1200, line: LINE_SPACING_SIG } }), // Space for sign
+                              createPara([createText(safeString(approval.authorName), { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
+                              createPara([createText(`NIP. ${safeString(approval.authorNip)}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG, after: 0 } }),
                           ],
                           width: { size: 50, type: WidthType.PERCENTAGE }
                       })
@@ -352,7 +354,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           ]
       });
 
-      return [createPara([], { spacing: { before: 480 } }), sigTable];
+      return [createPara([], { spacing: { before: 480, line: LINE_SPACING_BODY } }), sigTable];
   };
 
   // 3. REFLECTION GENERATOR
@@ -421,7 +423,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           createSectionTitle("LAMPIRAN 3: BANK SOAL", true), // Keep page break for separate attachment
           ...q.items.flatMap(item => {
               const paras = [
-                  createPara([createText(`${item.number}. ${cleanText(item.question)}`, { bold: true })], { spacing: { before: 240 } })
+                  createPara([createText(`${item.number}. ${cleanText(item.question)}`, { bold: true })], { spacing: { before: 240, line: LINE_SPACING_BODY } })
               ];
               
               if (item.stimulus) {

@@ -28,14 +28,14 @@ export const INITIAL_LESSON_IDENTITY: LessonIdentity = {
 };
 
 export const GRADUATE_PROFILE_DIMENSIONS = [
-  "1. Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa",
-  "2. Kewargaan",
-  "3. Penalaran Kritis",
-  "4. Kreativitas",
-  "5. Kolaborasi",
-  "6. Kemandirian",
-  "7. Kesehatan",
-  "8. Komunikasi"
+  "Keimanan dan Ketakwaan terhadap Tuhan Yang Maha Esa",
+  "Kewargaan",
+  "Penalaran Kritis",
+  "Kreativitas",
+  "Kolaborasi",
+  "Kemandirian",
+  "Kesehatan",
+  "Komunikasi"
 ];
 
 export const INDONESIAN_MONTHS = [

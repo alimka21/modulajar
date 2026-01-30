@@ -211,8 +211,8 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
     try {
         const data = await generateMaterials(generatedPlan);
-        const updated = { ...generatedPlan, materials: data };
-        setGeneratedPlan(updated);
+        // USE FUNCTIONAL UPDATE TO PRESERVE OTHER FIELDS
+        setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
     } catch (e: any) {
@@ -229,8 +229,8 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
     try {
         const data = await generateLKPD(generatedPlan);
-        const updated = { ...generatedPlan, lkpd: data };
-        setGeneratedPlan(updated);
+        // USE FUNCTIONAL UPDATE TO PRESERVE OTHER FIELDS
+        setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
     } catch (e: any) {
@@ -247,7 +247,7 @@ const AppContent: React.FC = () => {
     showLoading('Memperbarui Asesmen...', 'Sinkronisasi instrumen evaluasi...');
     try {
         const data = await generateAssessment(generatedPlan);
-        setGeneratedPlan({ ...generatedPlan, assessment: data });
+        setGeneratedPlan(prev => prev ? ({ ...prev, assessment: data }) : null);
         toast.fire({ icon: 'success', title: 'Asesmen Diperbarui!' });
     } catch (e: any) {
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
@@ -263,8 +263,7 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
     try {
         const data = await generateQuestionBank(generatedPlan, config);
-        const updated = { ...generatedPlan, questionBank: data };
-        setGeneratedPlan(updated);
+        setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Bank Soal Selesai!' });
     } catch (e: any) {

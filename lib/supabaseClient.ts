@@ -1,38 +1,14 @@
+import { createClient } from "@supabase/supabase-js";
 
-import { createClient } from '@supabase/supabase-js';
+// Mengambil URL dan Key dari environment variable yang didefinisikan di vite.config.ts
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://pxypfmqvwliqywqlbbkc.supabase.co';
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4eXBmbXF2d2xpcXl3cWxiYmtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODI1OTcsImV4cCI6MjA4NTE1ODU5N30.iST1IVW7X3x1SDwQb3TKWbRlrKQ0mGwkaDV0BnmORW8';
 
-// URL Project Supabase Anda
-const PROVIDED_URL = 'https://pxypfmqvwliqywqlbbkc.supabase.co';
-const supabaseUrl = process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_URL !== 'undefined'
-    ? process.env.VITE_SUPABASE_URL 
-    : PROVIDED_URL;
-
-// Anon Key Supabase (JWT)
-const PROVIDED_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4eXBmbXF2d2xpcXl3cWxiYmtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODI1OTcsImV4cCI6MjA4NTE1ODU5N30.iST1IVW7X3x1SDwQb3TKWbRlrKQ0mGwkaDV0BnmORW8';
-
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY && process.env.VITE_SUPABASE_ANON_KEY !== 'undefined'
-    ? process.env.VITE_SUPABASE_ANON_KEY
-    : PROVIDED_KEY;
-
-// Cek status konfigurasi
-const isConfigured = supabaseUrl && supabaseAnonKey;
-
-if (!isConfigured) {
-  console.group("⚠️ Supabase Configuration Missing");
-  console.warn("Fitur login/register akan berjalan dalam mode Offline/Simulasi.");
-  console.groupEnd();
-} else {
-  console.log("✅ Supabase Client Connected (Session Storage Mode)");
-}
-
-const validKey = supabaseAnonKey || 'placeholder-key';
-
-// UPDATE: Menggunakan sessionStorage agar logout saat browser ditutup
-export const supabase = createClient(supabaseUrl, validKey, {
+// Langkah 1: Konfigurasi Supabase Client
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: window.sessionStorage, 
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  }
+    persistSession: true,      // simpan di localStorage agar tetap login saat tab ditutup
+    autoRefreshToken: true,   // refresh token secara otomatis di latar belakang
+    detectSessionInUrl: true,
+  },
 });

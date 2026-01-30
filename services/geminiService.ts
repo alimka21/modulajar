@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, AssessmentItem, KKTPItem, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
+import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
 const getClient = () => {
@@ -17,6 +17,7 @@ const getClient = () => {
 export const validateApiKey = async (apiKey: string): Promise<{ success: boolean; message: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
+        // Menggunakan flash untuk validasi agar cepat dan hemat kuota
         await ai.models.generateContent({
             model: 'gemini-3-flash-preview', 
             contents: 'Test connection',
@@ -26,19 +27,31 @@ export const validateApiKey = async (apiKey: string): Promise<{ success: boolean
         console.error("API Key Validation Failed:", error);
         let msg = error.message || "Gagal menghubungi server AI.";
         if (msg.includes("403")) msg = "Akses Ditolak (403). Periksa API Restrictions.";
-        else if (msg.includes("429")) msg = "Kuota Habis (429).";
+        else if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) msg = "Kuota Habis (429). Silakan gunakan API Key lain.";
         return { success: false, message: msg };
     }
 };
 
+const DEEP_LEARNING_INSTRUCTION = `
+Anda adalah Pakar Kurikulum Nasional & Praktisi Deep Learning (Pembelajaran Mendalam).
+Tugas Anda adalah menyusun perangkat ajar yang:
+1. Berpusat pada Murid (Student-Centered). Gunakan istilah "Murid", bukan "Siswa".
+2. Mengikuti siklus Deep Learning: Memahami (Understanding), Mengaplikasi (Applying), Merefleksi (Reflecting).
+3. Menggunakan bahasa yang operasional, konkret, dan menggembirakan.
+4. Menghasilkan output strictly valid JSON sesuai schema yang diminta.
+5. Tidak menggunakan markdown formatting (seperti \`\`\`json) di dalam response text, hanya raw JSON.
+`;
+
 const generateWithRetry = async (
   prompt: string, 
   schema: any, 
-  model: string = 'gemini-3-flash-preview',
-  retries: number = 4
+  systemInstruction: string = DEEP_LEARNING_INSTRUCTION,
+  // Optimization: Default model switched to Flash for speed & stability
+  model: string = 'gemini-3-flash-preview', 
+  retries: number = 3
 ): Promise<any> => {
   const ai = getClient();
-  const baseDelay = 6000;
+  const baseDelay = 5000; 
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -47,7 +60,10 @@ const generateWithRetry = async (
         contents: prompt,
         config: {
           responseMimeType: "application/json",
-          responseSchema: schema
+          responseSchema: schema,
+          systemInstruction: systemInstruction,
+          temperature: 0.7, 
+          topP: 0.95,
         }
       });
 
@@ -55,15 +71,30 @@ const generateWithRetry = async (
          throw new Error("AI memberikan respons kosong.");
       }
       
-      return JSON.parse(response.text);
+      // Sanitasi response text jika model terkadang memberikan markdown wrapper
+      let cleanText = response.text.trim();
+      if (cleanText.startsWith('```json')) {
+          cleanText = cleanText.replace(/^```json\n/, '').replace(/\n```$/, '');
+      } else if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```\n/, '').replace(/\n```$/, '');
+      }
+
+      return JSON.parse(cleanText);
 
     } catch (error: any) {
-      const isRateLimit = 
-        error.message?.includes('429') || 
-        error.status === 429 || 
-        error.message?.toLowerCase().includes('quota');
+      console.warn(`Attempt ${attempt + 1} failed:`, error.message);
+      
+      const isResourceExhausted = 
+          error.message?.includes('429') || 
+          error.status === 429 || 
+          error.message?.includes('RESOURCE_EXHAUSTED') ||
+          JSON.stringify(error).includes('RESOURCE_EXHAUSTED');
 
-      if (isRateLimit && attempt < retries - 1) {
+      if (isResourceExhausted) {
+          throw new Error("Kuota API Habis (Limit Harian/Menit Tercapai). Mohon ganti API Key pribadi di menu Dashboard atau tunggu beberapa saat.");
+      }
+
+      if (attempt < retries - 1) {
           const delay = baseDelay * Math.pow(2, attempt);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
@@ -72,18 +103,6 @@ const generateWithRetry = async (
     }
   }
 };
-
-const DEEP_LEARNING_GUIDELINES = `
-PRINSIP DASAR PENYUSUNAN MODUL AJAR (WAJIB DIPATUHI):
-1. **Istilah Murid**: Gunakan istilah "Murid", BUKAN "Siswa".
-2. **Prinsip Pembelajaran**: Pilih HANYA: (Berkesadaran, Bermakna, Mengembirakan).
-3. **Analisis Kompleksitas Berbasis Fase**:
-   - Fase A/B: Konkret, Bermain, C1-C3.
-   - Fase C/D: Inkuiri Terbimbing, C3-C4.
-   - Fase E/F: Berpikir Kritis, Analisis, C4-C6.
-4. **GRANULARITAS AKTIVITAS**: Pecah langkah mikro yang operasional.
-5. **LATEX**: Gunakan $...$ HANYA untuk rumus matematika. JANGAN untuk angka biasa.
-`;
 
 const LEARNING_STEP_SCHEMA = {
   type: Type.OBJECT,
@@ -147,183 +166,41 @@ const RPP_SCHEMA = {
             student: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
         required: ['teacher', 'student']
-    },
-    approval: {
-      type: Type.OBJECT,
-      properties: {
-        location: { type: Type.STRING },
-        date: { type: Type.STRING },
-        authorName: { type: Type.STRING },
-        authorNip: { type: Type.STRING },
-        principalName: { type: Type.STRING },
-        principalNip: { type: Type.STRING }
-      },
-      required: ['location', 'date', 'authorName', 'principalName']
     }
   },
-  required: ['identitySection', 'design', 'learningExperience', 'reflection', 'approval']
-};
-
-const MATERIALS_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    judul: { type: Type.STRING },
-    pemantik: { type: Type.STRING },
-    subTopik: { type: Type.ARRAY, items: { type: Type.STRING } },
-    konsepInti: {
-      type: Type.OBJECT,
-      properties: {
-        definisi: { type: Type.STRING },
-        penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING } },
-        tabelVisual: { type: Type.STRING },
-        contohKonkret: { type: Type.STRING }
-      },
-      required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret']
-    },
-    trivia: { type: Type.STRING },
-    glosarium: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: { istilah: { type: Type.STRING }, definisi: { type: Type.STRING } },
-        required: ['istilah', 'definisi']
-      }
-    }
-  },
-  required: ['judul', 'pemantik', 'subTopik', 'konsepInti', 'trivia', 'glosarium']
-};
-
-const LKPD_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    title: { type: Type.STRING },
-    objectives: { type: Type.STRING },
-    instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-    stimulus: { type: Type.STRING },
-    activities: {
-      type: Type.OBJECT,
-      properties: {
-        level1: { type: Type.STRING },
-        level2: { type: Type.STRING },
-        level3: { type: Type.STRING }
-      },
-      required: ['level1', 'level2', 'level3']
-    },
-    reflection: { type: Type.ARRAY, items: { type: Type.STRING } }
-  },
-  required: ['title', 'objectives', 'instructions', 'stimulus', 'activities', 'reflection']
-};
-
-const ASSESSMENT_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    kktp: { 
-      type: Type.ARRAY, 
-      items: { 
-          type: Type.OBJECT,
-          properties: {
-            criteria: { type: Type.STRING },
-            needsGuidance: { type: Type.STRING },
-            basic: { type: Type.STRING },
-            proficient: { type: Type.STRING },
-            advanced: { type: Type.STRING }
-          },
-          required: ['criteria', 'needsGuidance', 'basic', 'proficient', 'advanced']
-      } 
-    },
-    formative: {
-        type: Type.OBJECT,
-        properties: {
-            checklist: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } },
-                    required: ['aspect', 'indicator']
-                }
-            },
-            feedbackGuide: {
-                type: Type.OBJECT,
-                properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } },
-                required: ['clarification', 'appreciation', 'suggestion']
-            }
-        },
-        required: ['checklist', 'feedbackGuide']
-    },
-    summative: {
-        type: Type.OBJECT,
-        properties: {
-            grid: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } },
-                    required: ['indicator', 'level', 'technique']
-                }
-            }
-        },
-        required: ['grid']
-    },
-    intervention: {
-        type: Type.OBJECT,
-        properties: {
-            needsGuidance: { type: Type.STRING },
-            basic: { type: Type.STRING },
-            proficient: { type: Type.STRING },
-            advanced: { type: Type.STRING }
-        },
-        required: ['needsGuidance', 'basic', 'proficient', 'advanced']
-    }
-  },
-  required: ['kktp', 'formative', 'summative', 'intervention']
-};
-
-const QUESTION_BANK_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    items: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          number: { type: Type.NUMBER },
-          type: { type: Type.STRING },
-          question: { type: Type.STRING },
-          stimulus: { type: Type.STRING },
-          options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          matchingPairs: { 
-              type: Type.ARRAY, 
-              items: { 
-                  type: Type.OBJECT,
-                  properties: { left: { type: Type.STRING }, right: { type: Type.STRING } }
-              }
-          },
-          answerKey: { type: Type.STRING }
-        },
-        required: ['number', 'type', 'question', 'answerKey']
-      }
-    }
-  },
-  required: ['items']
+  required: ['identitySection', 'design', 'learningExperience', 'reflection']
 };
 
 export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity): Promise<GeneratedLessonPlan> => {
   const availableDimensions = GRADUATE_PROFILE_DIMENSIONS.join(", ");
+  
+  // Extract number from string "1 Pertemuan" -> 1
+  const meetingNum = parseInt(lessonData.meetingCount.split(' ')[0]) || 1;
+
   const prompt = `
-    Bertindaklah sebagai Pakar Kurikulum & Deep Learning.
-    Tugas: Menyusun RENCANA PEMBELAJARAN (RPM) formal.
-    ${DEEP_LEARNING_GUIDELINES}
+    Susun MODUL AJAR (RPM) Lengkap berbasis Deep Learning.
+    
     INFO INPUT:
     Sekolah: ${schoolData.schoolName}
     Mapel: ${lessonData.subject}
     Kelas: ${lessonData.grade}
     Topik: ${lessonData.topic}
-    Tujuan: ${lessonData.objectives || "Sesuai topik"}
-    Pertemuan: ${lessonData.meetingCount}
-    Pilih SECARA OTOMATIS **minimal 2** Dimensi Profil Murid dari [${availableDimensions}].
-    Hasilkan output JSON Sesuai Schema RPP.
+    Tujuan Khusus: ${lessonData.objectives || "Otomatis sesuai standar kurikulum"}
+    Lama Pertemuan: ${lessonData.timeAllocation}
+    Jumlah Pertemuan: ${meetingNum} Pertemuan
+    
+    INSTRUKSI UTAMA:
+    1. Dimensi Profil Murid Pancasila: Pilih minimal 2 dari [${availableDimensions}].
+    2. PRAKTIK PEDAGOGIS: Pilih HANYA SATU Model/Metode Pembelajaran (Misal: PBL, Inquiry, dll). Jelaskan alasan singkat.
+    3. LANGKAH PEMBELAJARAN (MICRO-STEPS):
+       - Array 'learningExperience' HARUS berisi ${meetingNum} item (Pertemuan 1 sampai ${meetingNum}).
+       - Tiap pertemuan WAJIB memiliki siklus inti: Memahami (Understanding), Mengaplikasi (Applying), Merefleksi (Reflecting).
+       - PRINSIP: Untuk field 'introPrinciple', 'corePrinciple', 'closingPrinciple', WAJIB memilih 1 atau 2 nilai dari: ["Berkesadaran", "Bermakna", "Mengembirakan"].
+    4. Materi Matematika/Sains: Gunakan $...$ untuk simbol.
   `;
+  
   const parsed = await generateWithRetry(prompt, RPP_SCHEMA);
+  
   parsed.approval = {
     location: schoolData.location,
     date: schoolData.date,
@@ -337,66 +214,206 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
 
 export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<MaterialsData> => {
     const prompt = `
-      Bertindak sebagai Pakar Konten Edukasi.
-      Tugas: Susun Materi Ajar Deep Learning lengkap.
-      Mata Pelajaran: ${rppData.identitySection.subject}
-      Kelas: ${rppData.identitySection.grade}
-      Topik Utama: ${rppData.identitySection.topic}
-      Tujuan: ${rppData.design.objectives[0]}
+      Susun MATERI AJAR yang komprehensif untuk murid.
+      Mapel: ${rppData.identitySection.subject}
+      Topik: ${rppData.identitySection.topic}
       
       Instruksi Khusus:
-      - Gunakan bahasa yang mudah dipahami murid.
-      - Pastikan konsep inti dijelaskan secara bertahap.
-      - Berikan contoh konkret yang relevan dengan kehidupan nyata.
-      Hasilkan output JSON Sesuai Schema Materials.
+      - Gunakan bahasa komunikatif untuk Murid.
+      - Bagian 'konsepInti' > 'penjelasanBertahap': Jelaskan poin demi poin secara rapi.
+      - Bagian 'tabelVisual': WAJIB menyajikan ringkasan dalam format MARKDOWN TABLE agar visualisasi data terlihat jelas (misal: | Konsep | Penjelasan |).
     `;
+    
+    const MATERIALS_SCHEMA = {
+      type: Type.OBJECT,
+      properties: {
+        judul: { type: Type.STRING },
+        pemantik: { type: Type.STRING },
+        subTopik: { type: Type.ARRAY, items: { type: Type.STRING } },
+        konsepInti: {
+          type: Type.OBJECT,
+          properties: {
+            definisi: { type: Type.STRING },
+            penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING } },
+            tabelVisual: { type: Type.STRING },
+            contohKonkret: { type: Type.STRING }
+          },
+          required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret']
+        },
+        trivia: { type: Type.STRING },
+        glosarium: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: { istilah: { type: Type.STRING }, definisi: { type: Type.STRING } },
+            required: ['istilah', 'definisi']
+          }
+        }
+      },
+      required: ['judul', 'pemantik', 'subTopik', 'konsepInti', 'trivia', 'glosarium']
+    };
+    
     return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
 
 export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
   const prompt = `
-    Bertindak sebagai Desainer Instruksional.
-    Tugas: Buat Lembar Kerja Murid (LKPD) Akademik yang menantang (Deep Learning).
-    Mata Pelajaran: ${rppData.identitySection.subject}
+    Susun LEMBAR KERJA MURID (LKPD) yang menantang nalar kritis.
     Topik: ${rppData.identitySection.topic}
     Fase: ${rppData.identitySection.grade}
     
-    Aktivitas harus terdiri dari 3 level:
-    - Level 1: Pemahaman Dasar.
-    - Level 2: Aplikasi Konsep.
-    - Level 3: Refleksi/Analisis Kritis.
-    Hasilkan output JSON Sesuai Schema LKPD.
+    Kriteria Aktivitas:
+    - Level 1: Mengingat & Menemukan Informasi.
+    - Level 2: Eksplorasi & Kolaborasi Kelompok.
+    - Level 3: Kreasi & Refleksi Mandiri.
+    
+    PENTING:
+    - Salah satu aktivitas (Level 1, 2, atau 3) WAJIB menggunakan format TABEL ISIAN (Markdown Table) agar siswa dapat mengisi data secara terstruktur.
   `;
+  
+  const LKPD_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      title: { type: Type.STRING },
+      objectives: { type: Type.STRING },
+      instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+      stimulus: { type: Type.STRING },
+      activities: {
+        type: Type.OBJECT,
+        properties: {
+          level1: { type: Type.STRING },
+          level2: { type: Type.STRING },
+          level3: { type: Type.STRING }
+        },
+        required: ['level1', 'level2', 'level3']
+      },
+      reflection: { type: Type.ARRAY, items: { type: Type.STRING } }
+    },
+    required: ['title', 'objectives', 'instructions', 'stimulus', 'activities', 'reflection']
+  };
+  
   return await generateWithRetry(prompt, LKPD_SCHEMA);
 };
 
 export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
   const prompt = `
-    Bertindak sebagai Pakar Evaluasi Pendidikan.
-    Tugas: Menyusun instrumen asesmen lengkap berbasis Deep Learning.
-    Topik: ${rppData.identitySection.topic}
-    Tujuan: ${rppData.design.objectives.join(", ")}
+    Susun INSTRUMEN ASESMEN lengkap berbasis Deep Learning.
+    Tujuan Utama: ${rppData.design.objectives.join(", ")}
     
-    Wajib mencakup:
-    - KKTP (Rubrik kualitatif).
-    - Ceklis observasi formatif.
-    - Kisi-kisi sumatif.
-    Hasilkan output JSON Sesuai Schema Assessment.
+    Wajib ada:
+    1. KKTP (Rubrik deskriptif).
+    2. Checklist observasi formatif selama proses.
+    3. Kisi-kisi sumatif (Indikator soal, Level Kognitif).
   `;
+  
+  const ASSESSMENT_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      kktp: { 
+        type: Type.ARRAY, 
+        items: { 
+            type: Type.OBJECT,
+            properties: {
+              criteria: { type: Type.STRING },
+              needsGuidance: { type: Type.STRING },
+              basic: { type: Type.STRING },
+              proficient: { type: Type.STRING },
+              advanced: { type: Type.STRING }
+            },
+            required: ['criteria', 'needsGuidance', 'basic', 'proficient', 'advanced']
+        } 
+      },
+      formative: {
+          type: Type.OBJECT,
+          properties: {
+              checklist: {
+                  type: Type.ARRAY,
+                  items: {
+                      type: Type.OBJECT,
+                      properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } },
+                      required: ['aspect', 'indicator']
+                  }
+              },
+              feedbackGuide: {
+                  type: Type.OBJECT,
+                  properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } },
+                  required: ['clarification', 'appreciation', 'suggestion']
+              }
+          },
+          required: ['checklist', 'feedbackGuide']
+      },
+      summative: {
+          type: Type.OBJECT,
+          properties: {
+              grid: {
+                  type: Type.ARRAY,
+                  items: {
+                      type: Type.OBJECT,
+                      properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } },
+                      required: ['indicator', 'level', 'technique']
+                  }
+              }
+          },
+          required: ['grid']
+      },
+      intervention: {
+          type: Type.OBJECT,
+          properties: {
+              needsGuidance: { type: Type.STRING },
+              basic: { type: Type.STRING },
+              proficient: { type: Type.STRING },
+              advanced: { type: Type.STRING }
+          },
+          required: ['needsGuidance', 'basic', 'proficient', 'advanced']
+      }
+    },
+    required: ['kktp', 'formative', 'summative', 'intervention']
+  };
+  
   return await generateWithRetry(prompt, ASSESSMENT_SCHEMA);
 };
 
 export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
   const prompt = `
-    Tugas: Buat Bank Soal Berkualitas.
-    Jumlah Soal: ${config.count}
-    Level Kognitif: ${config.level}
-    Tipe Soal: ${config.types.join(', ')}
-    Mata Pelajaran: ${rppData.identitySection.subject}
-    Topik: ${rppData.identitySection.topic}
+    Buat BANK SOAL Variatif.
+    Jumlah: ${config.count} butir soal.
+    Kognitif: ${config.level}
+    Tipe: ${config.types.join(', ')}
+    Materi: ${rppData.identitySection.topic}
     
-    Hasilkan butir soal yang variatif sesuai spesifikasi di atas.
-    Hasilkan output JSON Sesuai Schema QuestionBank.
+    Aturan:
+    - Berikan kunci jawaban yang jelas.
+    - Soal HOTS harus disertai stimulus (teks/data/gambar deskriptif).
   `;
+  
+  const QUESTION_BANK_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      items: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            number: { type: Type.NUMBER },
+            type: { type: Type.STRING },
+            question: { type: Type.STRING },
+            stimulus: { type: Type.STRING },
+            options: { type: Type.ARRAY, items: { type: Type.STRING } },
+            matchingPairs: { 
+                type: Type.ARRAY, 
+                items: { 
+                    type: Type.OBJECT,
+                    properties: { left: { type: Type.STRING }, right: { type: Type.STRING } }
+                }
+            },
+            answerKey: { type: Type.STRING }
+          },
+          required: ['number', 'type', 'question', 'answerKey']
+        }
+      }
+    },
+    required: ['items']
+  };
+  
   return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
 };

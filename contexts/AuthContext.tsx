@@ -26,9 +26,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
 
   // --- LOGIC: IDLE TIMEOUT (3 JAM) ---
   const handleIdleLogout = async () => {
+    // Cek double confirmation: apakah benar-benar idle?
+    const now = Date.now();
+    if (now - lastActivityRef.current < IDLE_TIMEOUT) {
+        // Jika ternyata ada aktivitas baru-baru ini yang belum mereset timer, jadwalkan ulang
+        resetIdleTimer();
+        return;
+    }
+
     if (user) {
       console.warn("Session timeout due to inactivity (3 hours).");
       await supabase.auth.signOut();
@@ -45,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetIdleTimer = () => {
+    lastActivityRef.current = Date.now();
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     if (user) {
       idleTimerRef.current = setTimeout(handleIdleLogout, IDLE_TIMEOUT);
@@ -60,14 +70,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      // Optimasi: Jika user ID sama dengan yang sekarang, mungkin tidak perlu fetch ulang profile penuh kecuali refresh eksplisit
+      // Namun untuk keamanan (role/status check), kita fetch ulang.
       const mappedUser = await mapSessionToUser(session);
       
       if (mappedUser && mappedUser.role !== 'admin' && mappedUser.status === 'pending') {
+        // User ada sesi tapi status PENDING di database
         await supabase.auth.signOut();
         setUser(null);
         sessionStorage.removeItem('custom_api_key');
         
-        // Hanya tampilkan pesan jika user memang mencoba login (bukan saat init background)
+        // Hanya tampilkan pesan jika user memang mencoba login aktif (bukan saat init background)
         if (!loading) {
             swal.fire({
                 icon: 'info',
@@ -88,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error) {
       console.error("Auth Context Mapping Error:", error);
+      // Fallback: jangan logout paksa jika hanya error jaringan sesaat, biarkan user null sementara atau retry
     }
   };
 
@@ -103,15 +117,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         // PENTING: Gunakan getSession() untuk recovery cepat saat refresh
         const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
+        
+        if (error) {
+            console.warn("Session error:", error.message);
+            throw error;
+        }
         
         if (mounted) {
            await handleSession(session);
         }
       } catch (e) {
-        console.error("Init session error:", e);
+        // Silent fail on init
       } finally {
-        // Apapun yang terjadi, hentikan loading agar aplikasi tidak stuck
         if (mounted) setLoading(false);
       }
     };
@@ -119,26 +136,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (mounted) {
-        if (event === 'SIGNED_OUT') {
-            setUser(null);
-            sessionStorage.removeItem('custom_api_key');
-            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            await handleSession(session);
-        }
-        setLoading(false);
+      if (!mounted) return;
+      
+      if (event === 'SIGNED_OUT') {
+          setUser(null);
+          sessionStorage.removeItem('custom_api_key');
+          if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+          setLoading(false);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+          await handleSession(session);
+          setLoading(false);
       }
     });
 
-    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-    const resetWrapper = () => resetIdleTimer();
-    activityEvents.forEach(evt => window.addEventListener(evt, resetWrapper));
+    // Throttled Activity Listener
+    // Kita tidak perlu reset timer di SETIAP event mousemove, cukup sekali tiap menit misal.
+    // Tapi sederhananya, kita pakai debounce sederhana via resetIdleTimer yang clearTimeout.
+    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    const activityHandler = () => resetIdleTimer();
+
+    activityEvents.forEach(evt => window.addEventListener(evt, activityHandler));
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      activityEvents.forEach(evt => window.removeEventListener(evt, resetWrapper));
+      activityEvents.forEach(evt => window.removeEventListener(evt, activityHandler));
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, []);

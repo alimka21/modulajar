@@ -82,7 +82,7 @@ const renderInlineMarkdown = (text: string) => {
 
 const OpenSection: React.FC<{ title: string; children?: React.ReactNode; className?: string; contentAlign?: string; }> = ({ title, children, className = "", contentAlign = "text-left" }) => (
   <div className={`mb-4 break-inside-avoid text-black ${className}`}>
-      <h3 className="text-inherit font-bold text-[14pt] uppercase mb-2 mt-4">
+      <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4">
           {title}
       </h3>
       <div className={`${contentAlign} text-black text-inherit`}>
@@ -135,7 +135,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
     const { identitySection, initialAssessment, graduateProfile, design, learningExperience } = data;
     return (
         <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-4">MODUL AJAR</h1>
+            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6">MODUL AJAR</h1>
             <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">TOPIK: {identitySection.topic}</h2>
 
             <OpenSection title="I. IDENTITAS UMUM">
@@ -244,7 +244,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
       return (
           <div className="text-inherit assessment-reset">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-4 mt-8">ASESMEN PEMBELAJARAN</h1>
+            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-8">ASESMEN PEMBELAJARAN</h1>
             
             <OpenSection title="1. KKTP (Rubrik Pembelajaran Mendalam)">
                  <p className="italic mb-2 text-inherit text-slate-600 text-xs">Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)</p>
@@ -393,7 +393,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
     const { teacher, student } = data.reflection;
     return (
         <div className="text-inherit">
-             <h1 className="text-inherit font-bold text-[24pt] text-center mb-4 mt-8">REFLEKSI PEMBELAJARAN</h1>
+             <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-8">REFLEKSI PEMBELAJARAN</h1>
              
              <OpenSection title="1. Refleksi Guru">
                 <ul className="list-disc pl-6 text-inherit">
@@ -416,11 +416,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
     return (
         <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-4 mt-12">LAMPIRAN 1: MATERI AJAR</h1>
+            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12">LAMPIRAN 1: MATERI AJAR</h1>
             <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{m.judul}</h2>
 
             <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-inherit mb-2 text-[14pt] border-b-2 border-[#87CEFA] text-left uppercase mt-4">PEMANTIK BELAJAR</h3>
+                <h3 className="font-bold text-inherit mb-3 text-[14pt] border-b-2 border-[#87CEFA] text-left uppercase mt-4">PEMANTIK BELAJAR</h3>
                 <p className="italic text-lg text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(m.pemantik)} />
             </div>
 
@@ -449,19 +449,19 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                  <div className="mb-4 overflow-x-auto markdown-content text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.tabelVisual)} />
 
                  <div className="mb-4 text-inherit">
-                    <h3 className="text-inherit font-bold text-[14pt] uppercase mb-2 mt-4 border-b-2 border-[#87CEFA] text-left">CONTOH NYATA</h3>
+                    <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4 border-b-2 border-[#87CEFA] text-left">CONTOH NYATA</h3>
                     <div className="italic text-inherit text-sm" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret)} />
                  </div>
             </OpenSection>
 
             <div className="mt-4 text-inherit break-inside-avoid">
                 <div className="mb-6">
-                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-2 text-inherit text-[14pt] uppercase">TAHUKAH KAMU?</h3>
+                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-3 text-inherit text-[14pt] uppercase">TAHUKAH KAMU?</h3>
                     <div className="text-sm text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia)} />
                 </div>
                 
                 <div>
-                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-2 text-inherit text-[14pt] uppercase">GLOSARIUM</h3>
+                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-3 text-inherit text-[14pt] uppercase">GLOSARIUM</h3>
                     <ul className="text-xs space-y-1 text-inherit">
                         {m.glosarium.map((g, i) => (
                             <li key={i}>
@@ -526,7 +526,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             </OpenSection>
 
             <div className="mb-4 break-inside-avoid text-inherit">
-                <h3 className="text-inherit font-bold text-[14pt] uppercase mb-2">C. STIMULUS</h3>
+                <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3">C. STIMULUS</h3>
                 <div className="italic text-inherit text-sm">
                     <div dangerouslySetInnerHTML={renderMarkdown(data.lkpd.stimulus)} />
                 </div>
@@ -590,7 +590,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
       return (
           <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-4 mt-12">LAMPIRAN 3: BANK SOAL & EVALUASI</h1>
+            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12">LAMPIRAN 3: BANK SOAL & EVALUASI</h1>
             
             {Object.entries(groupedItems).map(([type, items], groupIndex) => (
                 <div key={type} className="mb-8">
@@ -662,7 +662,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             #konten-dokumen span, 
             #konten-dokumen div {
                 font-size: 11pt !important;
-                line-height: 1.4 !important;
+                line-height: 1.3 !important;
                 font-family: 'Cambria', Georgia, serif !important;
                 color: #000000 !important;
                 box-shadow: none !important;
@@ -679,7 +679,15 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 padding-left: 4px;
             }
             
-            #konten-dokumen h1 { font-size: 20pt !important; line-height: 1.2 !important; font-weight: bold !important; text-align: center; margin-bottom: 8pt; margin-top: 0; }
+            #konten-dokumen h1 { 
+                font-size: 20pt !important; 
+                line-height: 1.2 !important; 
+                font-weight: bold !important; 
+                text-align: center; 
+                margin-bottom: 12pt; 
+                margin-top: 24pt !important; 
+            }
+            
             #konten-dokumen h2 { font-size: 14pt !important; line-height: 1.2 !important; font-weight: bold !important; text-align: center; margin-bottom: 10pt; margin-top: 0pt; text-transform: uppercase; }
             
             #konten-dokumen h3 { 
@@ -687,8 +695,8 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 line-height: 1.2 !important; 
                 font-weight: bold !important; 
                 text-transform: uppercase; 
-                margin-bottom: 6pt; 
-                margin-top: 12pt; 
+                margin-bottom: 4pt !important; 
+                margin-top: 18pt !important; 
                 border-bottom: 2px solid #87CEFA; 
                 display: block; 
                 text-align: left !important;
@@ -698,6 +706,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             .assessment-reset h3, .lkpd-reset h3 { border-bottom: none !important; }
 
             #konten-dokumen h4 { font-size: 12pt !important; text-transform: uppercase; font-weight: bold !important; margin-bottom: 4pt; margin-top: 8pt; page-break-after: avoid !important; }
+            
+            /* Signature Specific Styles */
+            .signature-area p, .signature-area td {
+                line-height: 1.1 !important;
+            }
 
             .markdown-content table {
                 width: 100% !important;

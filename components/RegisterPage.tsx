@@ -113,7 +113,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         name="name" 
                         value={formData.name}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="Contoh: Muhammad Alimka"
                         required
                     />
@@ -125,7 +125,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         name="username" 
                         value={formData.username}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="Contoh: alimka123"
                         required
                     />
@@ -137,7 +137,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                         name="email" 
                         value={formData.email}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="Contoh: emailanda@gmail.com"
                         required
                     />
@@ -150,7 +150,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                             name="password" 
                             value={formData.password}
                             onChange={handleChange}
-                            className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
+                            className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition pr-10"
                             placeholder="Buat kata sandi aman"
                             required
                         />
