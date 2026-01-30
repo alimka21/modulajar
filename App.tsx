@@ -220,40 +220,58 @@ const AppContent: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setCurrentHistoryId(null);
-    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kebutuhan...');
+    // Mandatory School and Lesson Check
+    if (!schoolIdentity.schoolName || !lessonIdentity.topic || !lessonIdentity.subject) {
+        swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sekolah dan detail pelajaran sudah diisi.' });
+        setIsLoading(false);
+        return;
+    }
+
+    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kebutuhan pembelajaran...');
 
     try {
+      // Step 1: Generate RPP
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
+      
+      // Initial Save to History
       if (user) {
           const newId = await saveHistory(user.id, rppResult, lessonIdentity, {
               rpp: true, assessment: false, materials: false, lkpd: false, questionBank: false
           });
           if (newId) setCurrentHistoryId(newId);
       }
-      closeLoading();
-      toast.fire({ icon: 'success', title: 'RPM Berhasil Disusun!', text: 'Melanjutkan ke Asesmen...' });
       
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      setIsLoading(false); 
+      // Update loading text for the next step (Assessment)
+      showLoading('Menyusun Asesmen...', 'Membangun KKTP, Rubrik, dan Instrumen Evaluasi...');
+
+      // Step 2: Generate Assessment
       setIsGeneratingAssessment(true);
       try {
           const assessmentData = await generateAssessment(rppResult);
-          setGeneratedPlan({ ...rppResult, assessment: assessmentData });
+          const finalPlan = { ...rppResult, assessment: assessmentData };
+          setGeneratedPlan(finalPlan);
           if (user) incrementGenerationCount(user.id);
-          toast.fire({ icon: 'success', title: 'Asesmen Siap!' });
+          
+          // Successful End of Chain
+          closeLoading();
+          toast.fire({ icon: 'success', title: 'Modul Selesai!', text: 'RPM dan Asesmen berhasil disusun.' });
       } catch (assessErr: any) {
           console.error("Assessment chain failed", assessErr);
-          setError("RPM berhasil dibuat, namun Asesmen gagal.");
+          closeLoading(); // Still close if second part fails
+          setError("RPM berhasil dibuat, namun Asesmen gagal disusun.");
+          toast.fire({ icon: 'warning', title: 'Proses Selesai Sebagian', text: 'RPM tersusun, namun Asesmen gagal.' });
       } finally {
           setIsGeneratingAssessment(false);
       }
     } catch (err: any) {
       const errorMessage = err.message || "Gagal menghubungi AI.";
       setError(errorMessage);
-      setIsLoading(false);
+      closeLoading(); // Close popup on error
       swal.fire({ icon: 'error', title: 'Gagal Menyusun RPM', text: errorMessage });
+    } finally {
+        setIsLoading(false);
     }
   };
 

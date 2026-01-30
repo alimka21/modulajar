@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData, QuestionItem, DeepLearningAssessment } from '../types';
-import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer, BookKey, X, SlidersHorizontal } from 'lucide-react';
+import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer, BookKey, X, SlidersHorizontal, AlertCircle } from 'lucide-react';
 import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS } from '../constants';
 import DocumentContent from './DocumentContent';
@@ -180,12 +180,27 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
       onGenerateQuestionBank(questionConfig);
   };
 
-  const canGenerate = !!(inputData.topic && inputData.subject && schoolData.schoolName && inputData.objectives);
+  // STRICK VALIDATION: Check for mandatory school and lesson fields
+  const canGenerate = !!(
+      schoolData.schoolName && 
+      schoolData.authorName && 
+      schoolData.principalName && 
+      schoolData.location &&
+      inputData.subject && 
+      inputData.grade && 
+      inputData.topic && 
+      inputData.objectives
+  );
+
   const getValidationMessage = () => {
-      if (!schoolData.schoolName) return "Lengkapi Identitas Sekolah";
-      if (!inputData.subject) return "Pilih Mata Pelajaran";
-      if (!inputData.topic) return "Isi Topik Pembelajaran";
-      if (!inputData.objectives) return "Isi Tujuan Pembelajaran";
+      if (!schoolData.schoolName) return "Nama Sekolah wajib diisi.";
+      if (!schoolData.authorName) return "Nama Penyusun (Guru) wajib diisi.";
+      if (!schoolData.principalName) return "Nama Kepala Sekolah wajib diisi.";
+      if (!schoolData.location) return "Kota/Lokasi wajib diisi.";
+      if (!inputData.subject) return "Pilih Mata Pelajaran.";
+      if (!inputData.grade) return "Pilih Kelas / Fase.";
+      if (!inputData.topic) return "Isi Topik / Materi Pembelajaran.";
+      if (!inputData.objectives) return "Isi Tujuan Pembelajaran.";
       return "";
   };
 
@@ -283,12 +298,12 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                    <button onClick={() => toggleSection('SCHOOL')} className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition text-left"><div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><School size={16} /><span>Identitas Sekolah</span></div>{expandedSection === 'SCHOOL' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
                    {expandedSection === 'SCHOOL' && (
                       <div className="p-3 space-y-3 bg-white animate-fade-in">
-                          <div><label className="text-xs font-medium text-slate-500">Nama Sekolah</label><input name="schoolName" value={schoolData.schoolName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
-                          <div><label className="text-xs font-medium text-slate-500">Nama Kepala Sekolah</label><input name="principalName" value={schoolData.principalName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Nama Sekolah *</label><input name="schoolName" value={schoolData.schoolName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Nama Kepala Sekolah *</label><input name="principalName" value={schoolData.principalName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
                           <div><label className="text-xs font-medium text-slate-500">NIP Kepala Sekolah</label><input name="principalNip" value={schoolData.principalNip} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
-                          <div><label className="text-xs font-medium text-slate-500">Nama Guru</label><input name="authorName" value={schoolData.authorName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Nama Guru (Penyusun) *</label><input name="authorName" value={schoolData.authorName} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
                           <div><label className="text-xs font-medium text-slate-500">NIP Guru</label><input name="authorNip" value={schoolData.authorNip} onChange={handleSchoolChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
-                          <div><label className="text-xs font-medium text-slate-500">Lokasi & Tanggal</label><div className="flex gap-2"><input name="location" value={schoolData.location} onChange={handleSchoolChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Kota" /><input type="date" value={getIsoDateFromDisplay(schoolData.date)} onChange={handleDateChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Tanggal" /></div></div>
+                          <div><label className="text-xs font-medium text-slate-500">Lokasi & Tanggal *</label><div className="flex gap-2"><input name="location" value={schoolData.location} onChange={handleSchoolChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Kota" /><input type="date" value={getIsoDateFromDisplay(schoolData.date)} onChange={handleDateChange} className="w-1/2 mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Tanggal" /></div></div>
                       </div>
                    )}
                 </div>
@@ -296,14 +311,37 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                    <button onClick={() => toggleSection('LESSON')} className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition text-left"><div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><BookOpen size={16} /><span>Detail Pelajaran</span></div>{expandedSection === 'LESSON' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
                    {expandedSection === 'LESSON' && (
                       <div className="p-3 space-y-3 bg-white animate-fade-in">
-                          <div><label className="text-xs font-medium text-slate-500">Mata Pelajaran</label><select name="subject" value={inputData.subject} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Mapel...</option>{SUBJECT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
-                          <div><label className="text-xs font-medium text-slate-500">Kelas / Fase</label><select name="grade" value={inputData.grade} onChange={handleGradeChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Kelas...</option>{GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Mata Pelajaran *</label><select name="subject" value={inputData.subject} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Mapel...</option>{SUBJECT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                          <div><label className="text-xs font-medium text-slate-500">Kelas / Fase *</label><select name="grade" value={inputData.grade} onChange={handleGradeChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="">Pilih Kelas...</option>{GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
                           <div><label className="text-xs font-medium text-slate-500">Semester</label><select name="semester" value={inputData.semester} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="Ganjil">Ganjil</option><option value="Genap">Genap</option></select></div>
                           <div><label className="text-xs font-medium text-slate-500">Alokasi Waktu</label><input name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" /></div>
                           <div><label className="text-xs font-medium text-slate-500">Jumlah Pertemuan</label><select name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"><option value="1 Pertemuan">1 Pertemuan</option><option value="2 Pertemuan">2 Pertemuan</option><option value="3 Pertemuan">3 Pertemuan</option></select></div>
-                          <div><label className="text-xs font-medium text-slate-500">Topik / Materi</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Topik Utama" /></div>
-                          <div><label className="text-xs font-medium text-slate-500">Tujuan Pembelajaran</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm resize-none bg-white" placeholder="Contoh: Murid mampu menganalisis struktur teks..." /></div>
-                          <div className="pt-2"><button onClick={onGenerate} disabled={isLoading || !canGenerate} className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition ${isLoading || !canGenerate ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>{isLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}{isLoading ? "Menyusun RPM + Asesmen..." : "Generate RPM + Asesmen"}</button>{!canGenerate && <p className="text-[10px] text-red-500 text-center mt-1">{getValidationMessage()}</p>}</div>
+                          <div><label className="text-xs font-medium text-slate-500">Topik / Materi *</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm bg-white" placeholder="Topik Utama" /></div>
+                          <div><label className="text-xs font-medium text-slate-500">Tujuan Pembelajaran *</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded text-sm resize-none bg-white" placeholder="Contoh: Murid mampu menganalisis struktur teks..." /></div>
+                          
+                          <div className="pt-2">
+                            <button 
+                                onClick={onGenerate} 
+                                disabled={isLoading || !canGenerate} 
+                                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all shadow-md ${
+                                    isLoading || !canGenerate 
+                                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                                    : 'bg-blue-600 hover:bg-blue-700 text-white transform hover:-translate-y-0.5'
+                                }`}
+                            >
+                                {isLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+                                {isLoading ? "Menyusun RPM..." : "Generate RPM + Asesmen"}
+                            </button>
+                            
+                            {!canGenerate && !isLoading && (
+                                <div className="bg-amber-50 border border-amber-200 p-2 mt-3 rounded-md flex items-start gap-2 animate-fade-in">
+                                    <AlertCircle size={14} className="text-amber-600 flex-none mt-0.5" />
+                                    <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
+                                        {getValidationMessage()}
+                                    </p>
+                                </div>
+                            )}
+                          </div>
                       </div>
                    )}
                 </div>

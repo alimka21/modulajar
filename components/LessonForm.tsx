@@ -32,6 +32,9 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
     onChange({ ...data, graduateProfileDimensions: updated });
   };
 
+  // Strictly check lesson data
+  const isLessonComplete = !!(data.subject && data.grade && data.topic && data.objectives);
+
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 animate-fade-in">
       <div className="mb-6">
@@ -47,11 +50,11 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
              <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Mata Pelajaran</label>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Mata Pelajaran *</label>
                     <input type="text" name="subject" value={data.subject} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white" placeholder="Matematika" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Kelas / Fase</label>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Kelas / Fase *</label>
                     <input type="text" name="grade" value={data.grade} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white" placeholder="X / E" />
                   </div>
                 </div>
@@ -69,7 +72,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
                    </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Topik / Materi Pembelajaran</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Topik / Materi Pembelajaran *</label>
                   <input type="text" name="topic" value={data.topic} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white" />
                 </div>
              </div>
@@ -79,7 +82,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
              <h3 className="font-semibold text-indigo-800 text-sm mb-2">2. Desain Pembelajaran</h3>
              <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Tujuan Pembelajaran</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Tujuan Pembelajaran *</label>
                   <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Contoh: Murid mampu menganalisis struktur teks..." />
                 </div>
                 <div>
@@ -145,9 +148,9 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
 
         <button
           onClick={onGenerate}
-          disabled={isLoading || !data.topic || !data.subject}
+          disabled={isLoading || !isLessonComplete}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-all ${
-            isLoading || !data.topic || !data.subject
+            isLoading || !isLessonComplete
               ? 'bg-slate-400 cursor-not-allowed'
               : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl transform hover:-translate-y-0.5'
           }`}
