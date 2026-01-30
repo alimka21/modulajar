@@ -96,38 +96,33 @@
         color: #854d0e; 
         font-size: 0.9em;
       }
-      .prose strong {
-        font-weight: 700;
-        color: #1f1f1f;
-      }
-
-      div:where(.swal2-container) {
-          z-index: 9999 !important;
-          font-family: 'Inter', system-ui, sans-serif !important;
-      }
-      div:where(.swal2-popup) {
-          border-radius: 1rem !important;
-          padding: 2rem !important;
-          border: 1px solid #e2e8f0;
-      }
 
       /* =========================================
-         PRINT CSS OPTIMIZED (MANDATORY CLEAN)
+         PRINT CSS OPTIMIZED (CLEAN HEADERS/FOOTERS)
          ========================================= */
       @media print {
         @page {
           size: A4 portrait;
-          margin: 15mm 15mm 15mm 15mm;
+          margin: 0; /* MENGHILANGKAN HEADER/FOOTER OTOMATIS BROWSER */
         }
 
         html, body {
           background: white !important;
           margin: 0 !important;
           padding: 0 !important;
+          height: auto;
         }
 
         .no-print {
           display: none !important;
+        }
+
+        /* Container utama saat cetak agar teks tidak mepet ke pinggir kertas */
+        .print-container {
+            padding: 20mm !important; /* Margin dokumen asli */
+            width: 100% !important;
+            box-shadow: none !important;
+            background: white !important;
         }
 
         #root, #root > div {
@@ -135,33 +130,18 @@
           box-shadow: none !important;
           border: none !important;
           width: 100% !important;
-          max-width: none !important;
         }
 
-        /* Target document container explicitly to remove shadow */
         #konten-dokumen {
             width: 100% !important;
-            max-width: none !important;
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
             box-shadow: none !important;
-            position: relative !important;
-            background: white !important;
             display: block !important;
+            background: white !important;
         }
 
-        /* Ensure all nested containers have no shadow/bg that could bleed */
-        #konten-dokumen * {
-            box-shadow: none !important;
-            text-shadow: none !important;
-        }
-
-        /* Page Flow Management */
-        .page-break {
-            display: none !important; /* Hide explicit spacers in print if they force page break */
-        }
-        
         .force-page-break {
             page-break-before: always !important;
             break-before: page !important;
@@ -173,22 +153,9 @@
             break-inside: avoid !important;
         }
         
-        /* Typography for print */
         * { 
             -webkit-print-color-adjust: exact !important; 
             print-color-adjust: exact !important; 
-        }
-        
-        thead th, .bg-\[\#87CEFA\] { 
-            background-color: #f0f0f0 !important; 
-            color: black !important;
-        }
-
-        /* Fixed signature area shadow specifically */
-        .signature-area {
-            box-shadow: none !important;
-            border: none !important;
-            background: transparent !important;
         }
       }
     </style>

@@ -20,11 +20,9 @@ import { GraduationCap, LogOut, Loader2, Settings } from 'lucide-react';
 
 type ViewMode = 'LOGIN' | 'REGISTER' | 'APP' | 'ADMIN' | 'USER_DASHBOARD'; 
 
-// --- WRAPPER COMPONENT UNTUK MENGGUNAKAN AUTH CONTEXT ---
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
   
-  // URL-Aware Initialization
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
       const path = window.location.pathname;
       if (path === '/register') return 'REGISTER';
@@ -38,7 +36,6 @@ const AppContent: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   
-  // Modular Loading States
   const [isGeneratingMaterials, setIsGeneratingMaterials] = useState<boolean>(false);
   const [isGeneratingLKPD, setIsGeneratingLKPD] = useState<boolean>(false);
   const [isGeneratingAssessment, setIsGeneratingAssessment] = useState<boolean>(false);
@@ -60,7 +57,6 @@ const AppContent: React.FC = () => {
     setAppSettings(getSettings());
   }, []);
 
-  // --- HISTORY SAFE WRAPPER ---
   const safeUpdateHistory = (url: string, replace: boolean = false) => {
       if (typeof window === 'undefined' || !window.history) return;
       if (window.location.protocol === 'data:' || window.location.protocol === 'blob:' || window.location.protocol === 'file:') return;
@@ -73,7 +69,6 @@ const AppContent: React.FC = () => {
       } catch (e) { }
   };
 
-  // --- LOGIC ROUTING TERPUSAT ---
   useEffect(() => {
       if (loading) return;
 
@@ -82,13 +77,11 @@ const AppContent: React.FC = () => {
           const path = window.location.pathname;
           
           if (user.role === 'admin') {
-              // Admin Routing
               if (path !== '/admin' && viewMode !== 'APP') {
                   safeUpdateHistory('/admin', true);
                   setViewMode('ADMIN');
               }
           } else {
-              // User Routing: Kembalikan ke halaman saat ini atau dashboard
               if (path === '/app') {
                   setViewMode('APP');
               } else if (path === '/register' || path === '/auth' || path === '/') {
@@ -99,7 +92,6 @@ const AppContent: React.FC = () => {
               }
           }
       } else {
-          // Public Routing
           const path = window.location.pathname;
           if (path === '/register') {
               setViewMode('REGISTER');
@@ -115,7 +107,6 @@ const AppContent: React.FC = () => {
       setViewMode(mode);
   };
 
-  // --- AUTH HANDLERS ---
   const handleLogin = async (email: string, pass: string) => {
     setAuthError(null);
     try {
@@ -147,10 +138,15 @@ const AppContent: React.FC = () => {
       });
   };
 
-  // --- GENERATION LOGIC ---
   const updateHistoryRecord = async (plan: GeneratedLessonPlan | null) => {
       if (!plan || !user || !currentHistoryId) return;
-      const features = { rpp: true, assessment: !!plan.assessment, materials: !!plan.materials, lkpd: !!plan.lkpd, questionBank: !!plan.questionBank };
+      const features = { 
+          rpp: true, 
+          assessment: !!plan.assessment, 
+          materials: !!plan.materials, 
+          lkpd: !!plan.lkpd, 
+          questionBank: !!plan.questionBank 
+      };
       await updateHistory(currentHistoryId, plan, features);
   };
 
@@ -169,26 +165,36 @@ const AppContent: React.FC = () => {
 
   const handleGenerateRPP = async () => {
     if (!schoolIdentity.schoolName || !lessonIdentity.topic || !lessonIdentity.subject) {
-        swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sudah diisi.' });
+        swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sudah diisi di Dashboard.' });
         return;
     }
     setIsLoading(true);
-    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis...');
+    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kurikulum...');
     try {
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
-      if (user) {
-          const newId = await saveHistory(user.id, rppResult, lessonIdentity, { rpp: true, assessment: false, materials: false, lkpd: false, questionBank: false });
-          if (newId) setCurrentHistoryId(newId);
-      }
-      showLoading('Menyusun Asesmen...', 'Membangun instrumen evaluasi...');
+      
+      showLoading('Menyusun Asesmen...', 'Membangun instrumen evaluasi Deep Learning...');
       setIsGeneratingAssessment(true);
       const assessmentData = await generateAssessment(rppResult);
-      setGeneratedPlan({ ...rppResult, assessment: assessmentData });
-      if (user) incrementGenerationCount(user.id);
+      
+      const fullPlan = { ...rppResult, assessment: assessmentData };
+      setGeneratedPlan(fullPlan);
+
+      if (user) {
+          const newId = await saveHistory(user.id, fullPlan, lessonIdentity, { 
+              rpp: true, 
+              assessment: true, 
+              materials: false, 
+              lkpd: false, 
+              questionBank: false 
+          });
+          if (newId) setCurrentHistoryId(newId);
+      }
+
       closeLoading();
-      toast.fire({ icon: 'success', title: 'Modul Selesai!' });
+      toast.fire({ icon: 'success', title: 'Modul & Asesmen Selesai!' });
     } catch (err: any) {
       setError(err.message);
       closeLoading();
@@ -199,13 +205,76 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // Modular Generators (Reduced for brevity as they remain largely same)
-  const handleGenerateMaterials = async () => { /* ... (Logic preserved) */ };
-  const handleGenerateLKPD = async () => { /* ... (Logic preserved) */ };
-  const handleGenerateAssessment = async () => { /* ... (Logic preserved) */ };
-  const handleGenerateQuestionBank = async (config: QuestionBankConfig) => { /* ... (Logic preserved) */ };
+  const handleGenerateMaterials = async () => {
+    if (!generatedPlan) return;
+    setIsGeneratingMaterials(true);
+    showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
+    try {
+        const data = await generateMaterials(generatedPlan);
+        const updated = { ...generatedPlan, materials: data };
+        setGeneratedPlan(updated);
+        if (user) incrementGenerationCount(user.id);
+        toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
+    } catch (e: any) {
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
+    } finally {
+        setIsGeneratingMaterials(false);
+        closeLoading();
+    }
+  };
 
-  // --- RENDER ---
+  const handleGenerateLKPD = async () => {
+    if (!generatedPlan) return;
+    setIsGeneratingLKPD(true);
+    showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
+    try {
+        const data = await generateLKPD(generatedPlan);
+        const updated = { ...generatedPlan, lkpd: data };
+        setGeneratedPlan(updated);
+        if (user) incrementGenerationCount(user.id);
+        toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
+    } catch (e: any) {
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
+    } finally {
+        setIsGeneratingLKPD(false);
+        closeLoading();
+    }
+  };
+
+  const handleGenerateAssessment = async () => {
+    if (!generatedPlan) return;
+    setIsGeneratingAssessment(true);
+    showLoading('Memperbarui Asesmen...', 'Sinkronisasi instrumen evaluasi...');
+    try {
+        const data = await generateAssessment(generatedPlan);
+        setGeneratedPlan({ ...generatedPlan, assessment: data });
+        toast.fire({ icon: 'success', title: 'Asesmen Diperbarui!' });
+    } catch (e: any) {
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
+    } finally {
+        setIsGeneratingAssessment(false);
+        closeLoading();
+    }
+  };
+
+  const handleGenerateQuestionBank = async (config: QuestionBankConfig) => {
+    if (!generatedPlan) return;
+    setIsGeneratingQuestionBank(true);
+    showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
+    try {
+        const data = await generateQuestionBank(generatedPlan, config);
+        const updated = { ...generatedPlan, questionBank: data };
+        setGeneratedPlan(updated);
+        if (user) incrementGenerationCount(user.id);
+        toast.fire({ icon: 'success', title: 'Bank Soal Selesai!' });
+    } catch (e: any) {
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
+    } finally {
+        setIsGeneratingQuestionBank(false);
+        closeLoading();
+    }
+  };
+
   if (loading) {
       return (
           <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center animate-fade-in">
@@ -252,12 +321,20 @@ const AppContent: React.FC = () => {
                      <button onClick={handleLogout} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition"><LogOut size={20} /></button>
                   </div>
               </header>
-              <UserDashboard user={user} schoolIdentity={schoolIdentity} onSchoolIdentityChange={(data) => { setSchoolIdentity(data); localStorage.setItem('schoolIdentity', JSON.stringify(data)); }} onGoToGenerator={() => navigateTo('APP', '/app')} onLoadHistory={loadHistoryItem} />
+              <UserDashboard 
+                user={user} 
+                schoolIdentity={schoolIdentity} 
+                onSchoolIdentityChange={(data) => { 
+                    setSchoolIdentity(data); 
+                    localStorage.setItem('schoolIdentity', JSON.stringify(data)); 
+                }} 
+                onGoToGenerator={() => navigateTo('APP', '/app')} 
+                onLoadHistory={loadHistoryItem} 
+              />
           </div>
       );
   }
 
-  // APP GENERATOR VIEW
   return (
     <div className="flex flex-col h-screen bg-white text-[#1f1f1f] font-sans overflow-hidden">
       <header className="bg-white border-b border-slate-200 relative h-16 flex-none z-50 px-4 flex items-center justify-between no-print shadow-sm">
@@ -271,7 +348,7 @@ const AppContent: React.FC = () => {
           </div>
           <div className="flex items-center gap-4">
              <button onClick={() => navigateTo('USER_DASHBOARD', '/dashboard')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 font-medium transition-colors">
-                 <Settings size={18} /><span className="hidden md:inline">Pengaturan</span>
+                 <Settings size={18} /><span className="hidden md:inline">Dashboard</span>
              </button>
              <button onClick={handleLogout} className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-3 py-2 rounded-lg transition-colors">
                <LogOut size={18} /> <span className="hidden md:inline">Keluar</span>
@@ -282,11 +359,21 @@ const AppContent: React.FC = () => {
         <main className="flex-1 bg-slate-100 overflow-hidden relative">
             {error && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 shadow-lg">{error}</div>}
             <ResultPreview 
-                data={generatedPlan} inputData={lessonIdentity} onInputChange={setLessonIdentity} schoolData={schoolIdentity} onSchoolChange={setSchoolIdentity} onGenerate={handleGenerateRPP} isLoading={isLoading}
-                onGenerateMaterials={handleGenerateMaterials} isGeneratingMaterials={isGeneratingMaterials}
-                onGenerateLKPD={handleGenerateLKPD} isGeneratingLKPD={isGeneratingLKPD}
-                onGenerateAssessment={handleGenerateAssessment} isGeneratingAssessment={isGeneratingAssessment}
-                onGenerateQuestionBank={handleGenerateQuestionBank} isGeneratingQuestionBank={isGeneratingQuestionBank}
+                data={generatedPlan} 
+                inputData={lessonIdentity} 
+                onInputChange={setLessonIdentity} 
+                schoolData={schoolIdentity} 
+                onSchoolChange={setSchoolIdentity} 
+                onGenerate={handleGenerateRPP} 
+                isLoading={isLoading}
+                onGenerateMaterials={handleGenerateMaterials} 
+                isGeneratingMaterials={isGeneratingMaterials}
+                onGenerateLKPD={handleGenerateLKPD} 
+                isGeneratingLKPD={isGeneratingLKPD}
+                onGenerateAssessment={handleGenerateAssessment} 
+                isGeneratingAssessment={isGeneratingAssessment}
+                onGenerateQuestionBank={handleGenerateQuestionBank} 
+                isGeneratingQuestionBank={isGeneratingQuestionBank}
             />
         </main>
       </div>
@@ -294,7 +381,6 @@ const AppContent: React.FC = () => {
   );
 };
 
-// --- MAIN APP ENTRY POINT ---
 const App: React.FC = () => {
   if (window.location.pathname.startsWith('/print/')) {
       const id = window.location.pathname.split('/')[2];

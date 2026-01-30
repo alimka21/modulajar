@@ -3,21 +3,17 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, AssessmentItem, KKTPItem, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
-// Helper to get client with priority: SessionStorage > Env Var
 const getClient = () => {
-  // Pindah ke sessionStorage agar selaras dengan Auth
   const customKey = sessionStorage.getItem('custom_api_key');
   const envKey = process.env.API_KEY;
-  
   const apiKey = customKey || envKey;
 
   if (!apiKey) {
-    throw new Error("API Key tidak ditemukan. Harap set API Key di pengaturan atau hubungi admin.");
+    throw new Error("API Key tidak ditemukan. Harap set API Key di dashboard atau hubungi admin.");
   }
   return new GoogleGenAI({ apiKey: apiKey });
 };
 
-// Validasi Koneksi API Key
 export const validateApiKey = async (apiKey: string): Promise<{ success: boolean; message: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -25,32 +21,16 @@ export const validateApiKey = async (apiKey: string): Promise<{ success: boolean
             model: 'gemini-3-flash-preview', 
             contents: 'Test connection',
         });
-        return { success: true, message: "Koneksi Berhasil (Gemini 3 Flash)" };
+        return { success: true, message: "Koneksi Berhasil" };
     } catch (error: any) {
         console.error("API Key Validation Failed:", error);
-        
-        if (error.message?.includes("404") || error.message?.includes("not found")) {
-            try {
-                const ai = new GoogleGenAI({ apiKey: apiKey });
-                await ai.models.generateContent({
-                    model: 'gemini-2.0-flash',
-                    contents: 'Test fallback connection',
-                });
-                return { success: true, message: "Koneksi Berhasil (Fallback ke Gemini 2.0)" };
-            } catch (e) { }
-        }
-        
         let msg = error.message || "Gagal menghubungi server AI.";
         if (msg.includes("403")) msg = "Akses Ditolak (403). Periksa API Restrictions.";
         else if (msg.includes("429")) msg = "Kuota Habis (429).";
-
         return { success: false, message: msg };
     }
 };
 
-// ------------------------------------
-// HELPER: RETRY LOGIC FOR 429 ERRORS
-// ------------------------------------
 const generateWithRetry = async (
   prompt: string, 
   schema: any, 
@@ -88,19 +68,6 @@ const generateWithRetry = async (
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
       }
-      
-      if (error.message?.includes('404') || error.message?.includes('not found')) {
-          try {
-               const fallbackResponse = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash',
-                    contents: prompt,
-                    config: { responseMimeType: "application/json", responseSchema: schema }
-               });
-               return JSON.parse(fallbackResponse.text || "{}");
-          } catch (e) {
-              throw error;
-          }
-      }
       throw error;
     }
   }
@@ -111,12 +78,11 @@ PRINSIP DASAR PENYUSUNAN MODUL AJAR (WAJIB DIPATUHI):
 1. **Istilah Murid**: Gunakan istilah "Murid", BUKAN "Siswa".
 2. **Prinsip Pembelajaran**: Pilih HANYA: (Berkesadaran, Bermakna, Mengembirakan).
 3. **Analisis Kompleksitas Berbasis Fase**:
-   - SD: Konkret, Bermain, C1-C3.
-   - SMP: Inkuiri Terbimbing, C3-C4.
-   - SMA: Berpikir Kritis, C4-C6.
-4. **Tujuan Pembelajaran**: Spesifik, Terukur (Taksonomi Bloom).
-5. **GRANULARITAS AKTIVITAS**: Pecah aktivitas besar menjadi langkah mikro (Micro-Steps).
-6. **FORMAT MATEMATIKA**: LaTeX ($...$) HANYA untuk rumus. JANGAN untuk angka biasa.
+   - Fase A/B: Konkret, Bermain, C1-C3.
+   - Fase C/D: Inkuiri Terbimbing, C3-C4.
+   - Fase E/F: Berpikir Kritis, Analisis, C4-C6.
+4. **GRANULARITAS AKTIVITAS**: Pecah langkah mikro yang operasional.
+5. **LATEX**: Gunakan $...$ HANYA untuk rumus matematika. JANGAN untuk angka biasa.
 `;
 
 const LEARNING_STEP_SCHEMA = {
@@ -345,7 +311,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   const availableDimensions = GRADUATE_PROFILE_DIMENSIONS.join(", ");
   const prompt = `
     Bertindaklah sebagai Pakar Kurikulum & Deep Learning.
-    Tugas: Menyusun RENCANA PEMBELAJARAN (RPP) formal.
+    Tugas: Menyusun RENCANA PEMBELAJARAN (RPM) formal.
     ${DEEP_LEARNING_GUIDELINES}
     INFO INPUT:
     Sekolah: ${schoolData.schoolName}
@@ -354,22 +320,10 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     Topik: ${lessonData.topic}
     Tujuan: ${lessonData.objectives || "Sesuai topik"}
     Pertemuan: ${lessonData.meetingCount}
-    Pilih SECARA OTOMATIS **minimal 2 dan maksimal 3** Dimensi yang paling relevan dari [${availableDimensions}].
+    Pilih SECARA OTOMATIS **minimal 2** Dimensi Profil Murid dari [${availableDimensions}].
     Hasilkan output JSON Sesuai Schema RPP.
   `;
   const parsed = await generateWithRetry(prompt, RPP_SCHEMA);
-  parsed.identitySection.schoolName = schoolData.schoolName;
-  parsed.identitySection.subject = lessonData.subject;
-  parsed.identitySection.grade = lessonData.grade;
-  parsed.identitySection.semester = lessonData.semester;
-  parsed.identitySection.timeAllocation = lessonData.timeAllocation;
-  parsed.identitySection.meetingCount = lessonData.meetingCount;
-  parsed.identitySection.topic = lessonData.topic;
-  
-  if (lessonData.graduateProfileDimensions?.length > 0) {
-      parsed.graduateProfile = lessonData.graduateProfileDimensions;
-  }
-  
   parsed.approval = {
     location: schoolData.location,
     date: schoolData.date,
@@ -382,21 +336,67 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
 };
 
 export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<MaterialsData> => {
-    const prompt = `Susun Materi Ajar Deep Learning untuk Topik: ${rppData.identitySection.topic}. Output JSON.`;
+    const prompt = `
+      Bertindak sebagai Pakar Konten Edukasi.
+      Tugas: Susun Materi Ajar Deep Learning lengkap.
+      Mata Pelajaran: ${rppData.identitySection.subject}
+      Kelas: ${rppData.identitySection.grade}
+      Topik Utama: ${rppData.identitySection.topic}
+      Tujuan: ${rppData.design.objectives[0]}
+      
+      Instruksi Khusus:
+      - Gunakan bahasa yang mudah dipahami murid.
+      - Pastikan konsep inti dijelaskan secara bertahap.
+      - Berikan contoh konkret yang relevan dengan kehidupan nyata.
+      Hasilkan output JSON Sesuai Schema Materials.
+    `;
     return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
 
 export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
-  const prompt = `Buat Lembar Kerja Murid (LKPD) Akademik untuk Topik: ${rppData.identitySection.topic}. Output JSON.`;
+  const prompt = `
+    Bertindak sebagai Desainer Instruksional.
+    Tugas: Buat Lembar Kerja Murid (LKPD) Akademik yang menantang (Deep Learning).
+    Mata Pelajaran: ${rppData.identitySection.subject}
+    Topik: ${rppData.identitySection.topic}
+    Fase: ${rppData.identitySection.grade}
+    
+    Aktivitas harus terdiri dari 3 level:
+    - Level 1: Pemahaman Dasar.
+    - Level 2: Aplikasi Konsep.
+    - Level 3: Refleksi/Analisis Kritis.
+    Hasilkan output JSON Sesuai Schema LKPD.
+  `;
   return await generateWithRetry(prompt, LKPD_SCHEMA);
 };
 
 export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
-  const prompt = `Menyusun instrumen asesmen untuk Topik: ${rppData.identitySection.topic}. Output JSON.`;
+  const prompt = `
+    Bertindak sebagai Pakar Evaluasi Pendidikan.
+    Tugas: Menyusun instrumen asesmen lengkap berbasis Deep Learning.
+    Topik: ${rppData.identitySection.topic}
+    Tujuan: ${rppData.design.objectives.join(", ")}
+    
+    Wajib mencakup:
+    - KKTP (Rubrik kualitatif).
+    - Ceklis observasi formatif.
+    - Kisi-kisi sumatif.
+    Hasilkan output JSON Sesuai Schema Assessment.
+  `;
   return await generateWithRetry(prompt, ASSESSMENT_SCHEMA);
 };
 
 export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
-  const prompt = `Buat Bank Soal. Jumlah: ${config.count}. Level: ${config.level}. Tipe: ${config.types.join(', ')}. Topik: ${rppData.identitySection.topic}. Output JSON.`;
+  const prompt = `
+    Tugas: Buat Bank Soal Berkualitas.
+    Jumlah Soal: ${config.count}
+    Level Kognitif: ${config.level}
+    Tipe Soal: ${config.types.join(', ')}
+    Mata Pelajaran: ${rppData.identitySection.subject}
+    Topik: ${rppData.identitySection.topic}
+    
+    Hasilkan butir soal yang variatif sesuai spesifikasi di atas.
+    Hasilkan output JSON Sesuai Schema QuestionBank.
+  `;
   return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
 };

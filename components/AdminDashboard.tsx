@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
 import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Clock, Circle } from 'lucide-react';
 
 declare var Chart: any;
 
@@ -40,6 +40,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   useEffect(() => {
       refreshData();
+      // Auto refresh stats every 30 seconds for real-time feel
+      const interval = setInterval(refreshData, 30000);
+      return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -54,7 +57,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   }, [activeTab, users, genStats]);
 
   const refreshData = async () => {
-      setIsLoading(true);
       try {
         const [allUsers, allGenStats] = await Promise.all([
             getUsers(),
@@ -64,46 +66,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
         setUsers(allUsers);
         setGenStats(allGenStats);
         setAppSettings(getSettings());
-        
-        const admin = allUsers.find(u => u.role === 'admin');
-        if (admin) {
-            setAdminCreds(prev => ({ ...prev, username: admin.email }));
-        }
       } catch (error) {
           console.error("Failed to refresh data", error);
-      } finally {
-          setIsLoading(false);
       }
   };
 
-  const formatDate = (dateString: string) => {
-      if (!dateString) return "-";
-      try {
-          const date = new Date(dateString);
-          return date.toLocaleDateString('id-ID', {
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric'
-          });
-      } catch (e) {
-          return dateString;
-      }
+  const getRelativeTime = (dateString: string) => {
+      if (!dateString) return "Belum pernah";
+      const now = new Date();
+      const past = new Date(dateString);
+      const diffInMs = now.getTime() - past.getTime();
+      const diffInMins = Math.floor(diffInMs / (1000 * 60));
+      const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+      const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+
+      if (diffInMins < 1) return "Baru saja";
+      if (diffInMins < 60) return `${diffInMins} menit lalu`;
+      if (diffInHours < 24) return `${diffInHours} jam lalu`;
+      if (diffInDays < 7) return `${diffInDays} hari lalu`;
+      
+      return past.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
   };
 
-  const formatDateTime = (dateString: string) => {
-      if (!dateString) return "-";
-      try {
-          const date = new Date(dateString);
-          return date.toLocaleString('id-ID', {
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-          }).replace('.', ':');
-      } catch (e) {
-          return dateString;
-      }
+  const isUserOnline = (dateString: string) => {
+      if (!dateString) return false;
+      const now = new Date();
+      const past = new Date(dateString);
+      const diffInMins = Math.floor((now.getTime() - past.getTime()) / (1000 * 60));
+      return diffInMins < 15; // Online if active in last 15 mins
   };
 
   const initRegistrationChart = () => {
@@ -169,7 +159,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       const counts: Record<string, number> = {};
       const today = new Date();
       
-      // Initialize last 7 days keys
       for(let i=6; i>=0; i--) {
           const d = new Date(today);
           d.setDate(today.getDate() - i);
@@ -177,7 +166,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           counts[key] = 0;
       }
 
-      // Process raw timestamps from generation_history
       genStats.forEach(timestamp => {
           if (timestamp) {
               const dateKey = timestamp.split('T')[0];
@@ -343,8 +331,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const activeCount = users.filter(u => u.status === 'active' && u.role !== 'admin').length;
   const pendingCount = users.filter(u => u.status === 'pending').length;
   
-  // FIX: SINGLE SOURCE OF TRUTH FOR TOTAL GENERATIONS
-  // Use genStats.length instead of summing individual user counts to ensure match with history table
+  // STATS: Total Generations is based on raw history row count
   const totalGenerations = genStats.length;
 
   const filteredUsers = users.filter(u => {
@@ -396,27 +383,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
                               <div className="flex justify-between items-start mb-4">
-                                  <div className="text-slate-500 text-xs font-bold uppercase">Total User Aktif</div>
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Total User Terdaftar</div>
                                   <div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Users size={20} /></div>
                               </div>
                               <div className="text-4xl font-black text-slate-800">{activeCount}</div>
-                              <div className="text-xs text-green-600 font-medium mt-2 flex items-center gap-1"><Activity size={12} /> Terverifikasi</div>
+                              <div className="text-xs text-green-600 font-medium mt-2 flex items-center gap-1"><CheckCircle size={12} /> Akun Aktif</div>
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
                               <div className="flex justify-between items-start mb-4">
-                                  <div className="text-slate-500 text-xs font-bold uppercase">Total Aktivitas (Gen)</div>
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Total Generate Modul</div>
                                   <div className="bg-purple-50 p-2 rounded-lg text-purple-600"><Zap size={20} /></div>
                               </div>
                               <div className="text-4xl font-black text-slate-800">{totalGenerations}</div>
-                              <div className="text-xs text-purple-600 font-medium mt-2 flex items-center gap-1"><TrendingUp size={12} /> Total Keseluruhan</div>
+                              <div className="text-xs text-purple-600 font-medium mt-2 flex items-center gap-1"><TrendingUp size={12} /> Seluruh Riwayat</div>
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
                               <div className="flex justify-between items-start mb-4">
-                                  <div className="text-slate-500 text-xs font-bold uppercase">Menunggu Tindakan</div>
-                                  <div className="bg-orange-50 p-2 rounded-lg text-orange-600"><CheckCircle size={20} /></div>
+                                  <div className="text-slate-500 text-xs font-bold uppercase">Antrian Aktivasi</div>
+                                  <div className="bg-orange-50 p-2 rounded-lg text-orange-600"><Clock size={20} /></div>
                               </div>
                               <div className="text-4xl font-black text-slate-800">{pendingCount}</div>
-                              <div className="text-xs text-orange-600 font-medium mt-2">Pendaftar Pending</div>
+                              <div className="text-xs text-orange-600 font-medium mt-2">Menunggu Persetujuan</div>
                           </div>
                       </div>
 
@@ -424,7 +411,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                               <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
                                   <TrendingUp size={20} className="text-blue-600" />
-                                  Statistik Pendaftar Baru (7 Hari)
+                                  Tren Pendaftar Baru (7 Hari)
                               </h3>
                               <div className="h-64 w-full">
                                   <canvas ref={chartRef}></canvas>
@@ -434,7 +421,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                               <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
                                   <BarChart3 size={20} className="text-purple-600" />
-                                  Aktivitas Generate Harian (7 Hari)
+                                  Volume Generate Harian (7 Hari)
                               </h3>
                               <div className="h-64 w-full">
                                   <canvas ref={genChartRef}></canvas>
@@ -453,78 +440,97 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                             <button onClick={() => setIsAddingUser(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition"><Plus size={16} /> Tambah User</button>
                           </div>
                       </div>
-                      {isLoading ? (
-                        <div className="p-12 flex justify-center items-center bg-white rounded-xl shadow-sm border border-slate-200">
-                           <div className="flex flex-col items-center gap-2 text-slate-500"><Loader2 className="animate-spin text-blue-600" size={32} /><span>Memuat data...</span></div>
-                        </div>
-                      ) : (
-                        <>
-                        {isAddingUser && (
-                            <div className="bg-white p-6 rounded-xl border border-blue-100 shadow-lg mb-6 relative animate-fade-in-down">
-                                {isSubmittingUser && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl"><Loader2 className="animate-spin text-blue-600" size={32} /></div>}
-                                <h3 className="font-bold text-base mb-4 text-slate-700">Tambah Pengguna Manual</h3>
-                                <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label><input required type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Nama User" /></div>
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Username</label><input required type="text" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Username" /></div>
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Email</label><input required type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="email@contoh.com" /></div>
-                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Password</label><input required type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Min 6 karakter" /></div>
-                                    <div className="flex gap-2 md:col-span-4 justify-end mt-2">
-                                        <button type="button" onClick={() => setIsAddingUser(false)} disabled={isSubmittingUser} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition disabled:opacity-50">Batal</button>
-                                        <button type="submit" disabled={isSubmittingUser} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50">Simpan Data</button>
-                                    </div>
-                                </form>
-                            </div>
-                        )}
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="flex border-b border-slate-200">
-                                <button onClick={() => setUserTab('ACTIVE')} className={`flex-1 py-3 text-sm font-bold transition ${userTab === 'ACTIVE' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>Pengguna Aktif ({activeCount})</button>
-                                <button onClick={() => setUserTab('PENDING')} className={`flex-1 py-3 text-sm font-bold transition ${userTab === 'PENDING' ? 'bg-white text-orange-600 border-b-2 border-orange-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>Calon Pengguna ({pendingCount})</button>
-                            </div>
-                            <div className="p-4">
-                                <div className="relative mb-4 max-w-md">
-                                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                                    <input type="text" placeholder="Cari..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white" />
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse min-w-[900px]">
-                                        <thead>
-                                            <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
-                                                <th className="p-3 font-bold border-b text-center w-12">No</th>
-                                                <th className="p-3 font-bold border-b">Nama</th>
-                                                <th className="p-3 font-bold border-b">Username</th>
-                                                <th className="p-3 font-bold border-b">Email</th>
-                                                <th className="p-3 font-bold border-b">Password</th>
-                                                <th className="p-3 font-bold border-b text-center">Gen</th>
-                                                <th className="p-3 font-bold border-b">Tgl Daftar</th>
-                                                <th className="p-3 font-bold border-b text-center">Aksi</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="text-sm">
-                                            {filteredUsers.length > 0 ? filteredUsers.map((user, index) => (
-                                                <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="p-3 border-b text-center text-slate-500">{index + 1}</td>
-                                                    <td className="p-3 border-b font-medium">{user.name}</td>
-                                                    <td className="p-3 border-b text-blue-600 font-medium">{user.username || '-'}</td>
-                                                    <td className="p-3 border-b text-slate-600">{user.email}</td>
-                                                    <td className="p-3 border-b text-slate-600 font-mono bg-slate-100 px-2 rounded">{user.password || '****'}</td>
-                                                    <td className="p-3 border-b text-center font-bold text-slate-700">{user.generationCount || 0}</td>
-                                                    <td className="p-3 border-b text-slate-500">{formatDate(user.joinedDate)}</td>
-                                                    <td className="p-3 border-b">
-                                                        <div className="flex justify-center gap-2">
-                                                            {user.status === 'pending' ? <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-100 text-green-700 p-1.5 rounded-md hover:bg-green-200 transition" title="Konfirmasi"><CheckCircle size={16} /></button> : <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-orange-100 text-orange-700 p-1.5 rounded-md hover:bg-orange-200 transition" title="Nonaktifkan"><XCircle size={16} /></button>}
-                                                            <button onClick={() => handleEditClick(user)} className="bg-blue-100 text-blue-700 p-1.5 rounded-md hover:bg-blue-200 transition" title="Edit"><Edit2 size={16} /></button>
-                                                            <button onClick={() => handleDeleteUser(user.id)} className="bg-red-100 text-red-700 p-1.5 rounded-md hover:bg-red-200 transition" title="Hapus"><Trash2 size={16} /></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )) : <tr><td colSpan={8} className="p-8 text-center text-slate-400 italic">Data tidak ditemukan.</td></tr>}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                        </>
-                      )}
+                      
+                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                          <div className="flex border-b border-slate-200">
+                              <button onClick={() => setUserTab('ACTIVE')} className={`flex-1 py-3 text-sm font-bold transition ${userTab === 'ACTIVE' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>Pengguna Aktif ({activeCount})</button>
+                              <button onClick={() => setUserTab('PENDING')} className={`flex-1 py-3 text-sm font-bold transition ${userTab === 'PENDING' ? 'bg-white text-orange-600 border-b-2 border-orange-600' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>Antrian Aktivasi ({pendingCount})</button>
+                          </div>
+                          <div className="p-4">
+                              <div className="relative mb-4 max-w-md">
+                                  <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                                  <input type="text" placeholder="Cari nama atau email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white" />
+                              </div>
+                              <div className="overflow-x-auto">
+                                  <table className="w-full text-left border-collapse min-w-[1000px]">
+                                      <thead>
+                                          <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                                              <th className="p-3 font-bold border-b text-center w-12">No</th>
+                                              <th className="p-3 font-bold border-b">Status</th>
+                                              <th className="p-3 font-bold border-b">Nama & Email</th>
+                                              <th className="p-3 font-bold border-b text-center">Gen</th>
+                                              <th className="p-3 font-bold border-b">Aktivitas Terakhir</th>
+                                              <th className="p-3 font-bold border-b">Bergabung Pada</th>
+                                              <th className="p-3 font-bold border-b text-center">Aksi</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody className="text-sm">
+                                          {filteredUsers.length > 0 ? filteredUsers.map((user, index) => (
+                                              <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                                                  <td className="p-3 border-b text-center text-slate-500">{index + 1}</td>
+                                                  <td className="p-3 border-b text-center">
+                                                      <div className="flex flex-col items-center gap-1">
+                                                          <Circle size={10} className={`${isUserOnline(user.lastLogin || '') ? 'fill-green-500 text-green-500' : 'fill-slate-300 text-slate-300'}`} />
+                                                          <span className={`text-[10px] font-bold ${isUserOnline(user.lastLogin || '') ? 'text-green-600' : 'text-slate-400'}`}>
+                                                              {isUserOnline(user.lastLogin || '') ? 'ONLINE' : 'OFFLINE'}
+                                                          </span>
+                                                      </div>
+                                                  </td>
+                                                  <td className="p-3 border-b">
+                                                      <div className="flex flex-col">
+                                                          <span className="font-bold text-slate-800">{user.name}</span>
+                                                          <span className="text-xs text-slate-500">{user.email}</span>
+                                                      </div>
+                                                  </td>
+                                                  <td className="p-3 border-b text-center">
+                                                      <div className="bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-bold text-xs inline-block">
+                                                          {user.generationCount || 0}
+                                                      </div>
+                                                  </td>
+                                                  <td className="p-3 border-b">
+                                                      <div className="flex items-center gap-2 text-slate-600">
+                                                          <Clock size={14} className="text-slate-400" />
+                                                          <span>{getRelativeTime(user.lastLogin || '')}</span>
+                                                      </div>
+                                                  </td>
+                                                  <td className="p-3 border-b text-slate-500 italic text-xs">
+                                                      {new Date(user.joinedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                  </td>
+                                                  <td className="p-3 border-b">
+                                                      <div className="flex justify-center gap-2">
+                                                          {user.status === 'pending' ? (
+                                                              <button onClick={() => handleUpdateStatus(user, 'active')} className="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 transition text-xs font-bold flex items-center gap-1">
+                                                                  <CheckCircle size={14} /> Aktifkan
+                                                              </button>
+                                                          ) : (
+                                                              <button onClick={() => handleUpdateStatus(user, 'pending')} className="bg-slate-100 text-slate-600 p-2 rounded-md hover:bg-slate-200 transition" title="Nonaktifkan">
+                                                                  <XCircle size={16} />
+                                                              </button>
+                                                          )}
+                                                          <button onClick={() => handleEditClick(user)} className="bg-blue-50 text-blue-600 p-2 rounded-md hover:bg-blue-100 transition" title="Edit">
+                                                              <Edit2 size={16} />
+                                                          </button>
+                                                          <button onClick={() => handleDeleteUser(user.id)} className="bg-red-50 text-red-600 p-2 rounded-md hover:bg-red-100 transition" title="Hapus">
+                                                              <Trash2 size={16} />
+                                                          </button>
+                                                      </div>
+                                                  </td>
+                                              </tr>
+                                          )) : (
+                                              <tr>
+                                                  <td colSpan={7} className="p-12 text-center">
+                                                      <div className="flex flex-col items-center gap-2 text-slate-400 italic">
+                                                          <Search size={32} />
+                                                          <span>Tidak ada data ditemukan.</span>
+                                                      </div>
+                                                  </td>
+                                              </tr>
+                                          )}
+                                      </tbody>
+                                  </table>
+                              </div>
+                          </div>
+                      </div>
                   </div>
               )}
 
@@ -533,10 +539,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                           <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings size={20} /> Pengaturan Aplikasi</h2>
                           <form onSubmit={handleSaveSettings} className="space-y-4">
-                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Promo</label><input type="text" value={settings.promoLink} onChange={e => setAppSettings({...settings, promoLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
-                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Nomor WA Admin</label><input type="text" value={settings.whatsappNumber} onChange={e => setAppSettings({...settings, whatsappNumber: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
-                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Sosmed</label><input type="text" value={settings.socialMediaLink} onChange={e => setAppSettings({...settings, socialMediaLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
-                              <div className="pt-2"><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition shadow-sm text-sm">Simpan</button></div>
+                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Promo / Landing Page</label><input type="text" value={settings.promoLink} onChange={e => setAppSettings({...settings, promoLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
+                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Nomor WhatsApp Admin (Aktivasi)</label><input type="text" value={settings.whatsappNumber} onChange={e => setAppSettings({...settings, whatsappNumber: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
+                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Social Media</label><input type="text" value={settings.socialMediaLink} onChange={e => setAppSettings({...settings, socialMediaLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
+                              <div className="pt-2"><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition shadow-sm text-sm">Simpan Konfigurasi</button></div>
                           </form>
                       </div>
                   </div>
@@ -558,7 +564,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Status Akun</label><select value={editFormData.status} onChange={e => setEditFormData({...editFormData, status: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="active">Aktif</option><option value="pending">Pending</option></select></div>
                               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
                                   <button type="button" onClick={() => setEditingUser(null)} className="px-5 py-2.5 text-slate-600 font-bold text-sm bg-slate-100 rounded-lg">Batal</button>
-                                  <button type="submit" disabled={isSubmittingEdit} className="px-6 py-2.5 text-white font-bold text-sm bg-blue-600 rounded-lg flex items-center gap-2 shadow-md">{isSubmittingEdit && <Loader2 size={16} className="animate-spin" />} Simpan</button>
+                                  <button type="submit" disabled={isSubmittingEdit} className="px-6 py-2.5 text-white font-bold text-sm bg-blue-600 rounded-lg flex items-center gap-2 shadow-md">{isSubmittingEdit && <Loader2 size={16} className="animate-spin" />} Simpan Perubahan</button>
                               </div>
                           </form>
                       </div>

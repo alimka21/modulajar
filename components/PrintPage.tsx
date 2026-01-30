@@ -18,20 +18,21 @@ export default function PrintPage({ id }: PrintPageProps) {
       setData(parsed.data);
       setInputData(parsed.inputData);
       
-      // Delay print slightly to ensure render finishes and MathJax runs
+      // Tunggu render selesai dan MathJax memproses rumus
       setTimeout(() => {
         window.print();
-      }, 1000);
+      }, 1500);
     }
   }, [id]);
 
   if (!data || !inputData) {
-    return <div className="p-10 text-center">Memuat dokumen...</div>;
+    return <div className="p-10 text-center font-sans">Memuat dokumen untuk dicetak...</div>;
   }
 
   return (
     <div className="bg-white min-h-screen">
-      <div className="page">
+      {/* print-container memberikan margin internal saat margin browser diatur ke 0 */}
+      <div className="print-container">
         <DocumentContent data={data} inputData={inputData} activeTab="SEMUA" />
       </div>
     </div>
