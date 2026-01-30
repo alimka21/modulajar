@@ -502,10 +502,13 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <div>
                      <div className="font-bold mb-1">Identitas Kelompok:</div>
                      <div className="space-y-1">
-                         <div className="flex items-end gap-2"><span className="min-w-[150px]">Nama Kelompok</span><div className="flex-1 border-b border-black border-dashed">:</div></div>
+                         <div className="flex items-end gap-2"><span className="min-w-[150px]">Nama Kelompok</span><div className="flex-1 border-b border-black border-dashed h-6"></div></div>
                          <div className="flex items-start gap-2">
                             <span className="min-w-[150px]">Anggota</span>
-                            <div className="flex-1 border-b border-black border-dashed">: .................................................................................</div>
+                            <div className="flex-1">
+                                <div className="border-b border-black border-dashed h-6 mb-1"></div>
+                                <div className="border-b border-black border-dashed h-6"></div>
+                            </div>
                          </div>
                      </div>
                 </div>
@@ -619,7 +622,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                 ))}
                                             </div>
                                         )}
-                                        {/* Other types logic preserved */}
                                     </div>
                                 </div>
                             </div>
@@ -630,7 +632,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
             <div className="mt-8 pt-6 border-t-2 border-black break-inside-avoid">
                 <h3 className="text-lg font-bold text-center mb-4 uppercase text-[14pt]">KUNCI JAWABAN</h3>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                <div className="flex flex-col gap-6">
                     {Object.entries(groupedItems).map(([type, items], groupIndex) => (
                         <div key={type} className="text-xs">
                             <h4 className="font-bold text-inherit mb-1 border-b border-black pb-1">
@@ -746,6 +748,23 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             @media print {
                 .page-break-divider { display: none !important; }
                 .signature-area td { background: transparent !important; box-shadow: none !important; }
+                
+                /* Fake footer to force margin recognition if browser defaults are overridden to 0 */
+                #konten-dokumen::after {
+                    content: ".";
+                    visibility: hidden;
+                    display: block;
+                    height: 1px;
+                    color: white;
+                }
+                
+                #konten-dokumen::before {
+                    content: ".";
+                    visibility: hidden;
+                    display: block;
+                    height: 1px;
+                    color: white;
+                }
             }
         `}</style>
 

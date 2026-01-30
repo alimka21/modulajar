@@ -99,12 +99,12 @@
       }
 
       /* =========================================
-         PRINT CSS OPTIMIZED (CLEAN HEADERS/FOOTERS)
+         PRINT CSS OPTIMIZED
          ========================================= */
       @media print {
         @page {
           size: A4 portrait;
-          margin: 0; /* MENGHILANGKAN HEADER/FOOTER OTOMATIS BROWSER */
+          margin: 15mm; /* Memberikan margin standar agar tidak mepet */
         }
 
         html, body {
@@ -112,18 +112,19 @@
           margin: 0 !important;
           padding: 0 !important;
           height: auto;
+          overflow: visible !important;
         }
 
         .no-print {
           display: none !important;
         }
 
-        /* Container utama saat cetak agar teks tidak mepet ke pinggir kertas */
+        /* Container utama saat cetak */
         .print-container {
-            padding: 20mm !important; /* Margin dokumen asli */
             width: 100% !important;
             box-shadow: none !important;
             background: white !important;
+            padding: 0 !important; /* Margin sudah ditangani oleh @page */
         }
 
         #root, #root > div {
@@ -131,6 +132,7 @@
           box-shadow: none !important;
           border: none !important;
           width: 100% !important;
+          background: white !important;
         }
 
         #konten-dokumen {
@@ -141,6 +143,7 @@
             box-shadow: none !important;
             display: block !important;
             background: white !important;
+            max-width: none !important;
         }
 
         .force-page-break {

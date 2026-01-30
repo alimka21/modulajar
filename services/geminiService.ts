@@ -46,12 +46,12 @@ const generateWithRetry = async (
   prompt: string, 
   schema: any, 
   systemInstruction: string = DEEP_LEARNING_INSTRUCTION,
-  // Optimization: Default model switched to Flash for speed & stability
+  // Optimization: Default model switched to Flash for speed, stability & preventing 429 errors
   model: string = 'gemini-3-flash-preview', 
   retries: number = 3
 ): Promise<any> => {
   const ai = getClient();
-  const baseDelay = 5000; 
+  const baseDelay = 3000; 
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -174,7 +174,7 @@ const RPP_SCHEMA = {
 export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity): Promise<GeneratedLessonPlan> => {
   const availableDimensions = GRADUATE_PROFILE_DIMENSIONS.join(", ");
   
-  // Extract number from string "1 Pertemuan" -> 1
+  // Extract number from string "1 Pertemuan", "2 Pertemuan" etc.
   const meetingNum = parseInt(lessonData.meetingCount.split(' ')[0]) || 1;
 
   const prompt = `
@@ -192,8 +192,11 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     INSTRUKSI UTAMA:
     1. Dimensi Profil Murid Pancasila: Pilih minimal 2 dari [${availableDimensions}].
     2. PRAKTIK PEDAGOGIS: Pilih HANYA SATU Model/Metode Pembelajaran (Misal: PBL, Inquiry, dll). Jelaskan alasan singkat.
-    3. LANGKAH PEMBELAJARAN (MICRO-STEPS):
-       - Array 'learningExperience' HARUS berisi ${meetingNum} item (Pertemuan 1 sampai ${meetingNum}).
+    3. LANGKAH PEMBELAJARAN (MICRO-STEPS ACADEMIC):
+       - Array 'learningExperience' HARUS berisi persis ${meetingNum} item.
+       - BAGIAN PENDAHULUAN (INTRO) WAJIB MEMILIKI MINIMAL 4-5 LANGKAH. 
+         (Cakup: Salam & Doa, Cek Kehadiran, Apersepsi, Pertanyaan Pemantik, Penyampaian Tujuan).
+       - BAGIAN INTI (CORE) harus detail dan operasional (jangan terlalu singkat).
        - Tiap pertemuan WAJIB memiliki siklus inti: Memahami (Understanding), Mengaplikasi (Applying), Merefleksi (Reflecting).
        - PRINSIP: Untuk field 'introPrinciple', 'corePrinciple', 'closingPrinciple', WAJIB memilih 1 atau 2 nilai dari: ["Berkesadaran", "Bermakna", "Mengembirakan"].
     4. Materi Matematika/Sains: Gunakan $...$ untuk simbol.
@@ -217,11 +220,13 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
       Susun MATERI AJAR yang komprehensif untuk murid.
       Mapel: ${rppData.identitySection.subject}
       Topik: ${rppData.identitySection.topic}
+      Tujuan: ${rppData.design.objectives[0]}
       
       Instruksi Khusus:
       - Gunakan bahasa komunikatif untuk Murid.
       - Bagian 'konsepInti' > 'penjelasanBertahap': Jelaskan poin demi poin secara rapi.
-      - Bagian 'tabelVisual': WAJIB menyajikan ringkasan dalam format MARKDOWN TABLE agar visualisasi data terlihat jelas (misal: | Konsep | Penjelasan |).
+      - Bagian 'tabelVisual': WAJIB DIBUAT DALAM FORMAT MARKDOWN TABLE (| Header | Header |). 
+        Sajikan perbandingan, klasifikasi, atau rangkuman data menggunakan tabel ini agar mudah dibaca. JANGAN LIST BIASA.
     `;
     
     const MATERIALS_SCHEMA = {
@@ -235,7 +240,7 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
           properties: {
             definisi: { type: Type.STRING },
             penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING } },
-            tabelVisual: { type: Type.STRING },
+            tabelVisual: { type: Type.STRING, description: "Must be a Markdown Table" },
             contohKonkret: { type: Type.STRING }
           },
           required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret']
@@ -268,7 +273,11 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
     - Level 3: Kreasi & Refleksi Mandiri.
     
     PENTING:
-    - Salah satu aktivitas (Level 1, 2, atau 3) WAJIB menggunakan format TABEL ISIAN (Markdown Table) agar siswa dapat mengisi data secara terstruktur.
+    - SALAH SATU Aktivitas (Level 1, 2, atau 3) WAJIB menggunakan format MARKDOWN TABLE KOSONG (Isian) agar siswa dapat mengisi data secara terstruktur.
+      Contoh:
+      | No | Pengamatan | Hasil |
+      |----|------------|-------|
+      | 1  | ...        | ...   |
   `;
   
   const LKPD_SCHEMA = {

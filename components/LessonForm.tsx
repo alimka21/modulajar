@@ -71,20 +71,20 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
                       <input type="text" name="timeAllocation" value={data.timeAllocation} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white" />
                    </div>
                 </div>
-                
-                {/* NEW FIELD: MEETING COUNT */}
+
+                {/* Input Jumlah Pertemuan */}
                 <div>
-                   <label className="block text-xs font-medium text-slate-600 mb-1">Jumlah Pertemuan</label>
-                   <select 
-                      name="meetingCount" 
-                      value={data.meetingCount} 
-                      onChange={handleChange} 
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white font-medium text-slate-700"
-                   >
-                      <option value="1 Pertemuan">1 Pertemuan</option>
-                      <option value="2 Pertemuan">2 Pertemuan</option>
-                      <option value="3 Pertemuan">3 Pertemuan</option>
-                   </select>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Jumlah Pertemuan</label>
+                  <select 
+                    name="meetingCount" 
+                    value={data.meetingCount} 
+                    onChange={handleChange} 
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white"
+                  >
+                    <option value="1 Pertemuan">1 Pertemuan</option>
+                    <option value="2 Pertemuan">2 Pertemuan</option>
+                    <option value="3 Pertemuan">3 Pertemuan</option>
+                  </select>
                 </div>
 
                 <div>
