@@ -240,6 +240,17 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Semester</label><select name="semester" value={inputData.semester} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="Ganjil">Ganjil</option><option value="Genap">Genap</option></select></div>
                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alokasi Waktu</label><input name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" /></div>
                       </div>
+                      
+                      {/* Added Meeting Count Input Here */}
+                      <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jumlah Pertemuan</label>
+                          <select name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                              <option value="1 Pertemuan">1 Pertemuan</option>
+                              <option value="2 Pertemuan">2 Pertemuan</option>
+                              <option value="3 Pertemuan">3 Pertemuan</option>
+                          </select>
+                      </div>
+
                       <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topik / Materi *</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" placeholder="Contoh: Energi Terbarukan" /></div>
                       <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan Pembelajaran *</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Murid mampu menganalisis..." /></div>
                       
@@ -275,7 +286,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
             {(activeTab === 'SOAL' || activeTab === 'SEMUA') && !data?.questionBank && data && !isGeneratingQuestionBank && (<GenerationToolbar title="Bank Soal Belum Tersedia" onAction={() => setShowQuestionModal(true)} isLoading={isGeneratingQuestionBank} actionLabel="Buat Bank Soal" icon={BookKey} />)}
 
             {showQuestionModal && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden animate-fade-in-up">
                         <div className="flex justify-between items-center p-5 border-b border-slate-100">
                             <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-wide"><SlidersHorizontal size={18} className="text-blue-600" /> Konfigurasi Soal</h3>

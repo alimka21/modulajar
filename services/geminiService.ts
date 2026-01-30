@@ -225,8 +225,14 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
       Instruksi Khusus:
       - Gunakan bahasa komunikatif untuk Murid.
       - Bagian 'konsepInti' > 'penjelasanBertahap': Jelaskan poin demi poin secara rapi.
-      - Bagian 'tabelVisual': WAJIB DIBUAT DALAM FORMAT MARKDOWN TABLE (| Header | Header |). 
-        Sajikan perbandingan, klasifikasi, atau rangkuman data menggunakan tabel ini agar mudah dibaca. JANGAN LIST BIASA.
+      - Bagian 'tabelVisual': WAJIB !!! HARUS BERUPA FORMAT MARKDOWN TABLE.
+        JANGAN GUNAKAN LIST/BULLET. HARUS TABEL.
+        Contoh:
+        | Fitur | Deskripsi |
+        |-------|-----------|
+        | A     | B         |
+        
+        Tabel ini digunakan untuk perbandingan, klasifikasi, atau rangkuman agar mudah dibaca.
     `;
     
     const MATERIALS_SCHEMA = {
@@ -240,7 +246,7 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
           properties: {
             definisi: { type: Type.STRING },
             penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING } },
-            tabelVisual: { type: Type.STRING, description: "Must be a Markdown Table" },
+            tabelVisual: { type: Type.STRING, description: "Strictly Markdown Table format" },
             contohKonkret: { type: Type.STRING }
           },
           required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret']
@@ -272,12 +278,11 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
     - Level 2: Eksplorasi & Kolaborasi Kelompok.
     - Level 3: Kreasi & Refleksi Mandiri.
     
-    PENTING:
-    - SALAH SATU Aktivitas (Level 1, 2, atau 3) WAJIB menggunakan format MARKDOWN TABLE KOSONG (Isian) agar siswa dapat mengisi data secara terstruktur.
-      Contoh:
-      | No | Pengamatan | Hasil |
-      |----|------------|-------|
-      | 1  | ...        | ...   |
+    INSTRUKSI WAJIB (STRICT):
+    - SALAH SATU Aktivitas (Level 1, Level 2, atau Level 3) HARUS berisi instruksi pengisian TABEL PENGAMATAN/ANALISIS.
+    - Sediakan kerangka TABEL KOSONG (Format Markdown Table) di dalam teks aktivitas tersebut agar siswa bisa mengisinya.
+      Contoh output di dalam string:
+      "Lakukan pengamatan lalu isi tabel berikut:\n\n| No | Objek | Hasil |\n|----|-------|-------|\n| 1  | ...   | ...   |\n| 2  | ...   | ...   |"
   `;
   
   const LKPD_SCHEMA = {
