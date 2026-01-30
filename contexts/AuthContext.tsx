@@ -25,7 +25,6 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  // Fix: Use ReturnType<typeof setTimeout> instead of NodeJS.Timeout to resolve the missing namespace error in browser environments.
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- LOGIC: IDLE TIMEOUT (3 JAM) ---
@@ -68,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         sessionStorage.removeItem('custom_api_key');
         
+        // Hanya tampilkan pesan jika user memang mencoba login (bukan saat init background)
         if (!loading) {
             swal.fire({
                 icon: 'info',
@@ -79,12 +79,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setUser(mappedUser);
         
-        // SYNC API KEY KE SESSION STORAGE (Selaras dengan login session)
+        // SYNC API KEY KE SESSION STORAGE
         if (mappedUser?.apiKey) {
             sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
         }
         
-        // Mulai timer idle setelah login berhasil
         resetIdleTimer();
       }
     } catch (error) {
@@ -102,13 +101,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // PENTING: Gunakan getSession() untuk recovery cepat saat refresh
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
         if (mounted) {
            await handleSession(session);
         }
       } catch (e) {
-        console.error("Init session error", e);
+        console.error("Init session error:", e);
       } finally {
+        // Apapun yang terjadi, hentikan loading agar aplikasi tidak stuck
         if (mounted) setLoading(false);
       }
     };
@@ -128,24 +131,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    // LISTENER UNTUK AKTIVITAS USER (Reset Timer)
     const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-    activityEvents.forEach(evt => window.addEventListener(evt, resetIdleTimer));
-
-    const handleFocus = () => {
-        refreshAuth();
-        resetIdleTimer();
-    };
-    window.addEventListener('focus', handleFocus);
+    const resetWrapper = () => resetIdleTimer();
+    activityEvents.forEach(evt => window.addEventListener(evt, resetWrapper));
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      window.removeEventListener('focus', handleFocus);
-      activityEvents.forEach(evt => window.removeEventListener(evt, resetIdleTimer));
+      activityEvents.forEach(evt => window.removeEventListener(evt, resetWrapper));
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
-  }, [user?.id]); // Re-init listeners if user changes
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, refreshAuth }}>

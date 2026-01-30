@@ -5,7 +5,7 @@ import { INDONESIAN_MONTHS } from '../constants';
 import { validateApiKey } from '../services/geminiService';
 import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
-import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X } from 'lucide-react';
+import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
 
 interface UserDashboardProps {
@@ -18,11 +18,7 @@ interface UserDashboardProps {
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onSchoolIdentityChange, onGoToGenerator, onLoadHistory }) => {
   const { refreshAuth } = useAuth();
-  
-  // Identity State
   const [identityData, setIdentityData] = useState<SchoolIdentity>(schoolIdentity);
-  
-  // API Key State
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [isEditingKey, setIsEditingKey] = useState(false);
@@ -30,15 +26,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [isKeyValidated, setIsKeyValidated] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'NONE' | 'VALID' | 'INVALID'>('NONE');
   const [testMessage, setTestMessage] = useState('');
-
-  // History State
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   useEffect(() => {
       const currentKey = user.apiKey || sessionStorage.getItem('custom_api_key') || '';
       setApiKey(currentKey);
-      
       if (currentKey) {
           setKeyStatus('VALID');
           setIsKeyValidated(true);
@@ -46,7 +39,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       } else {
           setIsEditingKey(true);
       }
-
       setIdentityData(schoolIdentity);
       loadHistoryData();
   }, [schoolIdentity, user]);
@@ -89,8 +81,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
     return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${day}`;
   };
 
-  // --- API KEY HANDLERS ---
-  
   const handleStartEditing = () => {
       setIsEditingKey(true);
       setIsKeyValidated(false);
@@ -114,13 +104,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
           swal.fire({ icon: 'warning', title: 'Input Kosong', text: 'Mohon masukkan API Key terlebih dahulu.' });
           return;
       }
-      
       setIsTestingKey(true);
       setTestMessage('Sedang menguji koneksi...');
-      
       const result = await validateApiKey(apiKey);
       setIsTestingKey(false);
-
       if (result.success) {
           setKeyStatus('VALID');
           setIsKeyValidated(true);
@@ -136,22 +123,14 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
 
   const handleSaveApiKey = async () => {
       if (!isKeyValidated) return;
-      
       try {
           await saveUserApiKey(user.id, apiKey);
           sessionStorage.setItem('custom_api_key', apiKey);
           setIsEditingKey(false);
-          
-          // Refresh context agar user object terupdate (user.apiKey terisi)
           await refreshAuth();
-          
-          swal.fire({ 
-              icon: 'success', 
-              title: 'Tersimpan!', 
-              text: 'Sistem telah dikunci untuk selalu menggunakan API Key Anda.' 
-          });
+          swal.fire({ icon: 'success', title: 'Tersimpan!', text: 'Sistem telah dikunci untuk selalu menggunakan API Key Anda.' });
       } catch (e) {
-          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: 'Terjadi gangguan sinkronisasi database.' });
+          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: 'Terjadi gangguan sinkronisasi.' });
       }
   };
 
@@ -201,7 +180,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
     <div className="flex-1 bg-slate-50 p-4 md:p-8 overflow-y-auto h-full">
       <div className="max-w-6xl mx-auto space-y-8 pb-12">
         
-        {/* HEADER SECTION */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div>
                 <h1 className="text-2xl font-bold text-slate-800">Halo, {user.name} 👋</h1>
@@ -217,10 +195,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* LEFT COLUMN: IDENTITY SETTINGS */}
             <div className="lg:col-span-2 space-y-6">
-                
-                {/* IDENTITY CARD */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                         <h2 className="font-bold text-slate-700 flex items-center gap-2">
@@ -271,7 +246,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     </div>
                 </div>
 
-                {/* API KEY CONFIGURATION */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                         <h2 className="font-bold text-slate-700 flex items-center gap-2">
@@ -289,25 +263,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     </div>
                     
                     <div className="p-6">
-                        {!user.apiKey && (
-                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-                                <Zap className="text-blue-600 flex-none mt-0.5" size={20} />
-                                <div className="text-sm text-blue-900">
-                                    <p className="font-bold mb-1">Gunakan Key Sendiri:</p>
-                                    <p>Dengan menggunakan API Key sendiri, Anda mendapatkan prioritas akses tercepat dan kuota pribadi yang tidak terbagi dengan user lain.</p>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="flex justify-between items-center mb-2">
                             <label className="block text-sm font-bold text-slate-700">Google Gemini API Key</label>
-                            {user.apiKey && !isEditingKey && (
-                                <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                    <CheckCircle size={10} /> TERPASANG & AKTIF
-                                </span>
-                            )}
                         </div>
-
                         <div className="relative mb-2">
                             <input 
                                 type={showKey ? "text" : "password"} 
@@ -326,120 +284,62 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                 }`}
                                 placeholder={isEditingKey ? "Tempel API Key Anda di sini..." : "API Key telah dikunci"}
                             />
-                            <button 
-                                onClick={() => setShowKey(!showKey)}
-                                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
-                            >
+                            <button onClick={() => setShowKey(!showKey)} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
                                 {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
-
                         {testMessage && (
                             <div className={`text-xs font-medium mb-4 flex items-center gap-1 ${keyStatus === 'VALID' ? 'text-green-600' : 'text-red-600'}`}>
                                 {keyStatus === 'VALID' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
                                 {testMessage}
                             </div>
                         )}
-
                         <div className="flex flex-wrap gap-3 mt-4">
                             {isEditingKey ? (
                                 <>
-                                    <button 
-                                        onClick={handleTestKey}
-                                        disabled={isTestingKey || !apiKey.trim()}
-                                        className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-lg text-sm flex items-center gap-2 shadow-sm transition disabled:opacity-50"
-                                    >
+                                    <button onClick={handleTestKey} disabled={isTestingKey || !apiKey.trim()} className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-lg text-sm flex items-center gap-2 shadow-sm transition disabled:opacity-50">
                                         {isTestingKey ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
-                                        {isTestingKey ? 'Sedang Tes...' : '1. Tes Koneksi'}
+                                        {isTestingKey ? 'Sedang Tes...' : 'Tes Koneksi'}
                                     </button>
-                                    
-                                    <button 
-                                        onClick={handleSaveApiKey}
-                                        disabled={!isKeyValidated || isTestingKey}
-                                        className={`font-bold py-2.5 px-6 rounded-lg text-sm flex items-center gap-2 shadow-md transition-all ${
-                                            isKeyValidated 
-                                            ? 'bg-blue-600 hover:bg-blue-700 text-white transform hover:-translate-y-0.5' 
-                                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                        }`}
-                                    >
-                                        <Save size={16} />
-                                        2. Simpan Permanen
+                                    <button onClick={handleSaveApiKey} disabled={!isKeyValidated || isTestingKey} className={`font-bold py-2.5 px-6 rounded-lg text-sm flex items-center gap-2 shadow-md transition-all ${isKeyValidated ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                                        <Save size={16} /> Simpan
                                     </button>
-
-                                    {user.apiKey && (
-                                        <button 
-                                            onClick={handleCancelEditing}
-                                            className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold py-2.5 px-6 rounded-lg text-sm flex items-center gap-2 shadow-sm transition"
-                                        >
-                                            <X size={16} /> Batal
-                                        </button>
-                                    )}
                                 </>
                             ) : (
-                                <>
-                                    <button 
-                                        onClick={handleDeleteApiKey}
-                                        className="bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 font-bold py-2.5 px-4 rounded-lg text-sm flex items-center gap-2 shadow-sm transition"
-                                    >
-                                        <Trash2 size={16} /> Hapus & Gunakan Key Sistem
-                                    </button>
-                                </>
+                                <button onClick={handleDeleteApiKey} className="bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 font-bold py-2.5 px-4 rounded-lg text-sm flex items-center gap-2 shadow-sm transition">
+                                    <Trash2 size={16} /> Hapus API Key
+                                </button>
                             )}
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* RIGHT COLUMN: INSTRUCTIONS & INFO */}
             <div className="space-y-6">
-                
-                {/* TUTORIAL */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                         <HelpCircle size={18} className="text-blue-600" />
                         Panduan API Key
                     </h3>
-                    
                     <div className="space-y-4 text-sm text-slate-600">
-                        <p>1. Login ke <strong>Google AI Studio</strong> dengan Gmail Anda.</p>
-                        <p>2. Klik menu <strong>"Get API key"</strong> di sisi kiri.</p>
-                        <p>3. Buat kunci baru, lalu salin dan tempel di sini.</p>
-                        <p>4. <strong>Wajib:</strong> Klik "Tes Koneksi" terlebih dahulu untuk mengaktifkan tombol simpan.</p>
-                        <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="block text-center bg-blue-50 text-blue-600 py-2 rounded-lg font-bold hover:bg-blue-100 transition">
-                            Buka Google AI Studio
-                        </a>
-                    </div>
-                </div>
-
-                {/* STATUS INFO */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="font-bold text-slate-800 mb-2">Konfigurasi Aktif</h3>
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center text-sm py-2 border-b border-slate-100">
-                            <span className="text-slate-500">Sumber Kuota</span>
-                            <span className={`font-bold ${user.apiKey ? 'text-green-600' : 'text-blue-600'}`}>
-                                {user.apiKey ? 'Key Pribadi' : 'Key Sistem'}
-                            </span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm py-2">
-                            <span className="text-slate-500">AI Engine</span>
-                            <span className="font-bold text-slate-800">Gemini 3 Pro</span>
-                        </div>
+                        <p>1. Login ke <strong>Google AI Studio</strong>.</p>
+                        <p>2. Buat API key baru.</p>
+                        <p>3. Tes & Simpan di sini.</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        {/* RIWAYAT GENERATE (Minimalist) */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between bg-slate-50 gap-2">
+                <div className="flex items-center gap-2">
                     <Clock size={20} className="text-blue-600" />
-                    Modul yang Pernah Dibuat
-                </h2>
-                <button onClick={loadHistoryData} className="text-sm text-blue-600 hover:underline font-medium">
-                    Refresh
-                </button>
+                    <h2 className="text-lg font-bold text-slate-800">Riwayat Modul</h2>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full">
+                    <Info size={14} />
+                    Hanya 10 modul terakhir yang disimpan
+                </div>
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-600">
@@ -457,7 +357,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                         ) : history.length === 0 ? (
                              <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Belum ada riwayat.</td></tr>
                         ) : (
-                             history.slice(0, 10).map((item) => (
+                             history.map((item) => (
                                  <tr key={item.id} className="hover:bg-blue-50/30 transition">
                                      <td className="p-4 whitespace-nowrap">{formatDate(item.created_at)}</td>
                                      <td className="p-4 font-medium text-slate-800">{item.subject}</td>
