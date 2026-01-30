@@ -2,14 +2,12 @@
 import { createClient } from '@supabase/supabase-js';
 
 // URL Project Supabase Anda
-// Prioritaskan Environment Variable, jika tidak ada gunakan URL yang diberikan.
 const PROVIDED_URL = 'https://pxypfmqvwliqywqlbbkc.supabase.co';
 const supabaseUrl = process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_URL !== 'undefined'
     ? process.env.VITE_SUPABASE_URL 
     : PROVIDED_URL;
 
 // Anon Key Supabase (JWT)
-// Menggunakan key valid yang Anda berikan
 const PROVIDED_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4eXBmbXF2d2xpcXl3cWxiYmtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODI1OTcsImV4cCI6MjA4NTE1ODU5N30.iST1IVW7X3x1SDwQb3TKWbRlrKQ0mGwkaDV0BnmORW8';
 
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY && process.env.VITE_SUPABASE_ANON_KEY !== 'undefined'
@@ -21,20 +19,18 @@ const isConfigured = supabaseUrl && supabaseAnonKey;
 
 if (!isConfigured) {
   console.group("⚠️ Supabase Configuration Missing");
-  console.warn("URL:", supabaseUrl);
-  console.warn("Key:", supabaseAnonKey ? "******" : "MISSING");
   console.warn("Fitur login/register akan berjalan dalam mode Offline/Simulasi.");
-  console.warn("Untuk mengaktifkan Supabase, tambahkan VITE_SUPABASE_ANON_KEY pada file .env");
   console.groupEnd();
 } else {
-  console.log("✅ Supabase Client Connected");
+  console.log("✅ Supabase Client Connected (Session Storage Mode)");
 }
 
 const validKey = supabaseAnonKey || 'placeholder-key';
 
-// UPDATE: Tambahkan konfigurasi auth eksplisit
+// UPDATE: Menggunakan sessionStorage agar logout saat browser ditutup
 export const supabase = createClient(supabaseUrl, validKey, {
   auth: {
+    storage: window.sessionStorage, 
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true

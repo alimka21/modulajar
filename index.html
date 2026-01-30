@@ -101,7 +101,6 @@
         color: #1f1f1f;
       }
 
-      /* === SWEETALERT2 CUSTOM OVERRIDES === */
       div:where(.swal2-container) {
           z-index: 9999 !important;
           font-family: 'Inter', system-ui, sans-serif !important;
@@ -113,34 +112,33 @@
       }
 
       /* =========================================
-         PRINT CSS OVERRIDE (MANDATORY CLEAN)
+         PRINT CSS OPTIMIZED (MANDATORY CLEAN)
          ========================================= */
       @media print {
+        @page {
+          size: A4 portrait;
+          margin: 15mm 15mm 15mm 15mm;
+        }
 
-        html,
-        body,
-        #root,
-        #root > div,
-        #konten-dokumen {
-          height: auto !important;
-          overflow: visible !important;
+        html, body {
+          background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
 
         .no-print {
           display: none !important;
         }
 
-        @page {
-          size: A4 portrait;
-          margin: 20mm;
-        }
-        
-        /* Layout Reset for Print */
-        body {
-            background-color: white !important;
+        #root, #root > div {
+          display: block !important;
+          box-shadow: none !important;
+          border: none !important;
+          width: 100% !important;
+          max-width: none !important;
         }
 
-        /* Target document explicitly */
+        /* Target document container explicitly to remove shadow */
         #konten-dokumen {
             width: 100% !important;
             max-width: none !important;
@@ -149,32 +147,49 @@
             border: none !important;
             box-shadow: none !important;
             position: relative !important;
-            left: 0 !important;
-            top: 0 !important;
+            background: white !important;
+            display: block !important;
         }
 
-        /* Hiding specific UI elements just in case .no-print wasn't added to them */
-        header, nav, aside, .sidebar, .tabs, .toolbar {
-            display: none !important;
+        /* Ensure all nested containers have no shadow/bg that could bleed */
+        #konten-dokumen * {
+            box-shadow: none !important;
+            text-shadow: none !important;
         }
 
-        /* Page Breaks */
+        /* Page Flow Management */
         .page-break {
+            display: none !important; /* Hide explicit spacers in print if they force page break */
+        }
+        
+        .force-page-break {
             page-break-before: always !important;
             break-before: page !important;
             display: block !important;
-            height: 1px !important; 
-            margin: 0 !important;
         }
-        
+
         .break-inside-avoid {
             page-break-inside: avoid !important;
+            break-inside: avoid !important;
         }
         
-        /* Force text colors */
-        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .text-slate-600, .text-slate-500 { color: black !important; }
-        thead th, .bg-\[\#87CEFA\] { background-color: #f0f0f0 !important; }
+        /* Typography for print */
+        * { 
+            -webkit-print-color-adjust: exact !important; 
+            print-color-adjust: exact !important; 
+        }
+        
+        thead th, .bg-\[\#87CEFA\] { 
+            background-color: #f0f0f0 !important; 
+            color: black !important;
+        }
+
+        /* Fixed signature area shadow specifically */
+        .signature-area {
+            box-shadow: none !important;
+            border: none !important;
+            background: transparent !important;
+        }
       }
     </style>
   <script type="importmap">
