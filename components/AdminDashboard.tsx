@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
-import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats } from '../services/storageService';
+import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats, updateAdminPassword } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Clock, Circle } from 'lucide-react';
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Clock, Circle, Eye, EyeOff } from 'lucide-react';
 
 declare var Chart: any;
 
@@ -30,7 +30,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const [editFormData, setEditFormData] = useState({ name: '', username: '', email: '', password: '', status: '' });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
-  const [adminCreds, setAdminCreds] = useState({ username: '', newPassword: '' });
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [isUpdatingPass, setIsUpdatingPass] = useState(false);
 
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
@@ -40,7 +41,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   useEffect(() => {
       refreshData();
-      // Auto refresh stats every 30 seconds for real-time feel
       const interval = setInterval(refreshData, 30000);
       return () => clearInterval(interval);
   }, []);
@@ -93,12 +93,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       const now = new Date();
       const past = new Date(dateString);
       const diffInMins = Math.floor((now.getTime() - past.getTime()) / (1000 * 60));
-      return diffInMins < 15; // Online if active in last 15 mins
+      return diffInMins < 15;
   };
 
   const initRegistrationChart = () => {
       if (!chartRef.current) return;
-      
       const counts: Record<string, number> = {};
       const today = new Date();
       for(let i=6; i>=0; i--) {
@@ -107,24 +106,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           const key = d.toISOString().split('T')[0];
           counts[key] = 0;
       }
-
       users.forEach(u => {
           if(u.role !== 'admin' && u.joinedDate) {
               const dateKey = u.joinedDate.split('T')[0];
-              if (counts[dateKey] !== undefined) {
-                  counts[dateKey]++;
-              }
+              if (counts[dateKey] !== undefined) counts[dateKey]++;
           }
       });
-
       const labels = Object.keys(counts).map(k => {
           const [y, m, d] = k.split('-');
           return `${d}/${m}`;
       });
       const data = Object.values(counts);
-
       if (chartInstance.current) chartInstance.current.destroy();
-
       const ctx = chartRef.current.getContext('2d');
       chartInstance.current = new Chart(ctx, {
           type: 'line',
@@ -155,34 +148,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const initGenerationChart = () => {
       if (!genChartRef.current) return;
-
       const counts: Record<string, number> = {};
       const today = new Date();
-      
       for(let i=6; i>=0; i--) {
           const d = new Date(today);
           d.setDate(today.getDate() - i);
           const key = d.toISOString().split('T')[0];
           counts[key] = 0;
       }
-
       genStats.forEach(timestamp => {
           if (timestamp) {
               const dateKey = timestamp.split('T')[0];
-              if (counts[dateKey] !== undefined) {
-                  counts[dateKey]++;
-              }
+              if (counts[dateKey] !== undefined) counts[dateKey]++;
           }
       });
-
       const labels = Object.keys(counts).map(k => {
           const [y, m, d] = k.split('-');
           return `${d}/${m}`;
       });
       const data = Object.values(counts);
-
       if (genChartInstance.current) genChartInstance.current.destroy();
-
       const ctx = genChartRef.current.getContext('2d');
       genChartInstance.current = new Chart(ctx, {
           type: 'bar',
@@ -202,9 +187,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               plugins: { 
                   legend: { display: false },
                   tooltip: {
-                      callbacks: {
-                          label: (context: any) => `Volume: ${context.raw} Modul`
-                      }
+                      callbacks: { label: (context: any) => `Volume: ${context.raw} Modul` }
                   }
               },
               scales: {
@@ -295,7 +278,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const handleEditClick = (user: User) => {
       setEditingUser(user);
-      setEditFormData({ name: user.name, username: user.username || '', email: user.email, password: '', status: user.status });
+      setEditFormData({ name: user.name, username: user.username || '', email: user.email, password: user.password || '', status: user.status });
   };
 
   const handleSaveEditUser = async (e: React.FormEvent) => {
@@ -308,6 +291,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               name: editFormData.name,
               username: editFormData.username,
               email: editFormData.email,
+              password: editFormData.password,
               status: editFormData.status as 'active' | 'pending'
           };
           setUsers(prev => prev.map(u => u.id === editingUser.id ? updatedUser : u));
@@ -328,10 +312,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       swal.fire({ title: 'Tersimpan!', text: 'Pengaturan berhasil disimpan.', icon: 'success' });
   };
 
+  const handleUpdateAdminPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (newAdminPassword.length < 6) {
+          swal.fire({ title: 'Password Terlalu Pendek', text: 'Minimal 6 karakter.', icon: 'warning' });
+          return;
+      }
+      setIsUpdatingPass(true);
+      try {
+          await updateAdminPassword(newAdminPassword);
+          setNewAdminPassword('');
+          swal.fire({ title: 'Selesai!', text: 'Kata sandi admin berhasil diperbarui.', icon: 'success' });
+      } catch (e: any) {
+          swal.fire({ title: 'Gagal!', text: e.message || "Gagal update password.", icon: 'error' });
+      } finally {
+          setIsUpdatingPass(false);
+      }
+  };
+
   const activeCount = users.filter(u => u.status === 'active' && u.role !== 'admin').length;
   const pendingCount = users.filter(u => u.status === 'pending').length;
-  
-  // STATS: Total Generations is based on raw history row count
   const totalGenerations = genStats.length;
 
   const filteredUsers = users.filter(u => {
@@ -456,11 +456,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                       <thead>
                                           <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
                                               <th className="p-3 font-bold border-b text-center w-12">No</th>
-                                              <th className="p-3 font-bold border-b">Status</th>
+                                              <th className="p-3 font-bold border-b text-center">Status</th>
                                               <th className="p-3 font-bold border-b">Nama & Email</th>
+                                              <th className="p-3 font-bold border-b">Password (PT)</th>
                                               <th className="p-3 font-bold border-b text-center">Gen</th>
                                               <th className="p-3 font-bold border-b">Aktivitas Terakhir</th>
-                                              <th className="p-3 font-bold border-b">Bergabung Pada</th>
+                                              <th className="p-3 font-bold border-b">Bergabung</th>
                                               <th className="p-3 font-bold border-b text-center">Aksi</th>
                                           </tr>
                                       </thead>
@@ -482,6 +483,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                           <span className="text-xs text-slate-500">{user.email}</span>
                                                       </div>
                                                   </td>
+                                                  <td className="p-3 border-b">
+                                                      <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-700">{user.password || '-'}</span>
+                                                  </td>
                                                   <td className="p-3 border-b text-center">
                                                       <div className="bg-purple-50 text-purple-700 px-2 py-1 rounded-md font-bold text-xs inline-block">
                                                           {user.generationCount || 0}
@@ -494,7 +498,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                       </div>
                                                   </td>
                                                   <td className="p-3 border-b text-slate-500 italic text-xs">
-                                                      {new Date(user.joinedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                      {new Date(user.joinedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                                                   </td>
                                                   <td className="p-3 border-b">
                                                       <div className="flex justify-center gap-2">
@@ -518,7 +522,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                               </tr>
                                           )) : (
                                               <tr>
-                                                  <td colSpan={7} className="p-12 text-center">
+                                                  <td colSpan={8} className="p-12 text-center">
                                                       <div className="flex flex-col items-center gap-2 text-slate-400 italic">
                                                           <Search size={32} />
                                                           <span>Tidak ada data ditemukan.</span>
@@ -537,12 +541,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               {activeTab === 'SETTINGS' && (
                   <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
                       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings size={20} /> Pengaturan Aplikasi</h2>
+                          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings size={20} className="text-blue-600" /> Pengaturan Aplikasi</h2>
                           <form onSubmit={handleSaveSettings} className="space-y-4">
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Promo / Landing Page</label><input type="text" value={settings.promoLink} onChange={e => setAppSettings({...settings, promoLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Nomor WhatsApp Admin (Aktivasi)</label><input type="text" value={settings.whatsappNumber} onChange={e => setAppSettings({...settings, whatsappNumber: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Link Social Media</label><input type="text" value={settings.socialMediaLink} onChange={e => setAppSettings({...settings, socialMediaLink: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none" /></div>
                               <div className="pt-2"><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition shadow-sm text-sm">Simpan Konfigurasi</button></div>
+                          </form>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Lock size={20} className="text-red-600" /> Ubah Kata Sandi Admin</h2>
+                          <form onSubmit={handleUpdateAdminPassword} className="space-y-4">
+                              <div className="relative">
+                                  <label className="block text-xs font-bold text-slate-500 mb-1">Kata Sandi Baru</label>
+                                  <input 
+                                      type="password" 
+                                      value={newAdminPassword} 
+                                      onChange={e => setNewAdminPassword(e.target.value)} 
+                                      className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-1 focus:ring-red-500 outline-none" 
+                                      placeholder="Minimal 6 karakter"
+                                  />
+                              </div>
+                              <div className="pt-2">
+                                  <button 
+                                      type="submit" 
+                                      disabled={isUpdatingPass} 
+                                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition shadow-sm text-sm flex items-center gap-2"
+                                  >
+                                      {isUpdatingPass && <Loader2 size={16} className="animate-spin" />}
+                                      Update Kata Sandi
+                                  </button>
+                              </div>
                           </form>
                       </div>
                   </div>
@@ -561,6 +591,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label><input type="text" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Username</label><input type="text" value={editFormData.username} onChange={e => setEditFormData({...editFormData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Email</label><input type="email" value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" required /></div>
+                              <div><label className="block text-xs font-bold text-slate-500 mb-1">Kata Sandi (PT)</label><input type="text" value={editFormData.password} onChange={e => setEditFormData({...editFormData, password: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none font-mono" /></div>
                               <div><label className="block text-xs font-bold text-slate-500 mb-1">Status Akun</label><select value={editFormData.status} onChange={e => setEditFormData({...editFormData, status: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="active">Aktif</option><option value="pending">Pending</option></select></div>
                               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
                                   <button type="button" onClick={() => setEditingUser(null)} className="px-5 py-2.5 text-slate-600 font-bold text-sm bg-slate-100 rounded-lg">Batal</button>

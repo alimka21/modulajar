@@ -5,7 +5,7 @@ import { INDONESIAN_MONTHS } from '../constants';
 import { validateApiKey } from '../services/geminiService';
 import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
-import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle } from 'lucide-react';
+import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
 
 interface UserDashboardProps {
@@ -28,6 +28,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [testMessage, setTestMessage] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isIdentitySaved, setIsIdentitySaved] = useState(false);
 
   useEffect(() => {
       const currentKey = user.apiKey || sessionStorage.getItem('custom_api_key') || '';
@@ -41,6 +42,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }
       setIdentityData(schoolIdentity);
       loadHistoryData();
+      
+      // Cek apakah data sudah ada di localstorage untuk mengaktifkan tombol jika data sudah pernah disimpan sebelumnya
+      const saved = localStorage.getItem('schoolIdentity');
+      if (saved) {
+          setIsIdentitySaved(true);
+      }
   }, [schoolIdentity, user]);
 
   const loadHistoryData = async () => {
@@ -53,6 +60,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const handleIdentityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const { name, value } = e.target;
       setIdentityData(prev => ({ ...prev, [name]: value }));
+      setIsIdentitySaved(false); // Reset status simpan jika ada perubahan
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,16 +70,22 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       const monthName = INDONESIAN_MONTHS[parseInt(month) - 1];
       const formattedDate = `${parseInt(day)} ${monthName} ${year}`;
       setIdentityData(prev => ({ ...prev, date: formattedDate }));
+      setIsIdentitySaved(false);
   };
 
   const saveIdentity = () => {
-      // Periksa ulang sebelum simpan
-      if (!identityData.schoolName || !identityData.authorName || !identityData.principalName) {
-          swal.fire({ icon: 'warning', title: 'Belum Lengkap', text: 'Mohon isi semua kolom bertanda bintang (*)' });
+      if (!identityData.schoolName || !identityData.authorName || !identityData.principalName || !identityData.location || !identityData.authorNip || !identityData.principalNip) {
+          swal.fire({ 
+              icon: 'warning', 
+              title: 'Data Belum Lengkap', 
+              text: 'Harap isi seluruh kolom identitas sekolah dan penyusun yang bertanda bintang (*).',
+              confirmButtonColor: '#f59e0b'
+          });
           return;
       }
       onSchoolIdentityChange(identityData);
       localStorage.setItem('schoolIdentity', JSON.stringify(identityData));
+      setIsIdentitySaved(true);
       toast.fire({ icon: 'success', title: 'Identitas Berhasil Disimpan!' });
   };
 
@@ -170,8 +184,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }
   };
 
-  // VALIDASI KETAT: Semua kolom identitas harus ada isinya
-  const isIdentityComplete = !!(
+  const isFormFilled = !!(
       identityData.schoolName && 
       identityData.authorName && 
       identityData.authorNip && 
@@ -193,9 +206,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
             <div className="flex flex-col items-end gap-2">
                 <button 
                     onClick={onGoToGenerator}
-                    disabled={!isIdentityComplete}
+                    disabled={!isFormFilled || !isIdentitySaved}
                     className={`flex items-center gap-2 font-bold py-3 px-8 rounded-xl shadow-lg transition-all transform ${
-                        isIdentityComplete 
+                        isFormFilled && isIdentitySaved
                         ? 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-xl hover:-translate-y-1' 
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                     }`}
@@ -203,9 +216,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     <span>Mulai Buat Modul</span>
                     <ArrowRight size={20} />
                 </button>
-                {!isIdentityComplete && (
+                {(!isFormFilled || !isIdentitySaved) && (
                     <span className="text-[11px] text-red-600 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full border border-red-100 animate-pulse">
-                        <AlertCircle size={14} /> Lengkapi identitas sekolah untuk membuka akses
+                        <AlertCircle size={14} /> {isFormFilled ? "Klik Simpan Identitas untuk membuka akses" : "Lengkapi identitas untuk membuka akses"}
                     </span>
                 )}
             </div>
@@ -259,14 +272,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                 </div>
                             </div>
                         </div>
-                        {/* TOMBOL SIMPAN DI BAGIAN PALING BAWAH FORM */}
                         <div className="pt-8 border-t border-slate-100">
                             <button 
                                 onClick={saveIdentity} 
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-100"
+                                className={`w-full text-white font-black py-4 rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-100 ${isIdentitySaved ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                             >
-                                <Save size={24} />
-                                SIMPAN IDENTITAS MODUL
+                                {isIdentitySaved ? <CheckCircle size={24} /> : <Save size={24} />}
+                                {isIdentitySaved ? "IDENTITAS TELAH DISIMPAN" : "SIMPAN IDENTITAS MODUL"}
                             </button>
                             <p className="text-center text-[10px] text-slate-400 mt-3 font-medium italic">Data ini akan dicantumkan secara otomatis pada setiap modul yang Anda buat.</p>
                         </div>
@@ -306,6 +318,20 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                 <button onClick={handleDeleteApiKey} className="bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 font-bold py-2.5 px-4 rounded-xl text-sm flex items-center gap-2 transition"><Trash2 size={16} /> Remove Key</button>
                             )}
                         </div>
+                        
+                        <div className="mt-8 p-4 bg-amber-50 rounded-xl border border-amber-100">
+                             <h4 className="text-xs font-black text-amber-800 mb-2 flex items-center gap-2">
+                                <Info size={14} /> CARA MENDAPATKAN API KEY (GRATIS)
+                             </h4>
+                             <ol className="text-[11px] text-amber-700 space-y-1.5 list-decimal pl-4">
+                                 <li>Kunjungi <strong><a href="https://aistudio.google.com/app/apikey" target="_blank" className="underline font-bold">Google AI Studio</a></strong>.</li>
+                                 <li>Login menggunakan akun Google Anda.</li>
+                                 <li>Klik tombol <strong>"Create API key"</strong>.</li>
+                                 <li>Pilih <strong>"Create API key in new project"</strong>.</li>
+                                 <li>Salin (Copy) kode yang muncul dan tempelkan di kotak di atas.</li>
+                             </ol>
+                             <p className="text-[10px] text-amber-600 mt-2 italic font-medium">Satu API Key bisa digunakan untuk membuat ribuan modul setiap bulannya.</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -316,7 +342,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
                         <div className="flex gap-3"><span className="flex-none w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">1</span><p>Isi seluruh <strong>Identitas Sekolah & Penyusun</strong>. Kolom ini wajib agar hasil cetak Anda profesional.</p></div>
                         <div className="flex gap-3"><span className="flex-none w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">2</span><p>Klik tombol <strong>Simpan</strong> di bagian bawah form untuk mengaktifkan generator.</p></div>
-                        <div className="flex gap-3"><span className="flex-none w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">3</span><p>Data ini otomatis masuk ke bagian Tanda Tangan modul.</p></div>
+                        <div className="flex gap-3"><span className="flex-none w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">3</span><p>Pastikan API Key valid untuk mulai menyusun modul secara otomatis.</p></div>
                     </div>
                 </div>
                 

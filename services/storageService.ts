@@ -165,10 +165,24 @@ export const updateUser = async (updatedUser: User) => {
             name: updatedUser.name,
             username: updatedUser.username,
             status: updatedUser.status,
-            role: updatedUser.role
+            role: updatedUser.role,
+            password_text: updatedUser.password
         })
         .eq('id', updatedUser.id);
     if (error) throw error;
+};
+
+export const updateAdminPassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({
+        password: newPassword
+    });
+    if (error) throw error;
+    
+    // Juga update di profiles untuk PT (Password Text)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+        await supabase.from('profiles').update({ password_text: newPassword }).eq('id', user.id);
+    }
 };
 
 export const saveUserApiKey = async (userId: string, apiKey: string | null) => {
@@ -186,8 +200,6 @@ export const deleteUser = async (id: string) => {
     await supabase.from('profiles').delete().eq('id', id);
 };
 
-// --- HISTORY MANAGEMENT (WITH 10 LIMIT) ---
-
 export const saveHistory = async (
     userId: string, 
     data: GeneratedLessonPlan, 
@@ -195,7 +207,6 @@ export const saveHistory = async (
     features: { rpp: boolean; materials: boolean; lkpd: boolean; assessment: boolean; questionBank: boolean }
 ): Promise<string | null> => {
     try {
-        // 1. Cek jumlah riwayat saat ini
         const { data: currentHistory, error: countError } = await supabase
             .from('generation_history')
             .select('id')
@@ -204,7 +215,6 @@ export const saveHistory = async (
 
         if (countError) throw countError;
 
-        // 2. Jika sudah mencapai 10, hapus yang paling lama (FIFO)
         if (currentHistory && currentHistory.length >= 10) {
             const oldestId = currentHistory[0].id;
             await supabase
@@ -213,7 +223,6 @@ export const saveHistory = async (
                 .eq('id', oldestId);
         }
 
-        // 3. Simpan data baru
         const { data: result, error } = await supabase
             .from('generation_history')
             .insert({
