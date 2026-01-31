@@ -12,22 +12,210 @@ interface DocumentContentProps {
   activeTab: string; // 'SEMUA' | 'RPP_PLUS' | 'MATERI' | 'LKPD' | 'SOAL'
 }
 
+/**
+ * ============================================
+ * TABLE POST-PROCESSING ENGINE (OPTIMIZED v3)
+ * High Performance with Early Exits & Safe Regex
+ * ============================================
+ */
+
+// Helper: Cek apakah baris ini adalah separator tabel markdown (e.g. |---|---|)
+const isSeparatorRow = (line: string) => {
+    return /^\|\s*[:\-]*-+[:\-]*(\s*\|\s*[:\-]*-+[:\-]*)*\s*\|?$/.test(line);
+};
+
+// Helper: Cek apakah baris ini terlihat seperti baris tabel (e.g. | Data | Data |)
+const isTableLine = (line: string) => {
+    return line.trim().startsWith('|') || (line.includes('|') && line.split('|').length > 2);
+};
+
+// Fungsi 1: Convert Bullet Points ke Tabel (Logic Baru: Linear Builder)
+const convertBulletPointsToTable = (text: string): string => {
+  // Check if text already has table structure
+  if (text.includes('|') && text.includes('---')) return text;
+
+  const lines = text.split('\n');
+  const cleanLines = lines.map(l => l.trim()).filter(l => l.length > 0);
+  
+  // Jika teks pendek, coba ubah list menjadi tabel langsung.
+  if (cleanLines.length > 0) {
+      // Cek apakah ini list?
+      const isList = cleanLines.every(l => /^\d+\.|^[-•·]/.test(l));
+      
+      // Jika ini list atau kita mau paksa jadi tabel
+      if (isList || cleanLines.length >= 2) {
+          const tableString = createTableFromBulletPoints(cleanLines);
+          if (tableString) return tableString;
+      }
+  }
+  
+  return text; // Return original if conversion fails
+};
+
+const createTableFromBulletPoints = (lines: string[]): string | null => {
+    // Heuristic: Cek apakah ada ':' untuk pemisah kolom
+    const cleanLines = lines.map(l => l.replace(/^[\s]*[-•·\d\.]+\s*/, '').trim());
+    if (cleanLines.length === 0) return null;
+
+    const hasColon = cleanLines[0].includes(':');
+    
+    // Header default jika tidak terdeteksi struktur key:value
+    let header = hasColon ? '| Aspek / Kategori | Keterangan |' : '| No | Poin Penting |';
+    let separator = hasColon ? '|---|---|' : '|:-:|---|';
+    
+    const rows = cleanLines.map((content, idx) => {
+        // Sanitasi konten agar tidak merusak markdown table
+        let safeContent = content.replace(/\|/g, '/'); 
+
+        if (hasColon && safeContent.includes(':')) {
+            const parts = safeContent.split(':');
+            const col1 = parts[0].trim();
+            const col2 = parts.slice(1).join(':').trim();
+            return `| ${col1} | ${col2} |`;
+        }
+        return `| ${idx + 1} | ${safeContent} |`;
+    });
+    
+    return [header, separator, ...rows].join('\n');
+};
+
+// Fungsi 2: Fix Markdown Table Format (Logic Baru: Block Processor)
+const fixMarkdownTableFormat = (text: string): string => {
+  // OPTIMASI: Skip jika tidak ada karakter pipa (|)
+  if (!text.includes('|')) return text;
+
+  const lines = text.split('\n');
+  const resultLines: string[] = [];
+  
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    
+    // Deteksi awal blok tabel
+    if (isTableLine(line)) {
+        const tableBlock: string[] = [];
+        let j = i;
+        
+        // Ambil semua baris yang terlihat seperti tabel
+        while (j < lines.length && isTableLine(lines[j])) {
+            tableBlock.push(lines[j]);
+            j++;
+        }
+        
+        // Proses blok tabel jika valid
+        if (tableBlock.length >= 1) {
+            const processedTable = processTableBlock(tableBlock);
+            resultLines.push(...processedTable);
+            i = j; // Loncat index
+        } else {
+            resultLines.push(line);
+            i++;
+        }
+    } else {
+        resultLines.push(line);
+        i++;
+    }
+  }
+  
+  return resultLines.join('\n');
+};
+
+const processTableBlock = (tableLines: string[]): string[] => {
+  if (tableLines.length === 0) return tableLines;
+  
+  // 1. Normalize Header
+  let headerRow = normalizeTableRow(tableLines[0]);
+  const headerCols = getColumnCount(headerRow);
+  
+  // Jika cuma 1 baris, kembalikan saja (bukan tabel valid)
+  if (tableLines.length < 2) return [headerRow];
+
+  const processedLines: string[] = [headerRow];
+  let startIndex = 1;
+
+  // 2. Cek Separator
+  let separatorRow = tableLines[1];
+  if (isSeparatorRow(separatorRow)) {
+      processedLines.push(separatorRow); 
+      startIndex = 2;
+  } else {
+      processedLines.push(generateSeparatorRow(headerCols)); 
+      startIndex = 1;
+  }
+  
+  // 3. Process Data Rows
+  for (let k = startIndex; k < tableLines.length; k++) {
+      if (isSeparatorRow(tableLines[k])) continue;
+      const normalized = normalizeTableRow(tableLines[k], headerCols);
+      if (normalized.replace(/\||\s/g, '').length > 0) { 
+          processedLines.push(normalized);
+      }
+  }
+  
+  return processedLines;
+};
+
+const normalizeTableRow = (row: string, expectedCols?: number): string => {
+  let cleanRow = row.trim();
+  if (!cleanRow.startsWith('|')) cleanRow = '| ' + cleanRow;
+  if (!cleanRow.endsWith('|')) cleanRow = cleanRow + ' |';
+  
+  const cells = cleanRow.split('|');
+  const validCells = cells.slice(1, cells.length - 1).map(c => c.trim());
+  
+  // Adjust columns count
+  if (expectedCols) {
+      while (validCells.length < expectedCols) validCells.push('');
+      while (validCells.length > expectedCols) validCells.pop();
+  }
+  
+  return '| ' + validCells.join(' | ') + ' |';
+};
+
+const getColumnCount = (row: string): number => {
+    return row.split('|').length - 2;
+};
+
+const generateSeparatorRow = (colCount: number): string => {
+    return '|' + Array(colCount).fill('---').join('|') + '|';
+};
+
+const ensureProperTableSpacing = (text: string): string => {
+  if (!text.includes('|')) return text;
+  return text.replace(/([^\n\|])\n(\|)/g, '$1\n\n$2');
+};
+
+const normalizeTableFormat = (text: string): string => {
+  if (!text || text.length < 5) return text;
+  
+  const hasPipe = text.includes('|');
+  if (!hasPipe) return text; 
+
+  try {
+      // Pipeline urutan eksekusi:
+      let stage1 = convertBulletPointsToTable(text);
+      let stage2 = fixMarkdownTableFormat(stage1);
+      let stage3 = ensureProperTableSpacing(stage2);
+      return stage3;
+  } catch (e) {
+      console.error("Table processing error:", e);
+      return text; 
+  }
+};
+
+// ============================================
+
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  if (typeof val === 'string') return val;
+  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'murid');
   if (typeof val === 'number') return String(val);
-  if (Array.isArray(val)) {
-    return val.map(safeString).join(", ");
-  }
-  if (typeof val === 'object') {
-      return val.text || val.content || val.value || val.description || JSON.stringify(val);
-  }
+  if (Array.isArray(val)) return val.map(safeString).join(", ");
+  if (typeof val === 'object') return (val.text || val.content || val.value || val.description || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'murid');
   return String(val);
 };
 
 const cleanupUnnecessaryLatex = (text: string): string => {
-    let cleaned = text.replace(/\$\s*(\d+)\s*\$/g, '$1');
-    cleaned = cleaned.replace(/\$\s*(\d+[\.,]\d+)\s*\$/g, '$1');
+    let cleaned = text.replace(/\$(\d+(?:[.,]\d+)?\s?%?)\$/g, '$1');
     return cleaned;
 };
 
@@ -47,15 +235,20 @@ const restoreLatex = (html: string, placeholders: string[]) => {
 const renderMarkdown = (text: string) => {
     let stringText = safeString(text);
     stringText = cleanupUnnecessaryLatex(stringText);
+    stringText = normalizeTableFormat(stringText); 
 
     let { protectedText, placeholders } = protectLatex(stringText);
-    let formatted = protectedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-    if (typeof marked !== 'undefined') {
-        let html = marked.parse(formatted);
-        return { __html: restoreLatex(html, placeholders) };
+    try {
+        if (typeof marked !== 'undefined') {
+            let html = marked.parse(protectedText);
+            return { __html: restoreLatex(html, placeholders) };
+        }
+    } catch (e) {
+        console.warn("Markdown parsing failed, fallback to raw text", e);
     }
     
+    let formatted = protectedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     return { __html: restoreLatex(formatted, placeholders) };
 };
 
@@ -66,14 +259,18 @@ const renderInlineMarkdown = (text: string) => {
 
     let { protectedText, placeholders } = protectLatex(stringText);
 
-    if (typeof marked !== 'undefined') {
-        let html = "";
-        if (typeof marked.parseInline === 'function') {
-             html = marked.parseInline(protectedText);
-        } else {
-             html = marked.parse(protectedText).replace(/<\/?p[^>]*>/g, ""); 
+    try {
+        if (typeof marked !== 'undefined') {
+            let html = "";
+            if (typeof marked.parseInline === 'function') {
+                 html = marked.parseInline(protectedText);
+            } else {
+                 html = marked.parse(protectedText).replace(/<\/?p[^>]*>/g, ""); 
+            }
+            return { __html: restoreLatex(html, placeholders) };
         }
-        return { __html: restoreLatex(html, placeholders) };
+    } catch(e) {
+        // Fallback
     }
     
     let formatted = protectedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -106,7 +303,8 @@ const RubricTable = ({ items }: { items: any[] }) => (
           <tbody>
               {items.map((item, idx) => (
                   <tr key={idx}>
-                      <td className="border border-black p-2 font-bold align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.criteria)} />
+                      {/* Poin 1: Semua sel dibuat text-left */}
+                      <td className="border border-black p-2 text-left font-bold align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.criteria)} />
                       <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.needsGuidance)} />
                       <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.basic)} />
                       <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.proficient)} />
@@ -125,14 +323,20 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       const container = document.getElementById('konten-dokumen');
       if (container) {
         setTimeout(() => {
-            MathJax.typesetPromise([container]).catch((e:any) => console.warn(e));
-        }, 300);
+            MathJax.typesetPromise([container]).catch((e:any) => console.warn("MathJax Error:", e));
+        }, 100);
       }
     }
   }, [data, activeTab]);
 
   const RppContent = () => {
+    if (!data.identitySection || !data.design || !data.learningExperience) return null;
+
     const { identitySection, initialAssessment, graduateProfile, design, learningExperience } = data;
+    const approval = data.approval || { 
+        authorName: '-', authorNip: '-', principalName: '-', principalNip: '-', location: '-', date: '-' 
+    };
+
     return (
         <div className="text-inherit">
             <h1 className="text-inherit font-bold text-[24pt] text-center mb-6">MODUL AJAR</h1>
@@ -142,7 +346,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <table className="w-full border-collapse border border-white mb-4 text-inherit identity-table">
                     <tbody>
                         <tr><td className="border border-white p-1 font-bold w-[30%] text-inherit">Nama Sekolah</td><td className="border border-white p-1 w-[2%] text-inherit">:</td><td className="border border-white p-1 text-inherit">{identitySection.schoolName}</td></tr>
-                        <tr><td className="border border-white p-1 font-bold text-inherit">Nama Penyusun</td><td className="border border-white p-1 text-inherit">:</td><td className="border border-white p-1 text-inherit">{data.approval.authorName}</td></tr>
+                        <tr><td className="border border-white p-1 font-bold text-inherit">Nama Penyusun</td><td className="border border-white p-1 w-[2%] text-inherit">:</td><td className="border border-white p-1 text-inherit">{approval.authorName}</td></tr>
                         <tr><td className="border border-white p-1 font-bold text-inherit">Mata Pelajaran</td><td className="border border-white p-1 text-inherit">:</td><td className="border border-white p-1 text-inherit">{identitySection.subject}</td></tr>
                         <tr><td className="border border-white p-1 font-bold text-inherit">Kelas / Fase</td><td className="border border-white p-1 text-inherit">:</td><td className="border border-white p-1 text-inherit">{identitySection.grade}</td></tr>
                         <tr><td className="border border-white p-1 font-bold text-inherit">Semester</td><td className="border border-white p-1 text-inherit">:</td><td className="border border-white p-1 text-inherit">{identitySection.semester}</td></tr>
@@ -155,9 +359,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(initialAssessment || "Belum ada data.")} />
 
                 <h4 className="font-bold mb-1 text-inherit text-[13pt]">Dimensi Profil Lulusan</h4>
-                <ul className="list-disc pl-6 mb-2 text-inherit">
-                    {(graduateProfile || []).map((g, i) => <li key={i} className="text-inherit">{g}</li>)}
-                </ul>
+                <div className="pl-0 mb-2 text-inherit">
+                    <ul className="list-disc pl-6 text-inherit font-medium">
+                        {(graduateProfile || []).map((g, i) => <li key={i} className="text-inherit">{safeString(g)}</li>)}
+                    </ul>
+                </div>
             </OpenSection>
 
             <OpenSection title="II. KOMPONEN INTI">
@@ -196,7 +402,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit text-[13pt]">A. Pendahuluan</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: {step.introPrinciple}</p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.introPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
                                 {step.intro.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
                             </ul>
@@ -204,7 +410,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit text-[13pt]">B. Kegiatan Inti</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: {step.corePrinciple}</p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.corePrinciple}</strong></p>
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">1. Memahami</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
@@ -224,7 +430,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit text-[13pt]">C. Penutup</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: {step.closingPrinciple}</p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.closingPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
                                 {step.closing.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
                             </ul>
@@ -239,118 +445,126 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
   const AssessmentContent = () => {
       if (!data?.assessment) return null;
       
-      let { kktp, formative, summative, intervention } = data.assessment as DeepLearningAssessment;
-      const summativeGrid = summative?.grid;
+      const assessment = data.assessment as DeepLearningAssessment;
+      
+      const kktp = Array.isArray(assessment.kktp) ? assessment.kktp : [];
+      
+      const formative = assessment.formative || {} as any;
+      const checklist = Array.isArray(formative.checklist) ? formative.checklist : [];
+      const feedback = formative.feedbackGuide || { clarification: '-', appreciation: '-', suggestion: '-' };
+      
+      const summative = assessment.summative || {} as any;
+      const grid = Array.isArray(summative.grid) ? summative.grid : [];
+      
+      const intervention = assessment.intervention || { needsGuidance: '-', basic: '-', proficient: '-', advanced: '-' };
 
       return (
-          <div className="text-inherit assessment-reset">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-8">ASESMEN PEMBELAJARAN</h1>
-            
-            <OpenSection title="1. KKTP (Rubrik Pembelajaran Mendalam)">
-                 <p className="italic mb-2 text-inherit text-slate-600 text-xs">Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)</p>
-                 <RubricTable items={kktp} />
-            </OpenSection>
+          // Poin 2: Removed 'assessment-reset' class to allow blue underline on h3
+          <div className="text-inherit">
+            <OpenSection title="IV. ASESMEN PEMBELAJARAN">
+                
+                <h4 className="font-bold mb-2 text-inherit text-[13pt]">1. KKTP (Rubrik Pembelajaran Mendalam)</h4>
+                <p className="italic mb-2 text-inherit text-slate-600 text-xs">Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)</p>
+                {kktp.length > 0 ? <RubricTable items={kktp} /> : <p className="text-red-500 italic">Data KKTP tidak tersedia.</p>}
 
-            <OpenSection title="2. Asesmen Formatif (Proses)">
+                <h4 className="font-bold mb-2 text-inherit text-[13pt]">2. Asesmen Formatif (Proses)</h4>
                 <div className="mb-6 break-inside-avoid">
-                    <h4 className="font-bold mb-2 text-inherit text-[13pt]">A. Lembar Observasi (Checklist)</h4>
-                    <table className="w-full border-collapse border border-black text-black text-inherit">
-                        <thead>
-                            <tr className="bg-[#87CEFA]">
-                                <th className="border border-black p-2 text-center w-12 font-bold text-center text-inherit">No</th>
-                                <th className="border border-black p-2 text-left font-bold text-center text-inherit">Aspek Pengamatan</th>
-                                <th className="border border-black p-2 text-left font-bold text-center text-inherit">Indikator Perilaku</th>
-                                <th className="border border-black p-2 text-center w-20 font-bold text-center text-inherit">Ceklis</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(formative.checklist || []).map((item: any, idx: number) => (
-                                <tr key={idx}>
-                                    <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
-                                    <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.aspect)} />
-                                    <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator)} />
-                                    <td className="border border-black p-2 text-center text-inherit"></td>
+                    <p className="font-bold mb-1 text-inherit">A. Lembar Observasi (Checklist)</p>
+                    {checklist.length > 0 ? (
+                        <table className="w-full border-collapse border border-black text-black text-inherit">
+                            <thead>
+                                <tr className="bg-[#87CEFA]">
+                                    <th className="border border-black p-2 text-center w-12 font-bold text-center text-inherit">No</th>
+                                    <th className="border border-black p-2 text-left font-bold text-center text-inherit">Aspek Pengamatan</th>
+                                    <th className="border border-black p-2 text-left font-bold text-center text-inherit">Indikator Perilaku</th>
+                                    <th className="border border-black p-2 text-center w-20 font-bold text-center text-inherit">Ceklis</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {checklist.map((item: any, idx: number) => (
+                                    <tr key={idx}>
+                                        <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.aspect || '-')} />
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-')} />
+                                        <td className="border border-black p-2 text-center text-inherit"></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : <p className="italic text-slate-500">Checklist tidak tersedia.</p>}
                 </div>
 
                 <div className="mb-6 break-inside-avoid">
-                    <h4 className="font-bold mb-2 text-inherit text-[13pt]">B. Tangga Umpan Balik (Feedback Ladder)</h4>
-                    <div className="border border-black p-4 text-inherit rounded-sm">
-                        <div className="mb-2">
-                            <span className="font-bold text-inherit block mb-1">KLARIFIKASI: </span>
-                            <span className="italic text-inherit text-sm" dangerouslySetInnerHTML={renderInlineMarkdown(`"${safeString(formative.feedbackGuide.clarification)}"`)} />
-                        </div>
-                        <div className="mb-2">
-                            <span className="font-bold text-inherit block mb-1">APRESIASI: </span>
-                            <span className="italic text-inherit text-sm" dangerouslySetInnerHTML={renderInlineMarkdown(`"${safeString(formative.feedbackGuide.appreciation)}"`)} />
-                        </div>
-                        <div>
-                            <span className="font-bold text-inherit block mb-1">SARAN: </span>
-                            <span className="italic text-inherit text-sm" dangerouslySetInnerHTML={renderInlineMarkdown(`"${safeString(formative.feedbackGuide.suggestion)}"`)} />
-                        </div>
+                    <p className="font-bold mb-1 text-inherit">B. Tangga Umpan Balik (Feedback Ladder)</p>
+                    <div className="pl-4 text-inherit">
+                        <ul className="list-disc pl-5 space-y-2">
+                            <li>
+                                <span className="font-bold text-inherit">KLARIFIKASI: </span>
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.clarification))} />
+                            </li>
+                            <li>
+                                <span className="font-bold text-inherit">APRESIASI: </span>
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.appreciation))} />
+                            </li>
+                            <li>
+                                <span className="font-bold text-inherit">SARAN: </span>
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.suggestion))} />
+                            </li>
+                        </ul>
                     </div>
                 </div>
-            </OpenSection>
             
-            <OpenSection title="3. Asesmen Sumatif (Kisi-Kisi)">
+                <h4 className="font-bold mb-2 text-inherit text-[13pt]">3. Asesmen Sumatif (Kisi-Kisi)</h4>
                  <div className="mb-6 break-inside-avoid">
-                     <table className="w-full border-collapse border border-black text-inherit">
-                        <thead>
-                            <tr className="bg-[#87CEFA]">
-                                <th className="border border-black p-2 text-center w-12 font-bold text-center text-inherit">No</th>
-                                <th className="border border-black p-2 text-left font-bold text-center text-inherit">Indikator Soal</th>
-                                <th className="border border-black p-2 text-center font-bold text-center text-inherit">Level Kognitif</th>
-                                <th className="border border-black p-2 text-center font-bold text-center text-inherit">Bentuk Soal</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {Array.isArray(summativeGrid) ? (summativeGrid as any[]).map((item: any, idx: number) => (
-                                <tr key={idx}>
-                                    <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
-                                    <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator)} />
-                                    <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.level)} />
-                                    <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.technique)} />
+                     {grid.length > 0 ? (
+                         <table className="w-full border-collapse border border-black text-inherit">
+                            <thead>
+                                <tr className="bg-[#87CEFA]">
+                                    <th className="border border-black p-2 text-center w-12 font-bold text-center text-inherit">No</th>
+                                    <th className="border border-black p-2 text-left font-bold text-center text-inherit">Indikator Soal</th>
+                                    <th className="border border-black p-2 text-center font-bold text-center text-inherit">Level Kognitif</th>
+                                    <th className="border border-black p-2 text-center font-bold text-center text-inherit">Bentuk Soal</th>
                                 </tr>
-                            )) : (
-                                <tr>
-                                    <td colSpan={4} className="border border-black p-4 text-center italic text-inherit">
-                                        Data kisi-kisi belum tersedia.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                     </table>
+                            </thead>
+                            <tbody>
+                                {grid.map((item: any, idx: number) => (
+                                    <tr key={idx}>
+                                        <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-')} />
+                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.level || '-')} />
+                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.technique || '-')} />
+                                    </tr>
+                                ))}
+                            </tbody>
+                         </table>
+                     ) : <p className="italic text-slate-500">Kisi-kisi tidak tersedia.</p>}
                  </div>
-            </OpenSection>
 
-            <OpenSection title="4. Tindak Lanjut & Intervensi Guru">
+                <h4 className="font-bold mb-2 text-inherit text-[13pt]">4. Tindak Lanjut & Intervensi Guru</h4>
                  <div className="break-inside-avoid">
                     <table className="w-full border-collapse border border-black text-inherit">
                         <thead>
                             <tr className="bg-[#87CEFA]">
-                                <th className="border border-black p-2 text-left font-bold w-1/3 text-center text-inherit">Kondisi Siswa</th>
+                                <th className="border border-black p-2 text-left font-bold w-1/3 text-center text-inherit">Kondisi Murid</th>
                                 <th className="border border-black p-2 text-left font-bold text-center text-inherit">Strategi Intervensi</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Perlu Bimbingan</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance)} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance || '-')} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Cukup</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic)} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic || '-')} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient)} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient || '-')} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Sangat Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced)} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced || '-')} />
                             </tr>
                         </tbody>
                     </table>
@@ -358,228 +572,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             </OpenSection>
           </div>
       );
-  };
-
-  const ApprovalSignature = () => {
-    const { approval } = data;
-    return (
-        <div className="break-inside-avoid text-inherit mt-8 signature-area">
-            <table className="w-full border-none text-inherit bg-transparent">
-                <tbody>
-                    <tr>
-                        <td className="w-1/2 text-center align-top border-none p-4 text-inherit bg-transparent">
-                            <p className="mb-0 text-inherit">Mengetahui,</p>
-                            <p className="mb-0 text-inherit">Kepala Sekolah</p>
-                            <div className="h-16"></div> 
-                            <p className="font-bold underline text-inherit">{approval.principalName}</p>
-                            <p className="text-inherit">NIP. {approval.principalNip}</p>
-                        </td>
-                        <td className="w-1/2 text-center align-top border-none p-4 text-inherit bg-transparent">
-                            <p className="mb-0 text-inherit">{approval.location}, {approval.date}</p>
-                            <p className="mb-0 text-inherit">Guru Mata Pelajaran</p>
-                            <div className="h-16"></div>
-                            <p className="font-bold underline text-inherit">{approval.authorName}</p>
-                            <p className="text-inherit">NIP. {approval.authorNip}</p>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    );
-  };
-
-  const ReflectionContent = () => {
-    if (!data.reflection) return null;
-    const { teacher, student } = data.reflection;
-    return (
-        <div className="text-inherit">
-             <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-8">REFLEKSI PEMBELAJARAN</h1>
-             
-             <OpenSection title="1. Refleksi Guru">
-                <ul className="list-disc pl-6 text-inherit">
-                    {teacher.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
-                </ul>
-             </OpenSection>
-
-             <OpenSection title="2. Refleksi Murid">
-                <ul className="list-disc pl-6 text-inherit">
-                    {student.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
-                </ul>
-             </OpenSection>
-        </div>
-    );
-  };
-
-  const MaterialsContent = () => {
-    const m = data.materials;
-    if (!m) return null;
-
-    return (
-        <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12">LAMPIRAN 1: MATERI AJAR</h1>
-            <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{m.judul}</h2>
-
-            <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-inherit mb-3 text-[14pt] border-b-2 border-[#87CEFA] text-left uppercase mt-4">PEMANTIK BELAJAR</h3>
-                <p className="italic text-lg text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(m.pemantik)} />
-            </div>
-
-            <OpenSection title="SUB TOPIK">
-                <ul className="list-disc pl-6 text-inherit">
-                    {m.subTopik.map((t, i) => <li key={i} className="text-inherit">{t}</li>)}
-                </ul>
-            </OpenSection>
-
-            <OpenSection title="KONSEP INTI">
-                 <div className="mb-4 text-inherit">
-                    <h4 className="font-bold mb-1 text-inherit text-[13pt]">Definisi</h4>
-                    <div dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.definisi)} />
-                 </div>
-
-                 <h4 className="font-bold mb-1 text-inherit text-[13pt]">Penjelasan Materi</h4>
-                 <div className="mb-4 pl-4 text-inherit">
-                     <ul className="list-disc pl-6 space-y-1 text-inherit">
-                        {m.konsepInti.penjelasanBertahap.map((p, i) => (
-                             <li key={i} dangerouslySetInnerHTML={renderMarkdown(p)} />
-                        ))}
-                     </ul>
-                 </div>
-
-                 <h4 className="font-bold mb-1 text-inherit text-[13pt]">Visualisasi / Tabel</h4>
-                 <div className="mb-4 overflow-x-auto markdown-content text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.tabelVisual)} />
-
-                 <div className="mb-4 text-inherit">
-                    <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4 border-b-2 border-[#87CEFA] text-left">CONTOH NYATA</h3>
-                    <div className="italic text-inherit text-sm" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret)} />
-                 </div>
-            </OpenSection>
-
-            <div className="mt-4 text-inherit break-inside-avoid">
-                <div className="mb-6">
-                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-3 text-inherit text-[14pt] uppercase">TAHUKAH KAMU?</h3>
-                    <div className="text-sm text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia)} />
-                </div>
-                
-                <div>
-                    <h3 className="font-bold border-b-2 border-[#87CEFA] pb-1 mb-3 text-inherit text-[14pt] uppercase">GLOSARIUM</h3>
-                    <ul className="text-xs space-y-1 text-inherit">
-                        {m.glosarium.map((g, i) => (
-                            <li key={i}>
-                                <span className="font-bold text-inherit">{g.istilah}: </span>
-                                <span className="text-inherit">{g.definisi}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </div>
-        </div>
-    );
-  };
-
-  const LkpdContent = () => {
-    if (!data.lkpd) return null;
-    
-    const rawTitle = data.lkpd.title || inputData.topic;
-    const cleanTitle = rawTitle.replace(/^(Lembar Kerja Peserta Didik|LKPD|Lembar Kerja Murid)(\s*\(LKPD\))?(\s*:\s*|\s+-\s+|\s+)/i, "").trim();
-
-    return (
-        <div className="lkpd-reset text-inherit">
-            <div className="mb-6 bg-white text-black text-inherit mt-12">
-              <div className="text-center mb-4">
-                <h1 className="text-inherit" style={{ fontSize: '24pt', fontWeight: 'bold', lineHeight: '1.2' }}>
-                    LAMPIRAN 2: LEMBAR KERJA MURID
-                </h1>
-                <h2 className="text-inherit" style={{ fontSize: '14pt', fontWeight: 'normal', lineHeight: '1.2' }}>
-                    {cleanTitle}
-                </h2>
-              </div>
-              <div className="w-full my-4" style={{ borderBottom: '2px solid black' }}></div>
-              <div className="flex flex-col gap-2" style={{ fontSize: '11pt' }}>
-                <div className="space-y-1">
-                   <div className="flex"><span className="font-bold min-w-[150px]">Mata Pelajaran</span><span>: {inputData.subject}</span></div>
-                   <div className="flex"><span className="font-bold min-w-[150px]">Kelas / Fase</span><span>: {inputData.grade}</span></div>
-                </div>
-                <div>
-                     <div className="font-bold mb-1">Identitas Kelompok:</div>
-                     <div className="space-y-1">
-                         <div className="flex items-end gap-2"><span className="min-w-[150px]">Nama Kelompok</span><div className="flex-1 border-b border-black border-dashed h-6"></div></div>
-                         <div className="flex items-start gap-2">
-                            <span className="min-w-[150px]">Anggota</span>
-                            <div className="flex-1">
-                                <div className="border-b border-black border-dashed h-6 mb-1"></div>
-                                <div className="border-b border-black border-dashed h-6"></div>
-                            </div>
-                         </div>
-                     </div>
-                </div>
-              </div>
-            </div>
-            
-            <OpenSection title="A. TUJUAN PEMBELAJARAN">
-                 <div className="markdown-content text-inherit text-sm" dangerouslySetInnerHTML={renderMarkdown(data.lkpd.objectives)} />
-            </OpenSection>
-
-            <OpenSection title="B. PETUNJUK PENGERJAAN">
-                 <ol className="list-decimal pl-6 space-y-1 text-inherit text-sm">
-                     {data.lkpd.instructions && data.lkpd.instructions.length > 0 
-                        ? (data.lkpd.instructions as string[]).map((g,i) => <li key={i} dangerouslySetInnerHTML={renderInlineMarkdown(g)} />)
-                        : <li>Bacalah instruksi dengan seksama.</li>
-                     }
-                 </ol>
-            </OpenSection>
-
-            <div className="mb-4 break-inside-avoid text-inherit">
-                <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3">C. STIMULUS</h3>
-                <div className="italic text-inherit text-sm">
-                    <div dangerouslySetInnerHTML={renderMarkdown(data.lkpd.stimulus)} />
-                </div>
-            </div>
-
-            <h3 className="text-inherit mb-3 font-bold text-[14pt] uppercase mt-4">D. AKTIVITAS BERTAHAP</h3>
-
-            <div className="mb-4 break-inside-avoid text-inherit">
-                <div className="font-bold text-inherit mb-1 border-b border-black inline-block text-sm">
-                    AKTIVITAS 1
-                </div>
-                <div 
-                    className="markdown-content text-inherit text-sm whitespace-pre-wrap" 
-                    dangerouslySetInnerHTML={renderMarkdown(data.lkpd.activities.level1)} 
-                />
-            </div>
-
-            <div className="mb-4 break-inside-avoid text-inherit">
-                <div className="font-bold text-inherit mb-1 border-b border-black inline-block text-sm">
-                    AKTIVITAS 2
-                </div>
-                <div 
-                    className="markdown-content text-inherit text-sm whitespace-pre-wrap" 
-                    dangerouslySetInnerHTML={renderMarkdown(data.lkpd.activities.level2)} 
-                />
-            </div>
-
-            <div className="mb-4 break-inside-avoid text-inherit">
-                <div className="font-bold text-inherit mb-1 border-b border-black inline-block text-sm">
-                    AKTIVITAS 3
-                </div>
-                <div 
-                    className="markdown-content text-inherit text-sm whitespace-pre-wrap" 
-                    dangerouslySetInnerHTML={renderMarkdown(data.lkpd.activities.level3)} 
-                />
-            </div>
-
-            <OpenSection title="E. REFLEKSI DIRI">
-                <ol className="list-decimal pl-6 space-y-4 text-inherit text-sm">
-                    {data.lkpd.reflection.map((t, i) => (
-                        <li key={i} className="break-inside-avoid">
-                            <div className="mb-1 font-medium" dangerouslySetInnerHTML={renderInlineMarkdown(t)} />
-                            <div className="border-b border-black border-dashed h-6 w-full opacity-30"></div>
-                            <div className="border-b border-black border-dashed h-6 w-full opacity-30"></div>
-                        </li>
-                    ))}
-                </ol>
-            </OpenSection>
-        </div>
-    );
   };
 
   const QuestionBankContent = () => {
@@ -607,12 +599,14 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                 <div className="flex gap-2 text-sm">
                                     <span className="font-bold text-inherit">{idx + 1}.</span>
                                     <div className="flex-1 text-inherit">
-                                        {item.stimulus && (
+                                        {/* Stimulus: Sembunyikan untuk tipe Menjodohkan dan Benar/Salah */}
+                                        {item.stimulus && !['Menjodohkan', 'Benar/Salah'].includes(item.type) && (
                                             <div className="mb-2 italic text-gray-700 text-inherit bg-slate-50 p-3 border-l-4 border-slate-300 text-xs" dangerouslySetInnerHTML={renderMarkdown(item.stimulus)} />
                                         )}
-                                        <div className="mb-1 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question)} />
                                         
-                                        {(item.type === 'Pilihan Ganda') && item.options && (
+                                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question)} />
+                                        
+                                        {(item.type === 'Pilihan Ganda' || item.type === 'Pilihan Ganda Kompleks') && item.options && (
                                             <div className="grid grid-cols-1 gap-y-1 text-inherit mt-1 ml-4 text-xs">
                                                 {(item.options as any[]).map((opt, i) => (
                                                     <div key={i} className="flex gap-2 text-inherit">
@@ -620,6 +614,38 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                         <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(opt)} />
                                                     </div>
                                                 ))}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Perbaikan Matching (Menjodohkan) - Hapus Border */}
+                                        {item.type === 'Menjodohkan' && item.matchingPairs && (
+                                            <div className="mt-4 ml-4 grid grid-cols-2 gap-8 text-xs">
+                                                <div className="space-y-2">
+                                                    <div className="font-bold border-b border-black pb-1">Premis</div>
+                                                    {(item.matchingPairs as any[]).map((pair, i) => (
+                                                        <div key={i} className="flex gap-2 items-start py-1">
+                                                            <div className="font-bold min-w-[20px]">{i+1}.</div>
+                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.left)} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="font-bold border-b border-black pb-1">Pilihan Jawaban</div>
+                                                    {[...item.matchingPairs].sort((a: any, b: any) => a.right.localeCompare(b.right)).map((pair, i) => (
+                                                        <div key={i} className="flex gap-2 items-start py-1">
+                                                            <div className="font-bold min-w-[20px]">{String.fromCharCode(65+i)}.</div>
+                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.right)} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {/* Perbaikan Benar/Salah - Hapus Border, Ganti Format Text */}
+                                        {item.type === 'Benar/Salah' && (
+                                            <div className="mt-2 ml-4 flex gap-8 text-xs pt-1">
+                                                 <span className="font-bold">( ) Benar</span>
+                                                 <span className="font-bold">( ) Salah</span>
                                             </div>
                                         )}
                                     </div>
@@ -639,11 +665,29 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                 {String.fromCharCode(65 + groupIndex)}. {type.toUpperCase()}
                             </h4>
                             <ol className="list-decimal pl-6 space-y-1 text-inherit">
-                                {(items as any[]).map((item, idx) => (
-                                    <li key={idx}>
-                                        <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.answerKey)} />
-                                    </li>
-                                ))}
+                                {(items as any[]).map((item, idx) => {
+                                    // Generate dynamic key for Matching to match the randomized display
+                                    let displayKey = item.answerKey;
+                                    
+                                    if (item.type === 'Menjodohkan' && item.matchingPairs) {
+                                        // Re-simulate the randomization (Sort Right Alphabetically)
+                                        const sortedRight = [...item.matchingPairs].map((p: any) => p.right).sort((a: string, b: string) => a.localeCompare(b));
+                                        
+                                        // Build Key: "1 - [Letter], 2 - [Letter]"
+                                        const keyParts = item.matchingPairs.map((pair: any, i: number) => {
+                                            const matchIndex = sortedRight.indexOf(pair.right);
+                                            const letter = String.fromCharCode(65 + matchIndex);
+                                            return `${i+1} - ${letter}`;
+                                        });
+                                        displayKey = keyParts.join(", ");
+                                    }
+
+                                    return (
+                                        <li key={idx}>
+                                            <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(displayKey)} />
+                                        </li>
+                                    );
+                                })}
                             </ol>
                         </div>
                     ))}
@@ -652,22 +696,220 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
           </div>
       );
   };
+  
+  const ReflectionContent = () => {
+    if (!data.reflection) return null;
+    return (
+        <div className="text-inherit">
+            <OpenSection title="V. REFLEKSI PEMBELAJARAN">
+                <h4 className="font-bold mb-1 text-inherit text-[13pt]">1. Refleksi Guru</h4>
+                <ul className="list-disc pl-6 mb-4 text-inherit">
+                    {(data.reflection.teacher || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                </ul>
+
+                <h4 className="font-bold mb-1 text-inherit text-[13pt]">2. Refleksi Murid</h4>
+                <ul className="list-disc pl-6 text-inherit">
+                    {(data.reflection.student || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                </ul>
+            </OpenSection>
+        </div>
+    );
+  };
+
+  const ApprovalSignature = () => {
+      const approval = data.approval;
+      if (!approval) return null;
+
+      return (
+          <div className="break-inside-avoid mt-8 text-inherit signature-area">
+              <table className="w-full border-none text-center text-inherit" style={{ border: 'none' }}>
+                  <tbody>
+                      <tr>
+                          <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
+                              <p className="mb-32 text-inherit">
+                                  Mengetahui,<br/>
+                                  Kepala Sekolah<br/><br/>
+                              </p>
+                              <p className="font-bold underline text-inherit">{approval.principalName}</p>
+                              <p className="text-inherit">NIP. {approval.principalNip}</p>
+                          </td>
+                          <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
+                              <p className="mb-32 text-inherit">
+                                  {approval.location}, {approval.date}<br/>
+                                  Guru Mata Pelajaran<br/><br/>
+                              </p>
+                              <p className="font-bold underline text-inherit">{approval.authorName}</p>
+                              <p className="text-inherit">NIP. {approval.authorNip}</p>
+                          </td>
+                      </tr>
+                  </tbody>
+              </table>
+          </div>
+      );
+  };
+
+  const MaterialsContent = () => {
+      if (!data.materials) return null;
+      const m = data.materials;
+      
+      const processedVisual = (!m.konsepInti.tabelVisual.includes('|'))
+          ? convertBulletPointsToTable(m.konsepInti.tabelVisual)
+          : m.konsepInti.tabelVisual;
+      
+      return (
+          <div className="text-inherit">
+            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12 page-break-before">LAMPIRAN 1: MATERI AJAR</h1>
+            <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{m.judul}</h2>
+            
+            <div className="mb-4 text-inherit">
+                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Pemantik</h3>
+                <p className="italic text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.pemantik)} />
+            </div>
+
+            <div className="mb-4 text-inherit">
+                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Sub Topik</h3>
+                <ul className="list-disc pl-6 text-inherit">
+                     {m.subTopik.map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s)} />)}
+                </ul>
+            </div>
+
+            <div className="mb-4 text-inherit">
+                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Konsep Inti</h3>
+                <div className="mb-2 text-inherit">
+                    <strong className="text-inherit">Definisi:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(m.konsepInti.definisi)} />
+                </div>
+                
+                <strong className="text-inherit">Uraian Materi:</strong>
+                <ul className="list-disc pl-6 mb-2 text-inherit">
+                     {m.konsepInti.penjelasanBertahap.map((p, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(p)} />)}
+                </ul>
+
+                <strong className="text-inherit">Contoh Konkret:</strong>
+                <div className="mb-2 pl-4 text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret)} />
+
+                <strong className="text-inherit">Visualisasi / Rangkuman Data:</strong>
+                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(processedVisual)} />
+            </div>
+            
+            <div className="mb-4 text-inherit">
+                 <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">TAHUKAH KAMU?</h3>
+                 <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia)} />
+            </div>
+
+            <div className="mb-4 text-inherit">
+                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Glosarium</h3>
+                <ul className="list-disc pl-6 text-inherit">
+                     {m.glosarium.map((g, i) => (
+                         <li key={i}>
+                             <strong className="text-inherit">{g.istilah}:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(g.definisi)} />
+                         </li>
+                     ))}
+                </ul>
+            </div>
+          </div>
+      );
+  };
+
+  const LkpdContent = () => {
+      if (!data.lkpd) return null;
+      const l = data.lkpd;
+
+      // POIN 3: Helper untuk render Aktivitas (Tabel atau Numbering)
+      const renderActivity = (text: string) => {
+          const trimmed = text.trim();
+          
+          // Jika sudah tabel, render tabel
+          if (trimmed.includes('|') && trimmed.includes('---')) {
+               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+          }
+          
+          // Jika sudah ada bullet/numbering di awal, render biasa
+          if (/^\d+\.|^[-•]/.test(trimmed)) {
+               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+          }
+          
+          // Jika teks paragraf biasa, paksa jadi numbering untuk soal
+          const lines = trimmed.split('\n').filter(t => t.trim() !== '');
+          if (lines.length > 0) {
+              const numberedText = lines.map((line, idx) => `${idx + 1}. ${line}`).join('\n');
+              return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(numberedText)} />;
+          }
+          
+          return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+      };
+
+      return (
+          <div className="text-inherit lkpd-reset">
+              <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12 page-break-before">LEMBAR KERJA</h1>
+              <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{l.title}</h2>
+              
+              <OpenSection title="Identitas">
+                  <p className="text-inherit">Nama: ...........................................................</p>
+                  <p className="text-inherit">Kelas: ...........................................................</p>
+              </OpenSection>
+
+              <OpenSection title="Tujuan Pembelajaran">
+                  <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(l.objectives)} />
+              </OpenSection>
+
+              <OpenSection title="Petunjuk Pengerjaan">
+                  <ul className="list-decimal pl-5 text-inherit" style={{ listStylePosition: 'outside', marginLeft: '1rem' }}>
+                      {l.instructions.map((ins, i) => <li key={i} className="pl-2 mb-1" dangerouslySetInnerHTML={renderMarkdown(ins)} />)}
+                  </ul>
+              </OpenSection>
+
+              <OpenSection title="Stimulus">
+                  <div className="text-inherit italic" dangerouslySetInnerHTML={renderMarkdown(l.stimulus)} />
+              </OpenSection>
+
+              <OpenSection title="Aktivitas 1 (Level Dasar)">
+                   {renderActivity(l.activities.level1)}
+              </OpenSection>
+
+              <OpenSection title="Aktivitas 2 (Level Menengah)">
+                   {renderActivity(l.activities.level2)}
+              </OpenSection>
+
+              <OpenSection title="Aktivitas 3 (Level Lanjut)">
+                   {renderActivity(l.activities.level3)}
+              </OpenSection>
+              
+              <OpenSection title="Refleksi Diri">
+                   <ul className="list-disc pl-6 text-inherit">
+                      {l.reflection.map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                   </ul>
+              </OpenSection>
+          </div>
+      );
+  };
 
   return (
     <div id="konten-dokumen">
         <style>{`
-            #konten-dokumen, 
-            #konten-dokumen p, 
-            #konten-dokumen li, 
-            #konten-dokumen td, 
-            #konten-dokumen th, 
-            #konten-dokumen span, 
-            #konten-dokumen div {
+            /* Force Tables in Markdown Content to look like Tables */
+            .force-table-styles table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                border: 1px solid black !important;
+                margin-bottom: 1rem;
+            }
+            .force-table-styles th, .force-table-styles td {
+                border: 1px solid black !important;
+                padding: 4px 8px !important;
+                text-align: left;
+                vertical-align: top;
+            }
+            .force-table-styles th {
+                background-color: #f3f4f6 !important;
+                font-weight: bold;
+                text-align: center;
+            }
+            
+            #konten-dokumen, #konten-dokumen * {
                 font-size: 11pt !important;
                 line-height: 1.3 !important;
                 font-family: 'Cambria', Georgia, serif !important;
                 color: #000000 !important;
-                box-shadow: none !important;
             }
             
             #konten-dokumen p {
@@ -705,15 +947,10 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 page-break-after: avoid !important; 
             }
             
-            .assessment-reset h3, .lkpd-reset h3 { border-bottom: none !important; }
+            .lkpd-reset h3 { border-bottom: none !important; }
 
             #konten-dokumen h4 { font-size: 12pt !important; text-transform: uppercase; font-weight: bold !important; margin-bottom: 4pt; margin-top: 8pt; page-break-after: avoid !important; }
             
-            /* Signature Specific Styles */
-            .signature-area p, .signature-area td {
-                line-height: 1.1 !important;
-            }
-
             .markdown-content table {
                 width: 100% !important;
                 border-collapse: collapse !important;
@@ -736,35 +973,12 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 font-size: 10pt !important;
             }
             
-            #konten-dokumen table p, #konten-dokumen table li {
-                margin-bottom: 0px !important;
-                text-align: left !important;
-                font-size: 10pt !important;
-            }
-
             .identity-table td { border-color: white !important; padding: 1pt 4pt !important; }
             .identity-table { border-color: white !important; margin-bottom: 0 !important; }
 
             @media print {
                 .page-break-divider { display: none !important; }
                 .signature-area td { background: transparent !important; box-shadow: none !important; }
-                
-                /* Fake footer to force margin recognition if browser defaults are overridden to 0 */
-                #konten-dokumen::after {
-                    content: ".";
-                    visibility: hidden;
-                    display: block;
-                    height: 1px;
-                    color: white;
-                }
-                
-                #konten-dokumen::before {
-                    content: ".";
-                    visibility: hidden;
-                    display: block;
-                    height: 1px;
-                    color: white;
-                }
             }
         `}</style>
 

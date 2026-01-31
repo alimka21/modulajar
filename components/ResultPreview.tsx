@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData, QuestionItem, DeepLearningAssessment } from '../types';
-import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer, BookKey, X, SlidersHorizontal, AlertCircle, Info } from 'lucide-react';
+import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3 } from 'lucide-react';
 import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS } from '../constants';
 import DocumentContent from './DocumentContent';
@@ -62,6 +62,9 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>('RPP_PLUS');
   const [expandedSection, setExpandedSection] = useState<SectionType>('LESSON');
   const [isPrinting, setIsPrinting] = useState(false);
+  
+  // Mobile Sidebar State
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [questionConfig, setQuestionConfig] = useState<QuestionBankConfig>({
@@ -217,9 +220,32 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-[30%] min-w-[340px] flex-none bg-white border-r border-slate-200 relative overflow-y-auto hidden md:block z-0 no-print">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* MOBILE TOGGLE FOR SIDEBAR */}
+        <div className="absolute top-2 left-2 z-40 md:hidden">
+            <button 
+                onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+                className="bg-blue-600 text-white p-3 rounded-full shadow-lg flex items-center justify-center"
+                title="Edit Data Modul"
+            >
+                <Edit3 size={20} />
+            </button>
+        </div>
+
+        {/* SIDEBAR CONTAINER */}
+        <div className={`
+            fixed inset-0 z-50 bg-white transform transition-transform duration-300 ease-in-out
+            md:relative md:translate-x-0 md:w-[30%] md:min-w-[340px] md:flex-none md:border-r md:border-slate-200 md:block
+            ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            overflow-y-auto no-print shadow-2xl md:shadow-none
+        `}>
              <div className="p-5 space-y-4 pt-6">
+                {/* Close Button Mobile */}
+                <div className="flex justify-between items-center md:hidden mb-4">
+                    <h3 className="font-bold text-slate-800 text-lg">Input Data Modul</h3>
+                    <button onClick={() => setIsMobileSidebarOpen(false)} className="bg-slate-100 p-2 rounded-full text-slate-500"><X size={20}/></button>
+                </div>
+
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
                     <div className="flex items-center gap-2 text-slate-700 font-bold text-xs uppercase mb-2">
                         <School size={16} className="text-blue-600" />
@@ -241,7 +267,6 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alokasi Waktu</label><input name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" /></div>
                       </div>
                       
-                      {/* Added Meeting Count Input Here */}
                       <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jumlah Pertemuan</label>
                           <select name="meetingCount" value={inputData.meetingCount} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
@@ -256,7 +281,10 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                       
                       <div className="pt-4">
                         <button 
-                            onClick={onGenerate} 
+                            onClick={() => {
+                                setIsMobileSidebarOpen(false); // Close sidebar on generate
+                                onGenerate();
+                            }} 
                             disabled={isLoading || !canGenerate} 
                             className={`w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl text-sm font-black transition-all shadow-xl ${
                                 isLoading || !canGenerate 
@@ -280,7 +308,13 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
              </div>
         </div>
 
+        {/* MAIN CONTENT AREA */}
         <div className="flex-1 bg-slate-100 overflow-hidden relative flex flex-col items-center">
+            {/* Overlay for mobile when sidebar open */}
+            {isMobileSidebarOpen && (
+                <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+            )}
+
             {(activeTab === 'MATERI' || activeTab === 'SEMUA') && !data?.materials && data && !isGeneratingMaterials && (<GenerationToolbar title="Materi Ajar Belum Tersedia" onAction={onGenerateMaterials} isLoading={isGeneratingMaterials} actionLabel="Buat Materi" icon={BookText} />)}
             {(activeTab === 'LKPD' || activeTab === 'SEMUA') && !data?.lkpd && data && !isGeneratingLKPD && (<GenerationToolbar title="Lembar Kerja Belum Tersedia" onAction={onGenerateLKPD} isLoading={isGeneratingLKPD} actionLabel="Buat LKPD" icon={ClipboardCheck} />)}
             {(activeTab === 'SOAL' || activeTab === 'SEMUA') && !data?.questionBank && data && !isGeneratingQuestionBank && (<GenerationToolbar title="Bank Soal Belum Tersedia" onAction={() => setShowQuestionModal(true)} isLoading={isGeneratingQuestionBank} actionLabel="Buat Bank Soal" icon={BookKey} />)}
@@ -308,7 +342,10 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                         <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 font-sans no-print">
                              <div className="bg-slate-50 p-8 rounded-full mb-6 mx-auto w-fit border border-slate-100"><Sparkles size={64} className="text-blue-300 animate-pulse" /></div>
                              <h3 className="text-2xl font-black text-slate-800 mb-3 uppercase tracking-tight">Siap Untuk Beraksi?</h3>
-                             <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">Pilih mata pelajaran, topik, dan tujuan pembelajaran di panel kiri untuk memulai proses penyusunan modul oleh AI.</p>
+                             <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                                <span className="md:hidden">Tekan tombol <span className="text-blue-600 font-bold"><Edit3 size={12} className="inline"/></span> di pojok kiri atas untuk mengisi data.</span>
+                                <span className="hidden md:inline">Pilih mata pelajaran, topik, dan tujuan pembelajaran di panel kiri untuk memulai proses penyusunan modul oleh AI.</span>
+                             </p>
                         </div>
                     ) : (
                         <div className="animate-fade-in"><DocumentContent data={data} inputData={inputData} activeTab={activeTab} /></div>

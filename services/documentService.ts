@@ -22,10 +22,10 @@ const CELL_MARGIN = { top: 120, bottom: 120, left: 120, right: 120 };
 
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  if (typeof val === 'string') return val;
+  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'murid');
   if (typeof val === 'number') return String(val);
   if (Array.isArray(val)) return val.map(safeString).join(", ");
-  if (typeof val === 'object') return val.text || val.content || val.value || JSON.stringify(val);
+  if (typeof val === 'object') return (val.text || val.content || val.value || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'murid');
   return String(val);
 };
 
@@ -38,6 +38,11 @@ const cleanText = (text: any): string => {
 
 // Helper to handle multiline text from AI (preserves line breaks in Word)
 const createMultilineText = (text: string) => {
+    // Basic Markdown Table Parser
+    if (text.includes("|") && text.includes("---")) {
+        return createTableFromMarkdown(text);
+    }
+
     const lines = cleanText(text).split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
@@ -60,9 +65,39 @@ const createMultilineText = (text: string) => {
         }
         return new Paragraph({
             children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
-            spacing: { after: 120, line: LINE_SPACING_BODY } // Slightly tighter than standard paragraphs
+            spacing: { after: 120, line: LINE_SPACING_BODY } 
         });
-    }).filter(Boolean) as Paragraph[];
+    }).filter(Boolean) as (Paragraph | Table)[];
+};
+
+// Simple Markdown Table to Docx Table Converter
+const createTableFromMarkdown = (mdTable: string): (Table | Paragraph)[] => {
+    try {
+        const lines = mdTable.split('\n').filter(l => l.trim().length > 0);
+        const validRows = lines.filter(l => l.includes('|') && !l.includes('---')); // Exclude separator lines
+        
+        if (validRows.length < 1) return [new Paragraph(mdTable)]; // Fallback
+
+        const rows = validRows.map((line, rowIndex) => {
+            // Split by pipe, ignore first/last empty elements from leading/trailing pipes
+            const cells = line.split('|').map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+            
+            return new TableRow({
+                children: cells.map(cellText => new TableCell({
+                    children: [new Paragraph({ children: [new TextRun({ text: cellText, font: FONT_FACE, size: SIZE_BODY, bold: rowIndex === 0 })] })],
+                    margins: CELL_MARGIN,
+                    shading: rowIndex === 0 ? { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" } : undefined
+                }))
+            });
+        });
+
+        return [new Table({
+            rows: rows,
+            width: { size: 100, type: WidthType.PERCENTAGE }
+        }), new Paragraph("")]; // Add spacer
+    } catch (e) {
+        return [new Paragraph(mdTable)];
+    }
 };
 
 export const downloadDocx = async (data: GeneratedLessonPlan, settings: DocumentSettings) => {
@@ -87,10 +122,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       keepNext: true // Keep with following content
   });
   
-  // Adjusted spacing after to 80 (approx 4pt)
   const createSubSectionTitle = (text: string, hasUnderline = true) => createPara([createText(safeString(text), { bold: true, size: SIZE_H3 })], { 
       spacing: { before: 240, after: 80, line: LINE_SPACING_BODY }, 
-      keepNext: true, // Crucial: Keep header with content
+      keepNext: true, 
       border: hasUnderline ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLOR_ACCENT } } : undefined 
   });
   
@@ -105,6 +139,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   // 1. RPP Content
   const createIdentityTable = (data: GeneratedLessonPlan) => {
+    // Safety fallback
+    const approval = data.approval || { authorName: '-' };
+    
     const createRow = (label: string, value: any) => new TableRow({
       children: [
         new TableCell({ children: [createPara([createText(label, { bold: true })], { spacing: { after: 0, line: LINE_SPACING_TABLE } })], width: { size: 30, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" } } }),
@@ -116,7 +153,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       width: { size: 100, type: WidthType.PERCENTAGE },
       rows: [
         createRow("Nama Sekolah", data.identitySection.schoolName),
-        createRow("Nama Penyusun", data.approval.authorName),
+        createRow("Nama Penyusun", approval.authorName),
         createRow("Mata Pelajaran", data.identitySection.subject),
         createRow("Kelas / Fase", data.identitySection.grade),
         createRow("Semester", data.identitySection.semester),
@@ -137,52 +174,45 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       createSubSectionTitle("Asesmen Awal (Opsional)"),
       ...createMultilineText(data.initialAssessment || "Belum ada data"),
       
-      createSubSectionTitle("Dimensi Profil Lulusan"), // Changed from "Profil Lulusan"
+      createSubSectionTitle("Dimensi Profil Lulusan"),
+      createPara([createText("Dimensi yang dikuatkan:", { italics: true })]),
       ...data.graduateProfile.map(g => createListItem(g)),
       
       createSectionTitle("II. KOMPONEN INTI"),
       
-      // 1. Objectives
       createSubSectionTitle("1. Tujuan Pembelajaran"),
       ...data.design.objectives.map(o => createListItem(o)),
       
-      // 2. Pedagogical
       createSubSectionTitle("2. Praktik Pedagogis"),
       ...createMultilineText(data.design.pedagogicalPractice),
   ];
 
-  // 3. Partnership (Optional)
   if (data.design.partnership) {
       rppSections.push(createSubSectionTitle("3. Kemitraan (Opsional)"));
       rppSections.push(...createMultilineText(data.design.partnership));
   }
 
-  // 4/3. Environment (Numbering logic)
   const envNumber = data.design.partnership ? "4" : "3";
   rppSections.push(createSubSectionTitle(`${envNumber}. Lingkungan Belajar`));
   rppSections.push(...createMultilineText(data.design.environment));
 
-  // 5/4. Digital (Optional)
   if (data.design.digital) {
       const digNumber = data.design.partnership ? "5" : "4";
       rppSections.push(createSubSectionTitle(`${digNumber}. Pemanfaatan Digital (Opsional)`));
       rppSections.push(...createMultilineText(data.design.digital));
   }
 
-  // III. LEARNING STEPS
-  rppSections.push(createSectionTitle("III. LANGKAH PEMBELAJARAN", false)); // Removed pageBreak true, kept flow
+  rppSections.push(createSectionTitle("III. LANGKAH PEMBELAJARAN", false));
   
   data.learningExperience.forEach(step => {
       rppSections.push(
           createPara([createText(`PERTEMUAN ${step.meetingNo}`, { bold: true })], { alignment: AlignmentType.CENTER, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, spacing: { before: 240, after: 240, line: LINE_SPACING_BODY } })
       );
 
-      // Pendahuluan
       rppSections.push(createSubSectionTitle("A. Pendahuluan", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.introPrinciple)}`, { italics: true })]));
       step.intro.forEach(i => rppSections.push(createListItem(i)));
 
-      // Inti
       rppSections.push(createSubSectionTitle("B. Kegiatan Inti", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.corePrinciple)}`, { italics: true })]));
       
@@ -195,7 +225,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       rppSections.push(createPara([createText("3. Merefleksi:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
       step.core.merefleksi.forEach(i => rppSections.push(createListItem(i, 1)));
 
-      // Penutup
       rppSections.push(createSubSectionTitle("C. Penutup", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.closingPrinciple)}`, { italics: true })]));
       step.closing.forEach(i => rppSections.push(createListItem(i)));
@@ -297,8 +326,15 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
         ]
     });
 
+    // Tangga Umpan Balik - UPDATED: Just list items, no borders
+    const feedbackList = [
+        createListItem(`KLARIFIKASI: ${safeString(assessment.formative.feedbackGuide.clarification)}`),
+        createListItem(`APRESIASI: ${safeString(assessment.formative.feedbackGuide.appreciation)}`),
+        createListItem(`SARAN: ${safeString(assessment.formative.feedbackGuide.suggestion)}`)
+    ];
+
     return [
-        createSectionTitle("IV. ASESMEN PEMBELAJARAN", false), // No Page Break forced
+        createSectionTitle("IV. ASESMEN PEMBELAJARAN", false),
         createSubSectionTitle("1. KKTP (Rubrik)"),
         createPara([createText("Catatan: Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)", { italics: true })]),
         kktpTable,
@@ -307,9 +343,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
         formativeTable,
         
         createSubSectionTitle("Umpan Balik"),
-        createPara([createText(`Klarifikasi: ${safeString(assessment.formative.feedbackGuide.clarification)}`)]),
-        createPara([createText(`Apresiasi: ${safeString(assessment.formative.feedbackGuide.appreciation)}`)]),
-        createPara([createText(`Saran: ${safeString(assessment.formative.feedbackGuide.suggestion)}`)]),
+        ...feedbackList,
         
         createSubSectionTitle("3. Asesmen Sumatif (Kisi-Kisi)"),
         summativeTable,
@@ -357,12 +391,10 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       return [createPara([], { spacing: { before: 480, line: LINE_SPACING_BODY } }), sigTable];
   };
 
-  // 3. REFLECTION GENERATOR
   const createReflectionSection = (reflection: any) => {
       if (!reflection) return [];
-      
       return [
-          createSectionTitle("V. REFLEKSI PEMBELAJARAN", false), // No Page Break forced
+          createSectionTitle("V. REFLEKSI PEMBELAJARAN", false),
           createSubSectionTitle("1. Refleksi Guru"),
           ...(reflection.teacher || []).map((r: string) => createListItem(r)),
           createSubSectionTitle("2. Refleksi Murid"),
@@ -370,11 +402,10 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       ];
   };
 
-  // 4. MATERIALS GENERATOR
   const createMaterialsSection = (m: MaterialsData | undefined) => {
       if (!m) return [];
       return [
-          createSectionTitle("LAMPIRAN 1: MATERI AJAR", true), // Keep page break for separate attachment
+          createSectionTitle("LAMPIRAN 1: MATERI AJAR", true),
           createHeading(m.judul),
           createSubSectionTitle("Pemantik"), createPara([createText(safeString(m.pemantik), { italics: true })]),
           createSubSectionTitle("Sub Topik"), ...m.subTopik.map(s => createListItem(s)),
@@ -383,7 +414,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           createPara([createText("Penjelasan:", { bold: true })]), ...m.konsepInti.penjelasanBertahap.map(p => createListItem(p)),
           createPara([createText("Contoh:", { bold: true })]), ...createMultilineText(m.konsepInti.contohKonkret),
           
-          // Fixed multiline for tableVisual (now rendered as list/text in Docx)
           createPara([createText("Visualisasi / Poin Penting:", { bold: true })]), 
           ...createMultilineText(m.konsepInti.tabelVisual),
           
@@ -391,11 +421,10 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       ];
   };
 
-  // 5. LKPD GENERATOR
   const createLKPDSection = (l: LKPDData | undefined) => {
       if (!l) return [];
       return [
-          createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true), // Keep page break for separate attachment
+          createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true),
           createHeading(l.title),
           createSubSectionTitle("Tujuan"), createPara([createText(cleanText(l.objectives))]),
           createSubSectionTitle("Petunjuk"), ...l.instructions.map(i => createListItem(i)),
@@ -416,11 +445,10 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       ];
   };
 
-  // 6. QUESTION BANK GENERATOR
   const createQuestionBankSection = (q: QuestionBankData | undefined) => {
       if (!q) return [];
       return [
-          createSectionTitle("LAMPIRAN 3: BANK SOAL", true), // Keep page break for separate attachment
+          createSectionTitle("LAMPIRAN 3: BANK SOAL", true),
           ...q.items.flatMap(item => {
               const paras = [
                   createPara([createText(`${item.number}. ${cleanText(item.question)}`, { bold: true })], { spacing: { before: 240, line: LINE_SPACING_BODY } })
@@ -430,13 +458,35 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                    paras.push(...createMultilineText(item.stimulus));
               }
               
-              if (item.options) {
+              if (item.options && (item.type.includes('Pilihan Ganda') || !item.type)) {
                   item.options.forEach((opt, idx) => {
                       paras.push(createPara([createText(`${String.fromCharCode(65 + idx)}. ${cleanText(opt)}`)]));
                   });
               }
-              if (item.matchingPairs) {
-                   item.matchingPairs.forEach(p => paras.push(createPara([createText(`${p.left}  ---  ${p.right}`)])));
+
+              // Updated: Matching Layout for Docx
+              if (item.type === 'Menjodohkan' && item.matchingPairs) {
+                  // Create a table for matching
+                  const matchingRows = item.matchingPairs.map((p, i) => new TableRow({
+                      children: [
+                          new TableCell({ children: [createPara([createText(`${i+1}. ${p.left}`)])], margins: CELL_MARGIN }),
+                          new TableCell({ children: [createPara([createText("   <--->   ")], { alignment: AlignmentType.CENTER })], margins: CELL_MARGIN }),
+                          new TableCell({ children: [createPara([createText(`${String.fromCharCode(65+i)}. ${p.right}`)])], margins: CELL_MARGIN })
+                      ]
+                  }));
+                  paras.push(new Table({
+                      rows: matchingRows,
+                      width: { size: 100, type: WidthType.PERCENTAGE },
+                      borders: {
+                          top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+                          insideVertical: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE }
+                      }
+                  }));
+              }
+
+              // Updated: True/False Layout
+              if (item.type === 'Benar/Salah') {
+                  paras.push(createPara([createText("[   ] BENAR      [   ] SALAH", { bold: true })]));
               }
               
               return paras;
@@ -446,15 +496,11 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       ];
   };
 
-  // COMBINE ALL SECTIONS - UPDATED ORDER
-  // RPM -> Assessment -> Reflection -> Signature -> Others
   const allChildren = [
       ...rppSections,
       ...createAssessmentSection(data.assessment),
-      ...createReflectionSection(data.reflection), // Reflection moved UP
-      ...createApprovalSection(data.approval),     // Signature moved DOWN
-      
-      // These will only appear if the data exists
+      ...createReflectionSection(data.reflection),
+      ...createApprovalSection(data.approval),
       ...createMaterialsSection(data.materials),
       ...createLKPDSection(data.lkpd),
       ...createQuestionBankSection(data.questionBank)
@@ -464,7 +510,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       sections: [{
           properties: {
             page: {
-                margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } // 1 inch margin
+                margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
             }
           },
           children: allChildren

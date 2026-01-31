@@ -20,14 +20,24 @@ export const initializeStorage = () => {
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
     try {
-        const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle();
+        // PERBAIKAN: Gunakan RPC 'get_my_profile_safe' alih-alih select langsung.
+        let profile: any = null;
 
-        // If connection fails silently here, profile might be null. We should handle it gracefully.
-        
+        const { data: rpcData, error: rpcError } = await supabase
+            .rpc('get_my_profile_safe', { target_id: session.user.id });
+
+        if (!rpcError && rpcData) {
+            profile = rpcData;
+        } else {
+            // Fallback ke cara lama jika fungsi SQL belum di-update user
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .maybeSingle();
+            profile = data;
+        }
+
         const sessionEmail = session.user.email || '';
         const isAdminEmail = sessionEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
         const userRole = isAdminEmail ? 'admin' : (profile?.role || 'user');
@@ -54,58 +64,42 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
 };
 
 export const authenticate = async (emailOrUsername: string, passwordPlain: string): Promise<User> => {
-    let emailToLogin = emailOrUsername.trim();
+    let identifier = emailOrUsername.trim();
     let passwordToLogin = passwordPlain.trim();
-    let isUsernameLogin = !emailToLogin.includes('@');
+    
+    // Khusus login "admin" biasa (fallback legacy)
+    if (identifier.toLowerCase() === 'admin') identifier = ADMIN_EMAIL;
 
     try {
-        // STEP 1: Cari email dari username jika login menggunakan username
-        if (isUsernameLogin) {
-            const { data: profileByUsername, error: usernameError } = await supabase
-                .from('profiles')
-                .select('email')
-                .eq('username', emailToLogin)
-                .maybeSingle();
-            
-            if (usernameError) throw usernameError;
+        // Gunakan RPC untuk cek user agar aman dari RLS recursion
+        const { data: userInfo, error: rpcError } = await supabase
+            .rpc('get_login_info', { identifier: identifier });
 
-            if (!profileByUsername) {
-                if (emailToLogin.toLowerCase() === 'admin') emailToLogin = ADMIN_EMAIL;
-                else throw new Error("USERNAME_NOT_FOUND");
-            } else {
-                emailToLogin = profileByUsername.email;
+        const isAdminEmail = identifier.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+        if (!userInfo) {
+            if (!isAdminEmail) {
+                if (identifier.includes('@')) {
+                    throw new Error("EMAIL_NOT_FOUND");
+                } else {
+                    throw new Error("USERNAME_NOT_FOUND");
+                }
             }
         }
 
-        // STEP 2: Cek apakah email/user terdaftar dan statusnya
-        const { data: profileCheck, error: profileError } = await supabase
-            .from('profiles')
-            .select('id, email, status, role')
-            .eq('email', emailToLogin)
-            .maybeSingle();
-        
-        if (profileError) throw profileError;
-
-        const isAdmin = emailToLogin.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-        
-        // Jika bukan admin dan tidak ditemukan profile
-        if (!profileCheck && !isAdmin) {
-            throw new Error("EMAIL_NOT_FOUND");
-        }
-
-        // STEP 3: CEK STATUS PENDING - INI YANG PENTING!
-        if (profileCheck && !isAdmin) {
-            if (profileCheck.status === 'pending') {
+        if (userInfo && userInfo.role !== 'admin' && !isAdminEmail) {
+            if (userInfo.status === 'pending') {
                 throw new Error("ACCOUNT_PENDING");
             }
-            if (profileCheck.status === 'inactive') {
+            if (userInfo.status === 'inactive') {
                 throw new Error("ACCOUNT_INACTIVE");
             }
         }
 
-        // STEP 4: Login ke Supabase Auth
+        const finalEmail = userInfo ? userInfo.email : identifier;
+
         const { data, error } = await supabase.auth.signInWithPassword({
-            email: emailToLogin,
+            email: finalEmail,
             password: passwordToLogin,
         });
 
@@ -113,12 +107,10 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
             throw new Error("INVALID_PASSWORD");
         }
 
-        // STEP 5: Update last login dan buat profile admin jika belum ada
         if (data && data.session) {
             const userId = data.user.id;
             
-            // Buat profile admin jika belum ada
-            if (!profileCheck && isAdmin) {
+            if (!userInfo && isAdminEmail) {
                 await supabase.from('profiles').upsert({
                     id: userId,
                     email: ADMIN_EMAIL,
@@ -131,7 +123,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                 });
             }
             
-            // Update last login
             await supabase.from('profiles')
                 .update({ last_login: new Date().toISOString() })
                 .eq('id', userId);
@@ -142,7 +133,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
             return user;
         }
     } catch (error: any) {
-        // Tangani Failed to fetch khusus (masalah koneksi/URL supabase salah)
         if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('Network request failed'))) {
             throw new Error("CONNECTION_ERROR");
         }
@@ -154,18 +144,15 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
 export const saveUser = async (user: User) => {
     try {
-        const { data: existingUsers, error: checkError } = await supabase
-            .from('profiles')
-            .select('email, username')
-            .or(`email.eq.${user.email},username.eq.${user.username}`);
+        const { data: existingUser } = await supabase
+            .rpc('get_login_info', { identifier: user.email });
+        
+        if (existingUser) throw new Error("Email ini sudah terdaftar.");
 
-        if (checkError) throw checkError;
+        const { data: existingUserByUsername } = await supabase
+            .rpc('get_login_info', { identifier: user.username });
 
-        if (existingUsers && existingUsers.length > 0) {
-            const match = existingUsers[0];
-            if (match.email === user.email) throw new Error("Email ini sudah terdaftar.");
-            if (match.username === user.username) throw new Error("Username ini sudah digunakan.");
-        }
+        if (existingUserByUsername) throw new Error("Username ini sudah digunakan.");
 
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
@@ -174,7 +161,8 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
-                    password_text: user.password
+                    password_text: user.password,
+                    phone_number: user.phoneNumber
                 }
             }
         });
@@ -190,11 +178,38 @@ export const saveUser = async (user: User) => {
 };
 
 export const getUsers = async (): Promise<User[]> => {
+    // METODE 1: Coba pakai RPC 'get_all_users_secure' (Paling Aman, Bypass RLS)
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_all_users_secure');
+
+    if (!rpcError && rpcData) {
+         return rpcData.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            username: p.username,
+            email: p.email,
+            password: p.password_text, 
+            role: p.role as any,
+            status: p.status as any,
+            joinedDate: p.joined_date,
+            lastLogin: p.last_login,
+            generationCount: p.generation_count,
+            apiKey: p.api_key
+        }));
+    }
+
+    // METODE 2: Fallback ke Select Biasa (Jika RPC belum di-run user)
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .order('joined_date', { ascending: false });
-    if (error) throw error;
+        
+    if (error) {
+        if (error.code === '42P17') {
+            console.error("Critical RLS Error: Infinite Recursion Detected. Please Run SUPABASE_RECURSION_FIX.sql in Supabase SQL Editor.");
+            return []; // Return empty agar UI tidak crash
+        }
+        throw error;
+    }
     return data.map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -230,7 +245,6 @@ export const updateAdminPassword = async (newPassword: string) => {
     });
     if (error) throw error;
     
-    // Juga update di profiles untuk PT (Password Text)
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
         await supabase.from('profiles').update({ password_text: newPassword }).eq('id', user.id);

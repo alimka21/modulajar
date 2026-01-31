@@ -5,7 +5,7 @@ import { INDONESIAN_MONTHS } from '../constants';
 import { validateApiKey } from '../services/geminiService';
 import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
-import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink } from 'lucide-react';
+import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink, XCircle } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
 
 interface UserDashboardProps {
@@ -31,9 +31,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [isIdentitySaved, setIsIdentitySaved] = useState(false);
 
   useEffect(() => {
-      const currentKey = user.apiKey || sessionStorage.getItem('custom_api_key') || '';
+      // Ambil key dari user (DB) atau session, lakukan sanitasi basic
+      const currentKey = (user.apiKey || sessionStorage.getItem('custom_api_key') || '').trim();
       setApiKey(currentKey);
-      if (currentKey) {
+      if (currentKey && currentKey.length > 10) {
           setKeyStatus('VALID');
           setIsKeyValidated(true);
           setIsEditingKey(false);
@@ -43,7 +44,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       setIdentityData(schoolIdentity);
       loadHistoryData();
       
-      // Cek apakah data sudah ada di localstorage untuk mengaktifkan tombol jika data sudah pernah disimpan sebelumnya
       const saved = localStorage.getItem('schoolIdentity');
       if (saved) {
           setIsIdentitySaved(true);
@@ -60,7 +60,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const handleIdentityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const { name, value } = e.target;
       setIdentityData(prev => ({ ...prev, [name]: value }));
-      setIsIdentitySaved(false); // Reset status simpan jika ada perubahan
+      setIsIdentitySaved(false); 
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,13 +108,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   };
 
   const handleTestKey = async () => {
-      if (!apiKey.trim()) {
+      const cleanKey = apiKey.trim();
+      if (!cleanKey) {
           swal.fire({ icon: 'warning', title: 'Input Kosong', text: 'Mohon masukkan API Key terlebih dahulu.' });
           return;
       }
+      
       setIsTestingKey(true);
       setTestMessage('Sedang menguji koneksi...');
-      const result = await validateApiKey(apiKey);
+      
+      // Kirim cleanKey, jangan raw apiKey state yang mungkin masih ada spasi
+      const result = await validateApiKey(cleanKey);
+      
       setIsTestingKey(false);
       if (result.success) {
           setKeyStatus('VALID');
@@ -131,9 +136,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
 
   const handleSaveApiKey = async () => {
       if (!isKeyValidated) return;
+      const cleanKey = apiKey.trim();
       try {
-          await saveUserApiKey(user.id, apiKey);
-          sessionStorage.setItem('custom_api_key', apiKey);
+          await saveUserApiKey(user.id, cleanKey);
+          sessionStorage.setItem('custom_api_key', cleanKey);
           setIsEditingKey(false);
           await refreshAuth();
           swal.fire({ icon: 'success', title: 'Tersimpan!', text: 'Sistem telah dikunci untuk selalu menggunakan API Key Anda.' });
@@ -250,25 +256,24 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                     <input type="date" value={getIsoDateFromDisplay(identityData.date)} onChange={handleDateChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-all shadow-sm" />
                                 </div>
                             </div>
+
                             <div className="space-y-5">
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-l-4 border-indigo-500 pl-3">Data Guru & Kepsek</h3>
+                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-l-4 border-purple-500 pl-3">Data Penyusun Modul</h3>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">Nama Penyusun (Guru) *</label>
-                                    <input name="authorName" value={identityData.authorName} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-all shadow-sm" placeholder="Nama Lengkap & Gelar" />
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">Nama Penyusun *</label>
+                                    <input name="authorName" value={identityData.authorName} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none bg-white transition-all shadow-sm" placeholder="Nama Guru" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">NIP Guru *</label>
-                                    <input name="authorNip" value={identityData.authorNip} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-all shadow-sm" placeholder="Masukkan NIP atau -" />
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">NIP Penyusun *</label>
+                                    <input name="authorNip" value={identityData.authorNip} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none bg-white transition-all shadow-sm" placeholder="NIP" />
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">Nama Kepsek *</label>
-                                        <input name="principalName" value={identityData.principalName} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-all shadow-sm" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">NIP Kepsek *</label>
-                                        <input name="principalNip" value={identityData.principalNip} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white transition-all shadow-sm" />
-                                    </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">Nama Kepala Sekolah *</label>
+                                    <input name="principalName" value={identityData.principalName} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none bg-white transition-all shadow-sm" placeholder="Nama Kepala Sekolah" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase">NIP Kepala Sekolah *</label>
+                                    <input name="principalNip" value={identityData.principalNip} onChange={handleIdentityChange} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none bg-white transition-all shadow-sm" placeholder="NIP" />
                                 </div>
                             </div>
                         </div>
@@ -285,55 +290,274 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     </div>
                 </div>
 
+                {/* ===== API KEY MANAGEMENT SECTION (ENHANCED) ===== */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                        <h2 className="font-bold text-slate-700 flex items-center gap-2">
-                            <Key size={20} className="text-amber-500" />
-                            Konfigurasi Gemini API
+                    <div className="p-5 bg-slate-50 border-b border-slate-200">
+                        <h2 className="font-bold text-slate-700 flex items-center gap-2 text-lg">
+                            <Key size={22} className="text-purple-600" />
+                            Manajemen API Key Gemini
                         </h2>
-                        {user.apiKey && !isEditingKey && (
-                            <button onClick={handleStartEditing} className="text-xs bg-amber-100 text-amber-700 font-bold px-3 py-1.5 rounded-lg hover:bg-amber-200 transition flex items-center gap-1"><Edit3 size={14} /> Ubah API Key</button>
-                        )}
+                        <p className="text-xs text-slate-500 mt-1">Kelola API Key untuk AI Module Generator</p>
                     </div>
-                    <div className="p-6">
-                        <div className="relative mb-2">
-                            <input 
-                                type={showKey ? "text" : "password"} 
-                                value={apiKey}
-                                disabled={!isEditingKey}
-                                onChange={(e) => { setApiKey(e.target.value); setIsKeyValidated(false); setKeyStatus('NONE'); }}
-                                className={`w-full pl-4 pr-12 py-3 border rounded-xl text-sm outline-none transition ${!isEditingKey ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' : keyStatus === 'VALID' ? 'bg-white border-green-500 focus:ring-2 focus:ring-green-500' : keyStatus === 'INVALID' ? 'bg-white border-red-500 focus:ring-2 focus:ring-red-500' : 'bg-white border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
-                                placeholder={isEditingKey ? "Paste your API Key here..." : "API Key is locked"}
-                            />
-                            <button onClick={() => setShowKey(!showKey)} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">{showKey ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+
+                    <div className="p-8 space-y-6">
+                        
+                        {/* Info Box */}
+                        <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                            <div className="flex gap-3">
+                                <HelpCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                                <div className="text-sm text-blue-900">
+                                    <p className="font-semibold mb-1">Bagaimana Sistem API Key Bekerja?</p>
+                                    <ul className="text-xs space-y-1 list-disc list-inside">
+                                        <li>Aplikasi memiliki API Key <strong>bawaan</strong> (server bersama) untuk semua pengguna</li>
+                                        <li>Anda bisa menggunakan <strong>API Key pribadi</strong> Anda sendiri untuk kuota unlimited</li>
+                                        <li>Prioritas: Jika ada API Key pribadi yang valid, sistem menggunakan itu terlebih dahulu</li>
+                                        <li>Jika API Key pribadi habis atau dihapus, sistem otomatis kembali ke API Key bawaan</li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
-                        {testMessage && <div className={`text-[11px] font-bold mb-4 flex items-center gap-1 ${keyStatus === 'VALID' ? 'text-green-600' : 'text-red-600'}`}>{keyStatus === 'VALID' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}{testMessage}</div>}
-                        <div className="flex gap-3 mt-4">
-                            {isEditingKey ? (
-                                <>
-                                    <button onClick={handleTestKey} disabled={isTestingKey || !apiKey.trim()} className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-xl text-sm flex items-center gap-2 shadow-sm disabled:opacity-50">{isTestingKey ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}{isTestingKey ? 'Testing...' : 'Test Connection'}</button>
-                                    <button onClick={handleSaveApiKey} disabled={!isKeyValidated || isTestingKey} className={`font-bold py-2.5 px-6 rounded-xl text-sm flex items-center gap-2 shadow-md transition-all ${isKeyValidated ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-slate-200 text-slate-400'}`}><Save size={16} /> Simpan Key</button>
-                                </>
+
+                        {/* Current Status */}
+                        <div>
+                            <h3 className="font-semibold text-slate-700 mb-3">Status API Key Anda</h3>
+                            
+                            <div className={`p-4 rounded-xl border-2 ${
+                                isKeyValidated && keyStatus === 'VALID'
+                                    ? 'bg-green-50 border-green-300'
+                                    : isKeyValidated && keyStatus === 'INVALID'
+                                    ? 'bg-red-50 border-red-300'
+                                    : 'bg-yellow-50 border-yellow-300'
+                            }`}>
+                                <div className="flex items-start gap-3">
+                                    {isKeyValidated && keyStatus === 'VALID' ? (
+                                        <CheckCircle className="text-green-600 flex-shrink-0 mt-1" size={20} />
+                                    ) : isKeyValidated && keyStatus === 'INVALID' ? (
+                                        <XCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
+                                    ) : (
+                                        <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={20} />
+                                    )}
+                                    
+                                    <div className="flex-1">
+                                        <p className={`font-semibold ${
+                                            isKeyValidated && keyStatus === 'VALID'
+                                                ? 'text-green-900'
+                                                : isKeyValidated && keyStatus === 'INVALID'
+                                                ? 'text-red-900'
+                                                : 'text-yellow-900'
+                                        }`}>
+                                            {isKeyValidated && keyStatus === 'VALID' 
+                                                ? '✅ API Key Valid & Siap Digunakan'
+                                                : isKeyValidated && keyStatus === 'INVALID'
+                                                ? '❌ API Key Tidak Valid'
+                                                : '⚠️ API Key Belum Dikonfigurasi'
+                                            }
+                                        </p>
+                                        
+                                        {isKeyValidated && keyStatus === 'VALID' && (
+                                            <div className="text-xs text-slate-600 mt-2 space-y-1">
+                                                <p>
+                                                    <strong>Sumber:</strong> {
+                                                        apiKey && apiKey.length > 0
+                                                            ? '🔐 API Key Pribadi Anda'
+                                                            : '🌐 API Key Bawaan Server'
+                                                    }
+                                                </p>
+                                                {apiKey && apiKey.length > 0 && (
+                                                    <p>
+                                                        <strong>Tersimpan:</strong> Ya (di Database)
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                        
+                                        {isKeyValidated && keyStatus === 'INVALID' && (
+                                            <p className="text-xs text-red-700 mt-2">
+                                                Periksa kembali API Key Anda atau hubungi support jika mengalami kesulitan.
+                                            </p>
+                                        )}
+                                        
+                                        {!isKeyValidated && (
+                                            <p className="text-xs text-yellow-700 mt-2">
+                                                Gunakan API Key bawaan server atau masukkan API Key pribadi untuk mulai membuat modul.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* API Key Input Form */}
+                        <div>
+                            <h3 className="font-semibold text-slate-700 mb-3">
+                                {isEditingKey ? 'Masukkan API Key Pribadi' : 'API Key Pribadi Anda'}
+                            </h3>
+
+                            {!isEditingKey && apiKey && keyStatus === 'VALID' ? (
+                                <div className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-3">
+                                    <p className="text-xs text-slate-600">
+                                        API Key Anda tersimpan di database. Ditampilkan sebagian untuk keamanan:
+                                    </p>
+                                    <div className="font-mono text-sm bg-white p-3 rounded border border-slate-200">
+                                        {apiKey.substring(0, 10)}...{apiKey.substring(apiKey.length - 10)}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleStartEditing}
+                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Edit3 size={16} />
+                                            Ubah API Key
+                                        </button>
+                                        <button
+                                            onClick={handleDeleteApiKey}
+                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <Trash2 size={16} />
+                                            Hapus API Key
+                                        </button>
+                                    </div>
+                                </div>
                             ) : (
-                                <button onClick={handleDeleteApiKey} className="bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 font-bold py-2.5 px-4 rounded-xl text-sm flex items-center gap-2 transition"><Trash2 size={16} /> Remove Key</button>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-2">
+                                            Paste API Key Anda dari Google AI Studio:
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showKey ? "text" : "password"}
+                                                value={apiKey}
+                                                onChange={(e) => { 
+                                                    setApiKey(e.target.value); 
+                                                    setIsKeyValidated(false); 
+                                                    setKeyStatus('NONE'); 
+                                                }}
+                                                placeholder="sk-proj-xxxxxxxxxxxxxxxxxxxxx"
+                                                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 outline-none bg-white transition-all shadow-sm font-mono"
+                                            />
+                                            <button
+                                                onClick={() => setShowKey(!showKey)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                            >
+                                                {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-2">
+                                            🔒 API Key Anda akan dienkripsi dan disimpan dengan aman di database kami.
+                                        </p>
+                                    </div>
+
+                                    {/* Test Message */}
+                                    {testMessage && (
+                                        <div className={`p-3 rounded-lg text-xs ${
+                                            keyStatus === 'VALID'
+                                                ? 'bg-green-50 border border-green-200 text-green-800'
+                                                : keyStatus === 'INVALID'
+                                                ? 'bg-red-50 border border-red-200 text-red-800'
+                                                : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
+                                        }`}>
+                                            {testMessage}
+                                        </div>
+                                    )}
+
+                                    {/* Action Buttons */}
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleTestKey}
+                                            disabled={!apiKey.trim() || isTestingKey}
+                                            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                                                !apiKey.trim() || isTestingKey
+                                                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                                    : 'bg-yellow-600 text-white hover:bg-yellow-700'
+                                            }`}
+                                        >
+                                            {isTestingKey ? (
+                                                <>
+                                                    <Loader2 size={16} className="animate-spin" />
+                                                    Menguji...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Zap size={16} />
+                                                    Tes Koneksi
+                                                </>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={handleSaveApiKey}
+                                            disabled={!isKeyValidated || isTestingKey}
+                                            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                                                isKeyValidated && !isTestingKey
+                                                    ? 'bg-green-600 text-white hover:bg-green-700'
+                                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            <Save size={16} />
+                                            Simpan API Key
+                                        </button>
+                                    </div>
+
+                                    {isEditingKey && (
+                                        <button
+                                            onClick={() => {
+                                                setIsEditingKey(false);
+                                                setApiKey(user.apiKey || sessionStorage.getItem('custom_api_key') || '');
+                                                setKeyStatus('NONE');
+                                                setTestMessage('');
+                                            }}
+                                            className="w-full px-4 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium transition-colors"
+                                        >
+                                            Batal
+                                        </button>
+                                    )}
+                                </div>
                             )}
                         </div>
-                        
-                        <div className="mt-8 p-4 bg-amber-50 rounded-xl border border-amber-100">
-                             <h4 className="text-xs font-black text-amber-800 mb-2 flex items-center gap-2">
-                                <Info size={14} /> CARA MENDAPATKAN API KEY (GRATIS)
-                             </h4>
-                             <ol className="text-[11px] text-amber-700 space-y-1.5 list-decimal pl-4">
-                                 <li>Kunjungi <strong><a href="https://aistudio.google.com/app/apikey" target="_blank" className="underline font-bold">Google AI Studio</a></strong>.</li>
-                                 <li>Login menggunakan akun Google Anda.</li>
-                                 <li>Klik tombol <strong>"Create API key"</strong>.</li>
-                                 <li>Pilih <strong>"Create API key in new project"</strong>.</li>
-                                 <li>Salin (Copy) kode yang muncul dan tempelkan di kotak di atas.</li>
-                             </ol>
-                             <p className="text-[10px] text-amber-600 mt-2 italic font-medium">Satu API Key bisa digunakan untuk membuat ribuan modul setiap bulannya.</p>
+
+                        {/* Tip Box */}
+                        <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+                            <div className="flex gap-3">
+                                <Info size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
+                                <div className="text-xs text-purple-900">
+                                    <p className="font-semibold mb-1">💡 Tips:</p>
+                                    <ul className="space-y-1 list-disc list-inside">
+                                        <li>Dapatkan API Key gratis di: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="underline font-semibold hover:no-underline">aistudio.google.com/apikey</a></li>
+                                        <li>Jangan share API Key Anda dengan orang lain</li>
+                                        <li>Satu API Key bisa digunakan untuk multiple project</li>
+                                        <li>Monitor quota penggunaan di Google Cloud Console</li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Quota Information */}
+                        {isKeyValidated && keyStatus === 'VALID' && (
+                            <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                                <div className="flex gap-3">
+                                    <Clock size={20} className="text-indigo-600 flex-shrink-0 mt-0.5" />
+                                    <div className="text-xs text-indigo-900">
+                                        <p className="font-semibold mb-1">📊 Informasi Quota:</p>
+                                        <p>
+                                            Jika Anda melihat error <strong>"Kuota Habis"</strong>, berarti Anda telah mencapai batas {
+                                                apiKey && apiKey.length > 0 ? 'API pribadi' : 'server bersama'
+                                            } untuk periode ini.
+                                        </p>
+                                        <p className="mt-2">
+                                            Solusi: {
+                                                apiKey && apiKey.length > 0
+                                                    ? '🔄 Gunakan API Key lain atau tunggu reset quota (biasanya setiap hari)'
+                                                    : '🔐 Gunakan API Key pribadi Anda untuk quota unlimited'
+                                            }
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
+                {/* ===== END API KEY MANAGEMENT SECTION ===== */}
             </div>
 
             <div className="space-y-6">

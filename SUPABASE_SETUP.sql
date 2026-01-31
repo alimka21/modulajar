@@ -1,16 +1,20 @@
 
 -- ==========================================
--- SCRIPT SETUP DATABASE SUPABASE (FIXED)
+-- SCRIPT SETUP DATABASE SUPABASE (FIXED & SECURE)
 -- COPY & RUN DI: Supabase Dashboard > SQL Editor
 -- ==========================================
 
--- 1. BERSIHKAN TRIGGER LAMA YANG RUSAK (PENTING)
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user;
-DROP FUNCTION IF EXISTS public.handle_user_update;
+-- 1. BERSIHKAN POLICY & FUNGSI LAMA YANG BERMASALAH
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
+DROP POLICY IF EXISTS "Users view own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Admins view all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Users insert own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users update own profile" ON public.profiles;
+DROP FUNCTION IF EXISTS public.is_admin();
+DROP FUNCTION IF EXISTS public.get_login_info(text);
+DROP FUNCTION IF EXISTS public.check_user_status(text);
 
--- 2. Pastikan Tabel Profiles Ada
+-- 2. SETUP TABEL PROFILES (Jika belum ada)
 create table if not exists public.profiles (
   id uuid references auth.users on delete cascade primary key,
   email text,
@@ -26,7 +30,70 @@ create table if not exists public.profiles (
   password_text text
 );
 
--- 3. Fungsi Handler: User Baru (Insert ke Profiles)
+-- 3. FUNGSI KHUSUS LOGIN (RPC) - AGAR FRONTEND BISA CEK STATUS TANPA KENA BLOKIR RLS
+CREATE OR REPLACE FUNCTION public.get_login_info(identifier text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER -- Berjalan dengan hak akses admin (bypass RLS)
+SET search_path = public
+AS $$
+DECLARE
+  result json;
+BEGIN
+  SELECT json_build_object(
+    'email', email,
+    'role', role,
+    'status', status,
+    'username', username
+  ) INTO result
+  FROM public.profiles
+  WHERE email = identifier OR username = identifier
+  LIMIT 1;
+  
+  RETURN result;
+END;
+$$;
+-- Izinkan fungsi ini dipanggil oleh siapapun (termasuk sebelum login)
+GRANT EXECUTE ON FUNCTION public.get_login_info TO anon, authenticated;
+
+-- 4. FUNGSI CEK ADMIN (UNTUK POLICY)
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+END;
+$$;
+
+-- 5. AKTIFKAN RLS (KEAMANAN DATA)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- 6. BUAT POLICY BARU (AMAN & TIDAK REKURSIF)
+
+-- A. User bisa melihat datanya sendiri
+CREATE POLICY "Users view own profile" ON public.profiles
+FOR SELECT USING ( auth.uid() = id );
+
+-- B. Admin bisa melihat semua data (Menggunakan fungsi is_admin yang aman)
+CREATE POLICY "Admins view all profiles" ON public.profiles
+FOR SELECT USING ( public.is_admin() );
+
+-- C. User bisa update datanya sendiri
+CREATE POLICY "Users update own profile" ON public.profiles
+FOR UPDATE USING ( auth.uid() = id );
+
+-- D. User baru (insert) ditangani oleh Trigger Auth (lihat di bawah), tapi policy ini disiapkan
+CREATE POLICY "Users insert own profile" ON public.profiles
+FOR INSERT WITH CHECK ( auth.uid() = id );
+
+
+-- 7. TRIGGER OTOMATIS SAAT USER DAFTAR (SYNC AUTH -> PROFILES)
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -54,8 +121,6 @@ begin
 end;
 $$;
 
--- 4. Fungsi Handler: User Login/Update (Sync ke Profiles)
--- FIX: Menggunakan tabel 'profiles' bukan 'users'
 create or replace function public.handle_user_update()
 returns trigger
 language plpgsql
@@ -71,49 +136,13 @@ begin
 end;
 $$;
 
--- 5. Pasang Trigger
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
+DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
 create trigger on_auth_user_updated
   after update on auth.users
   for each row execute procedure public.handle_user_update();
 
--- ==========================================
--- SETUP RLS (Row Level Security)
--- ==========================================
-
-alter table public.profiles enable row level security;
-
-drop policy if exists "Public profiles are viewable by everyone" on public.profiles;
-create policy "Public profiles are viewable by everyone" on public.profiles for select using ( true );
-
-drop policy if exists "Users can insert their own profile" on public.profiles;
-create policy "Users can insert their own profile" on public.profiles for insert with check ( auth.uid() = id );
-
-drop policy if exists "Users can update own profile" on public.profiles;
-create policy "Users can update own profile" on public.profiles for update using ( auth.uid() = id );
-
-drop policy if exists "Users can delete own profile" on public.profiles;
-create policy "Users can delete own profile" on public.profiles for delete using ( auth.uid() = id );
-
--- ==========================================
--- (OPSIONAL) RESET ADMIN MANUAL
--- Jalankan bagian ini jika Admin tidak bisa login
--- ==========================================
-/*
-DO $$
-BEGIN
-    -- Update Password Admin di Auth
-    UPDATE auth.users
-    SET encrypted_password = crypt('123456', gen_salt('bf'))
-    WHERE email = 'alimkamcl@gmail.com';
-
-    -- Pastikan Admin ada di Profiles
-    INSERT INTO public.profiles (id, email, name, username, role, status, joined_date, password_text)
-    SELECT id, email, 'Super Admin', 'admin', 'admin', 'active', now(), '123456'
-    FROM auth.users WHERE email = 'alimkamcl@gmail.com'
-    ON CONFLICT (id) DO UPDATE SET role='admin', status='active';
-END $$;
-*/

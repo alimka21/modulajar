@@ -206,40 +206,77 @@ const AppContent: React.FC = () => {
         swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sudah diisi di Dashboard.' });
         return;
     }
+    
     setIsLoading(true);
     showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kurikulum...');
+    
+    let currentRppResult: GeneratedLessonPlan | null = null;
+
     try {
+      // 1. Generate RPP
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
+      currentRppResult = rppResult;
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
       
-      showLoading('Menyusun Asesmen...', 'Membangun instrumen evaluasi Deep Learning...');
-      setIsGeneratingAssessment(true);
-      const assessmentData = await generateAssessment(rppResult);
-      
-      const fullPlan = { ...rppResult, assessment: assessmentData };
-      setGeneratedPlan(fullPlan);
+      // Close RPP Loading before starting Assessment
+      closeLoading(); 
 
-      if (user) {
-          const newId = await saveHistory(user.id, fullPlan, lessonIdentity, { 
-              rpp: true, 
-              assessment: true, 
-              materials: false, 
-              lkpd: false, 
-              questionBank: false 
+      // 2. Generate Assessment (Independent Try-Catch)
+      try {
+          showLoading('Menyusun Asesmen...', 'Membangun instrumen evaluasi Deep Learning...');
+          setIsGeneratingAssessment(true);
+          
+          const assessmentData = await generateAssessment(rppResult);
+          
+          const fullPlan = { ...rppResult, assessment: assessmentData };
+          setGeneratedPlan(fullPlan); // Update with assessment
+
+          if (user) {
+              const newId = await saveHistory(user.id, fullPlan, lessonIdentity, { 
+                  rpp: true, 
+                  assessment: true, 
+                  materials: false, 
+                  lkpd: false, 
+                  questionBank: false 
+              });
+              if (newId) setCurrentHistoryId(newId);
+          }
+          toast.fire({ icon: 'success', title: 'RPM & Asesmen Berhasil!' });
+
+      } catch (assessmentError: any) {
+          console.error("Assessment Gen Error:", assessmentError);
+          swal.fire({ 
+              icon: 'warning', 
+              title: 'Asesmen Gagal Disusun', 
+              text: 'Modul Ajar berhasil dibuat, namun AI gagal menyusun asesmen otomatis. Anda bisa mencoba klik menu "Asesmen" nanti untuk mencoba lagi.' 
           });
-          if (newId) setCurrentHistoryId(newId);
+          
+          // Save history even without assessment (Backup)
+          if (user && currentRppResult) {
+              const newId = await saveHistory(user.id, currentRppResult, lessonIdentity, { 
+                  rpp: true, 
+                  assessment: false, 
+                  materials: false, 
+                  lkpd: false, 
+                  questionBank: false 
+              });
+              if (newId) setCurrentHistoryId(newId);
+          }
+      } finally {
+          setIsGeneratingAssessment(false);
+          closeLoading(); // FORCE CLOSE LOADING IN FINALLY BLOCK
       }
 
-      setIsGeneratingAssessment(false);
-      closeLoading();
-      toast.fire({ icon: 'success', title: 'RPM & Asesmen Berhasil!' });
     } catch (e: any) {
-        swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
-        setIsGeneratingAssessment(false);
+        // Main RPP Generation Error
+        console.error("RPP Gen Error:", e);
+        swal.fire({ icon: 'error', title: 'Gagal', text: e.message || "Terjadi kesalahan saat generate RPP." });
+        closeLoading();
     } finally {
         setIsLoading(false);
-        closeLoading();
+        // Double check closing
+        setTimeout(() => closeLoading(), 500); 
     }
   };
 

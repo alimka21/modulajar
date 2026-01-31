@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send, Loader2, Eye, EyeOff } from 'lucide-react';
+import { GraduationCap, ExternalLink, ArrowRight, Mail, Lock, X, Send, Loader2, Eye, EyeOff, Facebook, Instagram } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface LoginPageProps {
@@ -55,17 +55,33 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
 
          <div className="relative z-10 flex flex-col items-center text-center max-w-md">
             <div className="bg-white/20 backdrop-blur-md p-6 rounded-3xl mb-8 shadow-xl border border-white/20 transform hover:scale-105 transition-transform duration-500">
-                <GraduationCap size={80} strokeWidth={1.5} className="text-white drop-shadow-md" />
+                <GraduationCap size={70} strokeWidth={1.5} className="text-white drop-shadow-md" />
             </div>
-            <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight mb-4 drop-shadow-sm uppercase">
+            {/* FONT SIZE ADJUSTED HERE: Reduced from text-4xl/5xl to text-3xl/4xl */}
+            <h1 className="text-3xl xl:text-4xl font-black tracking-tight leading-tight mb-4 drop-shadow-sm uppercase">
                 PAKAR MODUL AJAR <br/> <span className="text-blue-200">AI GENERATOR</span>
             </h1>
             <p className="text-blue-100 text-lg font-medium leading-relaxed mb-8">
                 Platform cerdas penyusun Modul Ajar Berbasis Pembelajaran Mendalam. Hemat waktu dan hasil presisi
             </p>
-            <div className="flex items-center gap-4 text-xs font-bold bg-white/10 px-6 py-3 rounded-full border border-white/10 backdrop-blur-sm">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Online System</span>
+            
+            {/* DEVELOPER INFO - SINGLE LINE - LEFT SIDE */}
+            <div className="flex items-center gap-4 bg-white/10 px-5 py-2.5 rounded-full border border-white/10 backdrop-blur-sm hover:bg-white/20 transition-all cursor-default shadow-lg">
+                 <span className="text-xs font-medium text-blue-100">Dev by <strong className="text-white">Muhammad Alimka</strong></span>
+                 <div className="w-px h-3 bg-blue-200/30"></div>
+                 <div className="flex items-center gap-3 text-blue-200">
+                     <a href="https://www.tiktok.com/@muh.alimka" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all" title="TikTok">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/></svg>
+                     </a>
+                     <a href="https://web.facebook.com/muhammad.alimka/" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all" title="Facebook">
+                         <Facebook size={14} fill="currentColor" strokeWidth={0} />
+                     </a>
+                     <a href="https://www.instagram.com/muh.alimka/" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all" title="Instagram">
+                         <Instagram size={14} />
+                     </a>
+                 </div>
             </div>
+
          </div>
       </div>
 
@@ -78,7 +94,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                 <div className="text-blue-600 bg-blue-50 p-4 rounded-2xl mb-3">
                     <GraduationCap size={40} />
                 </div>
-                <h2 className="text-2xl font-black text-slate-800 uppercase text-center leading-tight">
+                {/* FONT SIZE ADJUSTED HERE FOR MOBILE: Reduced from text-2xl to text-xl */}
+                <h2 className="text-xl font-black text-slate-800 uppercase text-center leading-tight">
                     PAKAR MODUL AJAR
                     <br />
                     <span className="text-blue-600 text-sm">AI GENERATOR</span>
@@ -180,7 +197,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                     <ExternalLink size={12} />
                     <span>Info Lengkap Pakar Modul Ajar</span>
                 </a>
-                 <p className="text-[10px] text-slate-300 mt-2">&copy; 2026 Alimka Digital</p>
+                <p className="text-[10px] text-slate-300 mt-2">&copy; 2026 Alimka Digital</p>
             </div>
          </div>
       </div>
