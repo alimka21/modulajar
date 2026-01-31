@@ -1,0 +1,102 @@
+/* Custom Global Styles */
+
+body { 
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.document-font { font-family: 'Cambria', Georgia, serif; }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+  background: #dadce0; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bdc1c6; 
+}
+
+/* Typography Overrides */
+.prose blockquote {
+  border-left: 4px solid #facc15; 
+  background-color: #fefce8; 
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+  color: #854d0e; 
+  font-size: 0.9em;
+}
+
+/* =========================================
+    PRINT CSS OPTIMIZED
+   ========================================= */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  html, body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto;
+    overflow: visible !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Container utama saat cetak */
+  .print-container {
+      width: 100% !important;
+      box-shadow: none !important;
+      background: white !important;
+      padding: 0 !important;
+  }
+
+  #root, #root > div {
+    display: block !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    background: white !important;
+  }
+
+  #konten-dokumen {
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      box-shadow: none !important;
+      display: block !important;
+      background: white !important;
+      max-width: none !important;
+  }
+
+  .force-page-break {
+      page-break-before: always !important;
+      break-before: page !important;
+      display: block !important;
+  }
+
+  .break-inside-avoid {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+  }
+  
+  * { 
+      -webkit-print-color-adjust: exact !important; 
+      print-color-adjust: exact !important; 
+  }
+}

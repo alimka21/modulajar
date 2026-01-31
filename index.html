@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="id">
   <head>
@@ -6,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PAKAR MODUL AJAR - AI Lesson Plan Generator</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
+    
+    <!-- External Libs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Tailwind CSS CDN (Restore for UI Stability) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -34,15 +40,12 @@
                 '100%': { opacity: '1', transform: 'translateY(0)' },
               }
             }
-          }
-        }
+          },
+        },
       }
     </script>
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    
+    <!-- MathJax Config -->
     <script>
       window.MathJax = {
         tex: {
@@ -60,123 +63,20 @@
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-      body { 
-        font-family: 'Inter', system-ui, sans-serif; 
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        background-color: #f0f2f5;
-        overflow-x: hidden;
-      }
-      
-      .document-font { font-family: 'Cambria', Georgia, serif; }
-      
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #dadce0; 
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #bdc1c6; 
-      }
-
-      .prose blockquote {
-        border-left: 4px solid #facc15; 
-        background-color: #fefce8; 
-        padding: 0.5rem 1rem;
-        margin: 0.5rem 0;
-        border-radius: 0 0.5rem 0.5rem 0;
-        font-style: italic;
-        color: #854d0e; 
-        font-size: 0.9em;
-      }
-
-      /* =========================================
-         PRINT CSS OPTIMIZED
-         ========================================= */
-      @media print {
-        @page {
-          size: A4 portrait;
-          margin: 15mm; /* Memberikan margin standar agar tidak mepet */
-        }
-
-        html, body {
-          background: white !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          height: auto;
-          overflow: visible !important;
-        }
-
-        .no-print {
-          display: none !important;
-        }
-
-        /* Container utama saat cetak */
-        .print-container {
-            width: 100% !important;
-            box-shadow: none !important;
-            background: white !important;
-            padding: 0 !important; /* Margin sudah ditangani oleh @page */
-        }
-
-        #root, #root > div {
-          display: block !important;
-          box-shadow: none !important;
-          border: none !important;
-          width: 100% !important;
-          background: white !important;
-        }
-
-        #konten-dokumen {
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            display: block !important;
-            background: white !important;
-            max-width: none !important;
-        }
-
-        .force-page-break {
-            page-break-before: always !important;
-            break-before: page !important;
-            display: block !important;
-        }
-
-        .break-inside-avoid {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-        }
-        
-        * { 
-            -webkit-print-color-adjust: exact !important; 
-            print-color-adjust: exact !important; 
-        }
-      }
-    </style>
   <script type="importmap">
 {
   "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "react-dom": "https://esm.sh/react-dom@^19.2.4",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.93.2",
-    "@google/genai": "https://esm.sh/@google/genai@0.2.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
+    "docx": "https://esm.sh/docx@^9.5.1",
+    "file-saver": "https://esm.sh/file-saver@^2.0.5",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react-dom": "https://esm.sh/react-dom@^19.2.4",
     "vite": "https://esm.sh/vite@^7.3.1",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "file-saver": "https://esm.sh/file-saver@^2.0.5",
-    "docx": "https://esm.sh/docx@^9.5.1"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.93.3"
   }
 }
 </script>
