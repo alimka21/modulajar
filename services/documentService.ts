@@ -1,5 +1,5 @@
 
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign, AlignmentType, FileChild } from "docx";
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign, AlignmentType } from "docx";
 import * as FileSaver from "file-saver";
 import { GeneratedLessonPlan, DocumentSettings, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
 
@@ -37,7 +37,7 @@ const cleanText = (text: any): string => {
 };
 
 // Helper to handle multiline text from AI (preserves line breaks in Word)
-const createMultilineText = (text: string): (Paragraph | Table)[] => {
+const createMultilineText = (text: string): any[] => {
     // Basic Markdown Table Parser
     if (text.includes("|") && text.includes("---")) {
         return createTableFromMarkdown(text);
@@ -67,11 +67,11 @@ const createMultilineText = (text: string): (Paragraph | Table)[] => {
             children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
             spacing: { after: 120, line: LINE_SPACING_BODY } 
         });
-    }).filter(Boolean) as (Paragraph | Table)[];
+    }).filter(Boolean);
 };
 
 // Simple Markdown Table to Docx Table Converter
-const createTableFromMarkdown = (mdTable: string): (Table | Paragraph)[] => {
+const createTableFromMarkdown = (mdTable: string): any[] => {
     try {
         const lines = mdTable.split('\n').filter(l => l.trim().length > 0);
         const validRows = lines.filter(l => l.includes('|') && !l.includes('---')); // Exclude separator lines
@@ -164,8 +164,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     });
   };
 
-  // Build the dynamic RPP sections
-  const rppSections: FileChild[] = [
+  // Build the dynamic RPP sections - USE ANY[] TO AVOID TYPE ERRORS
+  const rppSections: any[] = [
       createHeading("MODUL AJAR"),
       createTopicSubTitle(`TOPIK: ${safeString(data.identitySection.topic)}`),
       createSectionTitle("I. IDENTITAS UMUM"),
@@ -231,11 +231,11 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   });
 
 
-  // 1. ASSESSMENT GENERATOR
-  const createAssessmentSection = (assessment: DeepLearningAssessment | undefined): FileChild[] => {
+  // 1. ASSESSMENT GENERATOR - USE ANY[]
+  const createAssessmentSection = (assessment: DeepLearningAssessment | undefined): any[] => {
     if (!assessment) return [];
     
-    const elements: FileChild[] = [];
+    const elements: any[] = [];
     
     elements.push(createSectionTitle("IV. ASESMEN PEMBELAJARAN", false));
     elements.push(createSubSectionTitle("1. KKTP (Rubrik Pembelajaran Mendalam)"));
@@ -317,9 +317,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     return elements;
   };
   
-  const createMaterialsSection = (materials: MaterialsData | undefined): FileChild[] => {
+  const createMaterialsSection = (materials: MaterialsData | undefined): any[] => {
       if (!materials) return [];
-      const elements: FileChild[] = [];
+      const elements: any[] = [];
       elements.push(createSectionTitle("LAMPIRAN 1: MATERI AJAR", true));
       elements.push(createHeading(materials.judul));
 
@@ -341,9 +341,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       return elements;
   };
   
-  const createLKPDSection = (lkpd: LKPDData | undefined): FileChild[] => {
+  const createLKPDSection = (lkpd: LKPDData | undefined): any[] => {
       if (!lkpd) return [];
-      const elements: FileChild[] = [];
+      const elements: any[] = [];
       elements.push(createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true));
       elements.push(createHeading(lkpd.title));
 
@@ -367,9 +367,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       return elements;
   };
 
-  const createQuestionBankSection = (qb: QuestionBankData | undefined): FileChild[] => {
+  const createQuestionBankSection = (qb: QuestionBankData | undefined): any[] => {
       if (!qb) return [];
-      const elements: FileChild[] = [];
+      const elements: any[] = [];
       elements.push(createSectionTitle("LAMPIRAN 3: BANK SOAL", true));
 
       qb.items.forEach((item, idx) => {
