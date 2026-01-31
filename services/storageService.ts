@@ -253,7 +253,7 @@ export const updateAdminPassword = async (newPassword: string) => {
 
 export const saveUserApiKey = async (userId: string, apiKey: string | null) => {
     const { error } = await supabase.from('profiles').update({ api_key: apiKey }).eq('id', userId);
-    if (error) throw error;
+    if (error) throw error; // Pastikan error dilempar agar UI tahu
 };
 
 export const incrementGenerationCount = async (userId: string) => {

@@ -6,13 +6,17 @@ export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
   const env = loadEnv(mode, process.cwd(), '');
   
-  // Prioritas pengambilan API Key
-  const apiKey = env.API_KEY || env.VITE_API_KEY || process.env.API_KEY || process.env.VITE_API_KEY;
+  // Prioritas pengambilan API Key:
+  // 1. process.env.API_KEY (Vercel System Env)
+  // 2. env.API_KEY (Local .env)
+  // 3. env.VITE_API_KEY (Vite standard)
+  const apiKey = process.env.API_KEY || env.API_KEY || env.VITE_API_KEY || '';
 
   return {
     plugins: [react()],
     define: {
-      // Inject API Key ke dalam kode frontend secara spesifik
+      // Inject API Key ke dalam kode frontend
+      // Jika apiKey kosong, aplikasi tetap build tapi AI akan gagal jika user tidak input key sendiri
       'process.env.API_KEY': JSON.stringify(apiKey),
       
       // Supabase Configuration
@@ -25,19 +29,15 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
-      // Optimasi Chunking untuk Vercel
       rollupOptions: {
         output: {
           manualChunks: {
-            // Memisahkan library besar ke file terpisah
-            // CATATAN: Jangan masukkan library CDN (seperti chart.js/sweetalert2) di sini
             vendor: ['react', 'react-dom'],
             ui: ['lucide-react'],
             utils: ['@google/genai', 'docx', 'file-saver', '@supabase/supabase-js']
           }
         }
       },
-      // Meningkatkan batas peringatan chunk size
       chunkSizeWarningLimit: 1000
     }
   };

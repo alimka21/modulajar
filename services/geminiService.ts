@@ -19,48 +19,37 @@ const cleanApiKey = (key: string | null | undefined): string => {
   return String(key).trim().replace(/[\r\n"']/g, '');
 };
 
-const getEnvApiKey = (): string => {
-  try {
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-      return process.env.API_KEY;
-    }
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
-      // @ts-ignore
-      return import.meta.env.VITE_API_KEY;
-    }
-  } catch (e) {
-    console.warn("Gagal membaca env var:", e);
-  }
-  return "";
+const getSystemApiKey = (): string => {
+  // process.env.API_KEY di-inject oleh Vite (lihat vite.config.ts)
+  // Vercel akan mengisi ini saat build time
+  const key = process.env.API_KEY;
+  return cleanApiKey(key);
 };
 
 const getClientInfo = () => {
-  let rawSessionKey = sessionStorage.getItem('custom_api_key');
-  let apiKeySource: 'custom' | 'default' = 'default';
+  // 1. Cek Custom Key dari User (Session Storage)
+  let userApiKey = cleanApiKey(sessionStorage.getItem('custom_api_key'));
   
-  let apiKey = cleanApiKey(rawSessionKey);
-
-  if (apiKey && apiKey.length > 10) {
-    apiKeySource = 'custom';
+  if (userApiKey && userApiKey.length > 10) {
     return { 
-      client: new GoogleGenAI({ apiKey: apiKey }), 
-      apiKeySource,
-      apiKey: apiKey
+      client: new GoogleGenAI({ apiKey: userApiKey }), 
+      apiKeySource: 'custom',
+      apiKey: userApiKey
     };
   }
 
-  const rawEnvKey = getEnvApiKey();
-  apiKey = cleanApiKey(rawEnvKey);
+  // 2. Fallback ke System Key (Vercel Env)
+  const systemKey = getSystemApiKey();
   
-  if (!apiKey || apiKey.length < 10) {
-    throw new Error("API Key tidak ditemukan. Harap masukkan API Key di Dashboard atau cek konfigurasi Vercel.");
+  if (!systemKey || systemKey.length < 10) {
+    console.error("System API Key missing in Vercel/Env variables.");
+    throw new Error("API Key sistem belum dikonfigurasi. Harap masukkan API Key pribadi di Dashboard.");
   }
   
   return { 
-    client: new GoogleGenAI({ apiKey: apiKey }), 
-    apiKeySource,
-    apiKey: apiKey
+    client: new GoogleGenAI({ apiKey: systemKey }), 
+    apiKeySource: 'default',
+    apiKey: systemKey
   };
 };
 
@@ -68,6 +57,7 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
+    // PENTING: Gunakan instance baru dengan key yang sedang dites, bukan key global
     const ai = new GoogleGenAI({ apiKey: apiKey });
     const modelsToTest = ['gemini-3-flash-preview', 'gemini-2.0-flash-exp', 'gemini-1.5-flash'];
     let lastErrorMsg = "";
@@ -84,7 +74,7 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
             lastErrorMsg = error.message || JSON.stringify(error);
             const errorStr = lastErrorMsg.toLowerCase();
             if (errorStr.includes("400") || errorStr.includes("invalid_argument") || errorStr.includes("api key not valid")) {
-                return { success: false, message: "❌ API Key Salah (400)." };
+                return { success: false, message: "❌ API Key Salah (400) atau Tidak Valid." };
             }
         }
     }
@@ -149,7 +139,7 @@ const generateWithRetry = async (
   for (let i = 0; i < MODEL_PRIORITY.length; i++) {
     const currentModel = MODEL_PRIORITY[i];
     try {
-      clientInfo = getClientInfo();
+      clientInfo = getClientInfo(); // Selalu ambil info terbaru (user key vs system key)
       const { client } = clientInfo;
       console.log(`[Generate] Trying model: ${currentModel}`);
 
@@ -173,12 +163,12 @@ const generateWithRetry = async (
       lastError = error;
       const msg = error.message || "";
       console.warn(`[Generate] Failed with ${currentModel}:`, msg);
-      if (msg.includes('401') || msg.includes('API key not valid')) throw new Error("API Key Tidak Valid.");
+      if (msg.includes('401') || msg.includes('API key not valid')) throw new Error("API Key Tidak Valid/Expired.");
       if (msg.includes('429') || msg.includes('quota')) throw new Error("Kuota API Habis. Ganti API Key.");
       continue;
     }
   }
-  throw lastError || new Error("Gagal generate konten. Server AI sibuk.");
+  throw lastError || new Error("Gagal generate konten. Server AI sibuk atau API Key bermasalah.");
 };
 
 // --- WRAPPER FUNCTIONS ---
@@ -223,7 +213,6 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
 export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<MaterialsData> => {
     const complexity = getComplexityInstruction(rppData.identitySection.grade);
     
-    // POIN 4: Sertakan Mapel dan Tujuan
     const prompt = `Buat Materi Ajar: ${rppData.identitySection.topic}. 
     Mata Pelajaran: ${rppData.identitySection.subject}.
     Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
@@ -242,7 +231,6 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
 export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
-  // POIN 4: Sertakan Mapel dan Tujuan
   const prompt = `Buat Lembar Kerja Murid (Tanpa kata "LKPD" di judul): ${rppData.identitySection.topic}.
   Mata Pelajaran: ${rppData.identitySection.subject}.
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
@@ -262,7 +250,6 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
 export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
-  // POIN 4: Sertakan Mapel dan Tujuan
   const prompt = `Buat Asesmen Deep Learning: KKTP, Rubrik, Checklist, Kisi-kisi Sumatif. 
   Topik: ${rppData.identitySection.topic}.
   Mata Pelajaran: ${rppData.identitySection.subject}.
@@ -275,7 +262,6 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
 export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
-  // POIN 4: Sertakan Mapel dan Tujuan
   const prompt = `Buat ${config.count} Soal (${config.types.join(', ')}). 
   ${complexity}
   Topik: ${rppData.identitySection.topic}.

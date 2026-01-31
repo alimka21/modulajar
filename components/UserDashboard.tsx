@@ -138,13 +138,20 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       if (!isKeyValidated) return;
       const cleanKey = apiKey.trim();
       try {
+          // 1. Simpan ke database
           await saveUserApiKey(user.id, cleanKey);
+          
+          // 2. Set Session (Optimistic update agar langsung bisa dipakai)
           sessionStorage.setItem('custom_api_key', cleanKey);
-          setIsEditingKey(false);
+          
+          // 3. Refresh Auth Context (Sync dari DB)
           await refreshAuth();
+          
+          setIsEditingKey(false);
           swal.fire({ icon: 'success', title: 'Tersimpan!', text: 'Sistem telah dikunci untuk selalu menggunakan API Key Anda.' });
       } catch (e) {
-          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: 'Terjadi gangguan sinkronisasi.' });
+          console.error(e);
+          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: 'Terjadi gangguan sinkronisasi database.' });
       }
   };
 
@@ -159,14 +166,22 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }).then(async (result: any) => {
           if (result.isConfirmed) {
               try {
+                  // 1. Hapus dari DB
                   await saveUserApiKey(user.id, null);
+                  
+                  // 2. Clear Session
                   sessionStorage.removeItem('custom_api_key');
+                  
+                  // 3. Reset State Lokal
                   setApiKey('');
                   setKeyStatus('NONE');
                   setIsKeyValidated(false);
                   setIsEditingKey(true);
                   setTestMessage('');
+                  
+                  // 4. Refresh Auth Context
                   await refreshAuth();
+                  
                   toast.fire({ icon: 'success', title: 'API Key Dihapus' });
               } catch (e) {
                   toast.fire({ icon: 'error', title: 'Gagal Menghapus' });

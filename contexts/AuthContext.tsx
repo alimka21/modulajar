@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
@@ -87,14 +88,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const mappedUser = await mapSessionToUser(session);
       
-      // PERBAIKAN: Jangan logout otomatis untuk user pending
-      // Biarkan login page handle pengecekan status
       if (mappedUser) {
         setUser(mappedUser);
         
         // SYNC API KEY KE SESSION STORAGE
-        if (mappedUser.apiKey) {
+        // Jika user punya key, set ke session. Jika tidak (dihapus/kosong), remove agar fallback ke system key.
+        if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
             sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
+        } else {
+            sessionStorage.removeItem('custom_api_key');
         }
         
         resetIdleTimer();
