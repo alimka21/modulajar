@@ -1,5 +1,5 @@
 
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign, AlignmentType } from "docx";
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign, AlignmentType, FileChild } from "docx";
 import * as FileSaver from "file-saver";
 import { GeneratedLessonPlan, DocumentSettings, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
 
@@ -37,7 +37,7 @@ const cleanText = (text: any): string => {
 };
 
 // Helper to handle multiline text from AI (preserves line breaks in Word)
-const createMultilineText = (text: string) => {
+const createMultilineText = (text: string): (Paragraph | Table)[] => {
     // Basic Markdown Table Parser
     if (text.includes("|") && text.includes("---")) {
         return createTableFromMarkdown(text);
@@ -165,7 +165,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   };
 
   // Build the dynamic RPP sections
-  const rppSections: any[] = [
+  const rppSections: FileChild[] = [
       createHeading("MODUL AJAR"),
       createTopicSubTitle(`TOPIK: ${safeString(data.identitySection.topic)}`),
       createSectionTitle("I. IDENTITAS UMUM"),
@@ -232,8 +232,13 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
 
   // 1. ASSESSMENT GENERATOR
-  const createAssessmentSection = (assessment: DeepLearningAssessment | undefined) => {
+  const createAssessmentSection = (assessment: DeepLearningAssessment | undefined): FileChild[] => {
     if (!assessment) return [];
+    
+    const elements: FileChild[] = [];
+    
+    elements.push(createSectionTitle("IV. ASESMEN PEMBELAJARAN", false));
+    elements.push(createSubSectionTitle("1. KKTP (Rubrik Pembelajaran Mendalam)"));
 
     const kktpRows = assessment.kktp.map(item => new TableRow({
         children: [
@@ -245,7 +250,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
         ]
     }));
 
-    const kktpTable = new Table({
+    elements.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
             new TableRow({
@@ -255,5 +260,177 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
             }),
             ...kktpRows
         ]
-    });
+    }));
+    
+    elements.push(createSubSectionTitle("2. Asesmen Formatif"));
+    
+    // Checklist
+    if (assessment.formative.checklist.length > 0) {
+        elements.push(createPara([createText("A. Checklist Observasi", { bold: true })]));
+        const checkRows = assessment.formative.checklist.map((item, idx) => new TableRow({
+            children: [
+                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(safeString(item.aspect))])], width: { size: 45, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 40, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText("")])], width: { size: 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+            ]
+        }));
+        elements.push(new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+                new TableRow({
+                    children: ["No", "Aspek", "Indikator", "Cek"].map((t, i) => new TableCell({ children: [createPara([createText(t, { bold: true })])], width: { size: i === 0 ? 5 : i === 1 ? 45 : i === 2 ? 40 : 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" } }))
+                }),
+                ...checkRows
+            ]
+        }));
+    }
 
+    elements.push(createPara([createText("B. Tangga Umpan Balik", { bold: true })], { spacing: { before: 240 } }));
+    if (assessment.formative.feedbackGuide) {
+        elements.push(createListItem(`Klarifikasi: ${assessment.formative.feedbackGuide.clarification}`));
+        elements.push(createListItem(`Apresiasi: ${assessment.formative.feedbackGuide.appreciation}`));
+        elements.push(createListItem(`Saran: ${assessment.formative.feedbackGuide.suggestion}`));
+    }
+    
+    elements.push(createSubSectionTitle("3. Asesmen Sumatif (Kisi-Kisi)"));
+    if (assessment.summative.grid && assessment.summative.grid.length > 0) {
+        const gridRows = assessment.summative.grid.map((item, idx) => new TableRow({
+            children: [
+                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 55, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(safeString(item.level))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(safeString(item.technique))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+            ]
+        }));
+        elements.push(new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+                new TableRow({
+                    children: ["No", "Indikator Soal", "Level Kognitif", "Bentuk Soal"].map(t => new TableCell({ children: [createPara([createText(t, { bold: true })])], margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" } }))
+                }),
+                ...gridRows
+            ]
+        }));
+    }
+
+    return elements;
+  };
+  
+  const createMaterialsSection = (materials: MaterialsData | undefined): FileChild[] => {
+      if (!materials) return [];
+      const elements: FileChild[] = [];
+      elements.push(createSectionTitle("LAMPIRAN 1: MATERI AJAR", true));
+      elements.push(createHeading(materials.judul));
+
+      elements.push(createSubSectionTitle("Pemantik"));
+      elements.push(...createMultilineText(materials.pemantik));
+
+      elements.push(createSubSectionTitle("Konsep Inti"));
+      elements.push(createPara([createText("Definisi: ", { bold: true }), createText(materials.konsepInti.definisi)]));
+      
+      elements.push(createPara([createText("Uraian Materi:", { bold: true })]));
+      materials.konsepInti.penjelasanBertahap.forEach(p => elements.push(...createMultilineText(p)));
+      
+      elements.push(createPara([createText("Visualisasi:", { bold: true })]));
+      elements.push(...createMultilineText(materials.konsepInti.tabelVisual));
+
+      elements.push(createSubSectionTitle("Glosarium"));
+      materials.glosarium.forEach(g => elements.push(createListItem(`${g.istilah}: ${g.definisi}`)));
+
+      return elements;
+  };
+  
+  const createLKPDSection = (lkpd: LKPDData | undefined): FileChild[] => {
+      if (!lkpd) return [];
+      const elements: FileChild[] = [];
+      elements.push(createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true));
+      elements.push(createHeading(lkpd.title));
+
+      elements.push(createPara([createText("Nama: ...................................  Kelas: ...................................")], { spacing: { after: 240 } }));
+
+      elements.push(createSubSectionTitle("Tujuan"));
+      elements.push(createPara([createText(lkpd.objectives)]));
+
+      elements.push(createSubSectionTitle("Petunjuk"));
+      lkpd.instructions.forEach(i => elements.push(createListItem(i)));
+
+      elements.push(createSubSectionTitle("Aktivitas 1 (Dasar)"));
+      elements.push(...createMultilineText(lkpd.activities.level1));
+
+      elements.push(createSubSectionTitle("Aktivitas 2 (Menengah)"));
+      elements.push(...createMultilineText(lkpd.activities.level2));
+
+      elements.push(createSubSectionTitle("Aktivitas 3 (Lanjut)"));
+      elements.push(...createMultilineText(lkpd.activities.level3));
+      
+      return elements;
+  };
+
+  const createQuestionBankSection = (qb: QuestionBankData | undefined): FileChild[] => {
+      if (!qb) return [];
+      const elements: FileChild[] = [];
+      elements.push(createSectionTitle("LAMPIRAN 3: BANK SOAL", true));
+
+      qb.items.forEach((item, idx) => {
+          elements.push(createPara([createText(`${idx + 1}. ${item.question}`)], { spacing: { before: 120 } }));
+          
+          if (item.options) {
+              item.options.forEach((opt, i) => {
+                  elements.push(createPara([createText(`${String.fromCharCode(65+i)}. ${opt}`)], { indent: { left: 425 } }));
+              });
+          }
+
+          if (item.matchingPairs) {
+              const table = new Table({
+                  width: { size: 100, type: WidthType.PERCENTAGE },
+                  rows: item.matchingPairs.map(pair => new TableRow({
+                      children: [
+                          new TableCell({ children: [createPara([createText(pair.left)])], margins: CELL_MARGIN }),
+                          new TableCell({ children: [createPara([createText(pair.right)])], margins: CELL_MARGIN })
+                      ]
+                  }))
+              });
+              elements.push(table);
+          }
+      });
+
+      elements.push(createSubSectionTitle("Kunci Jawaban"));
+      qb.items.forEach((item, idx) => {
+           elements.push(createPara([createText(`${idx + 1}. ${item.answerKey}`)]));
+      });
+
+      return elements;
+  };
+  
+  const doc = new Document({
+      sections: [{
+          properties: {
+              page: {
+                  size: {
+                      orientation: "portrait" as any,
+                      width: 11906, 
+                      height: 16838,
+                  },
+                  margin: {
+                      top: 1440,
+                      right: 1440,
+                      bottom: 1440,
+                      left: 1440
+                  }
+              }
+          },
+          children: [
+              ...rppSections,
+              ...createAssessmentSection(data.assessment),
+              ...createMaterialsSection(data.materials),
+              ...createLKPDSection(data.lkpd),
+              ...createQuestionBankSection(data.questionBank)
+          ]
+      }]
+  });
+
+  Packer.toBlob(doc).then((blob) => {
+      FileSaver.saveAs(blob, `Modul Ajar - ${data.identitySection.topic}.docx`);
+  });
+};
