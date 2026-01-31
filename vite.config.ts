@@ -30,10 +30,10 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             // Memisahkan library besar ke file terpisah
+            // CATATAN: Jangan masukkan library CDN (seperti chart.js/sweetalert2) di sini
             vendor: ['react', 'react-dom'],
             ui: ['lucide-react'],
-            utils: ['@google/genai', 'docx', 'file-saver', '@supabase/supabase-js'],
-            chart: ['chart.js', 'sweetalert2']
+            utils: ['@google/genai', 'docx', 'file-saver', '@supabase/supabase-js']
           }
         }
       },
