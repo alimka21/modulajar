@@ -67,7 +67,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
         setGenStats(allGenStats);
         setAppSettings(getSettings());
       } catch (error) {
-          console.error("Failed to refresh data", error);
+          console.error("Failed to refresh data (background)", error);
       }
   };
 
@@ -219,9 +219,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                   
                   // Trigger refresh to ensure sync
                   refreshData();
-              } catch (error) {
+              } catch (error: any) {
                   refreshData(); // Revert on error
-                  toast.fire({ icon: 'error', title: 'Gagal Update' });
+                  // Display real error message to user
+                  toast.fire({ 
+                    icon: 'error', 
+                    title: 'Gagal Update', 
+                    text: error.message || "Periksa koneksi internet Anda." 
+                  });
               }
           }
       });
@@ -242,9 +247,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
               try {
                   await deleteUser(id);
                   swal.fire('Terhapus!', 'Data pengguna telah dihapus.', 'success');
-              } catch (error) {
+              } catch (error: any) {
                   setUsers(previousUsers);
-                  toast.fire({ icon: 'error', title: 'Gagal Menghapus' });
+                  toast.fire({ icon: 'error', title: 'Gagal Menghapus', text: error.message });
               }
           }
       });
@@ -306,7 +311,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           toast.fire({ icon: 'success', title: 'Data Berhasil Diupdate' });
       } catch (error: any) {
           refreshData();
-          swal.fire({ title: 'Error!', text: 'Gagal mengupdate data.', icon: 'error' });
+          swal.fire({ title: 'Error!', text: error.message || 'Gagal mengupdate data.', icon: 'error' });
       } finally {
           setIsSubmittingEdit(false);
       }

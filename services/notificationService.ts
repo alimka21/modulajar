@@ -1,7 +1,8 @@
-
 // This service creates pre-configured instances of SweetAlert2
 // to ensure consistent UI/UX across the application.
 
+// Menggunakan deklarasi global sesuai kode asli Anda (CDN version)
+// untuk menghindari error jika paket 'sweetalert2' tidak terinstall via npm
 declare var Swal: any;
 
 // Standard Popup (Confirmations, Alerts)

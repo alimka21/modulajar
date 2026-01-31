@@ -1,11 +1,10 @@
-
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
 import { mapSessionToUser } from "../services/storageService";
 import { swal } from "../services/notificationService";
 
-// 3 Jam dalam milidetik (3 * 60 * 60 * 1000)
+// 3 Jam dalam milidetik
 const IDLE_TIMEOUT = 10800000;
 
 interface AuthContextType {
@@ -24,46 +23,58 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  
-  // OPTIMASI: Cek token di localStorage untuk menentukan initial state loading
-  // Jika tidak ada token, jangan set loading=true (langsung tampilkan login)
-  const [loading, setLoading] = useState(() => {
-      if (typeof window !== 'undefined') {
-          try {
-              // Cek apakah ada key yang berformat supabase token (sb-<project>-auth-token)
-              const hasSession = Object.keys(localStorage).some(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-              return hasSession;
-          } catch (e) {
-              // Fallback jika localStorage diblokir atau error
-              return true;
-          }
-      }
-      return true; // Default fallback
-  });
+  const [loading, setLoading] = useState(true); // Default true agar aman
 
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // --- LOGIC: IDLE TIMEOUT (3 JAM) ---
+  // Helper mapping session
+  const handleSession = async (session: any) => {
+    if (!session) {
+      setUser(null);
+      sessionStorage.removeItem('custom_api_key');
+      return;
+    }
+
+    try {
+      const mappedUser = await mapSessionToUser(session);
+      if (mappedUser) {
+        setUser(mappedUser);
+        if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
+            sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
+        } else {
+            sessionStorage.removeItem('custom_api_key');
+        }
+        resetIdleTimer();
+      } else {
+        // Session ada tapi data user di DB tidak valid
+        setUser(null);
+      }
+    } catch (error) {
+      console.error("Auth Mapping Error:", error);
+      setUser(null);
+    }
+  };
+
+  const refreshAuth = async () => {
+    const { data } = await supabase.auth.getSession();
+    await handleSession(data.session);
+  };
+
   const handleIdleLogout = async () => {
-    // Cek double confirmation: apakah benar-benar idle?
     const now = Date.now();
     if (now - lastActivityRef.current < IDLE_TIMEOUT) {
-        // Jika ternyata ada aktivitas baru-baru ini yang belum mereset timer, jadwalkan ulang
         resetIdleTimer();
         return;
     }
-
     if (user) {
-      console.warn("Session timeout due to inactivity (3 hours).");
       await supabase.auth.signOut();
       setUser(null);
       sessionStorage.removeItem('custom_api_key');
-      
       swal.fire({
         icon: 'warning',
         title: 'Sesi Berakhir',
-        text: 'Anda telah tidak aktif selama 3 jam. Silakan login kembali untuk keamanan.',
+        text: 'Anda telah tidak aktif selama 3 jam.',
         confirmButtonColor: '#2563eb'
       });
     }
@@ -77,63 +88,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Helper untuk memproses session menjadi User App
-  const handleSession = async (session: any) => {
-    if (!session) {
-      setUser(null);
-      sessionStorage.removeItem('custom_api_key');
-      return;
-    }
-
-    try {
-      const mappedUser = await mapSessionToUser(session);
-      
-      if (mappedUser) {
-        setUser(mappedUser);
-        
-        // SYNC API KEY KE SESSION STORAGE
-        // Jika user punya key, set ke session. Jika tidak (dihapus/kosong), remove agar fallback ke system key.
-        if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
-            sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
-        } else {
-            sessionStorage.removeItem('custom_api_key');
-        }
-        
-        resetIdleTimer();
-      } else {
-        setUser(null);
-        sessionStorage.removeItem('custom_api_key');
-      }
-    } catch (error) {
-      console.error("Auth Context Mapping Error:", error);
-      setUser(null);
-      sessionStorage.removeItem('custom_api_key');
-    }
-  };
-
-  const refreshAuth = async () => {
-    const { data } = await supabase.auth.getSession();
-    await handleSession(data.session);
-  };
-
   useEffect(() => {
     let mounted = true;
 
     const initAuth = async () => {
       try {
-        // PENTING: Gunakan getSession() untuk recovery cepat saat refresh
+        // Cek session dari Supabase
         const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
         
-        if (error) {
-            console.warn("Session error:", error.message);
-            throw error;
-        }
-        
-        if (mounted) {
-           await handleSession(session);
-        }
+        if (mounted) await handleSession(session);
       } catch (e) {
-        // Silent fail on init
+        console.error("Init Auth Error:", e);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -141,28 +107,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
 
+    // SAFETY GUARD: Force stop loading after 5 seconds
+    // Ini solusi untuk masalah "Stuck Loading"
+    const safetyTimeout = setTimeout(() => {
+        if (mounted && loading) {
+            console.warn("Loading took too long, forcing render.");
+            setLoading(false);
+        }
+    }, 5000); 
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
-      
       if (event === 'SIGNED_OUT') {
           setUser(null);
           sessionStorage.removeItem('custom_api_key');
           if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
           setLoading(false);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           await handleSession(session);
           setLoading(false);
       }
     });
 
-    // Throttled Activity Listener
     const activityEvents = ['mousedown', 'keydown', 'touchstart', 'scroll'];
     const activityHandler = () => resetIdleTimer();
-
     activityEvents.forEach(evt => window.addEventListener(evt, activityHandler));
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
       activityEvents.forEach(evt => window.removeEventListener(evt, activityHandler));
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
