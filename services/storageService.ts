@@ -3,6 +3,7 @@ import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } f
 import { supabase } from '../lib/supabaseClient';
 
 const SETTINGS_KEY = 'pakar_settings';
+const DRAFT_KEY = 'pakar_draft_workspace'; // Key untuk Auto-Save
 const ADMIN_EMAIL = process.env.VITE_ADMIN_EMAIL || 'alimkamcl@gmail.com';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -16,6 +17,31 @@ export const initializeStorage = () => {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(DEFAULT_SETTINGS));
     }
 };
+
+// --- DRAFT / PERSISTENCE FUNCTIONS ---
+
+export const saveDraft = (data: { lessonIdentity: LessonIdentity, generatedPlan: GeneratedLessonPlan | null, historyId: string | null }) => {
+    try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.error("Failed to save draft:", e);
+    }
+};
+
+export const getDraft = () => {
+    try {
+        const data = localStorage.getItem(DRAFT_KEY);
+        return data ? JSON.parse(data) : null;
+    } catch (e) {
+        return null;
+    }
+};
+
+export const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+};
+
+// -------------------------------------
 
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
@@ -71,22 +97,23 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
     if (identifier.toLowerCase() === 'admin') identifier = ADMIN_EMAIL;
 
     try {
-        // Gunakan RPC untuk cek user agar aman dari RLS recursion
+        // 1. Resolve Identifier (Username/Email) via RPC
         const { data: userInfo, error: rpcError } = await supabase
             .rpc('get_login_info', { identifier: identifier });
 
         const isAdminEmail = identifier.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
+        // 2. Logic Check User Existence
         if (!userInfo) {
-            if (!isAdminEmail) {
-                if (identifier.includes('@')) {
-                    throw new Error("EMAIL_NOT_FOUND");
-                } else {
-                    throw new Error("USERNAME_NOT_FOUND");
-                }
+            // Jika tidak ketemu di Profile, tapi input terlihat seperti email, 
+            // kita biarkan lanjut ke Auth Supabase (siapa tahu profile belum sync)
+            // Tapi jika input username, maka pasti gagal.
+            if (!isAdminEmail && !identifier.includes('@')) {
+                throw new Error("USERNAME_NOT_FOUND");
             }
         }
 
+        // 3. Logic Check Status (Pending/Inactive) - Skip for Admin
         if (userInfo && userInfo.role !== 'admin' && !isAdminEmail) {
             if (userInfo.status === 'pending') {
                 throw new Error("ACCOUNT_PENDING");
@@ -96,20 +123,29 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
             }
         }
 
+        // 4. Determine Email for Auth
+        // Jika userInfo ada, pakai email dari userInfo (karena user mungkin input username)
+        // Jika tidak ada (case admin atau error sync), pakai identifier asli
         const finalEmail = userInfo ? userInfo.email : identifier;
 
+        // 5. Authenticate via Supabase Auth (Checks Password Hash)
         const { data, error } = await supabase.auth.signInWithPassword({
             email: finalEmail,
             password: passwordToLogin,
         });
 
         if (error) {
-            throw new Error("INVALID_PASSWORD");
+            // Handle specific Supabase auth errors
+            if (error.message === 'Invalid login credentials') {
+                throw new Error("INVALID_PASSWORD");
+            }
+            throw error; 
         }
 
         if (data && data.session) {
             const userId = data.user.id;
             
+            // Auto-create Admin Profile if missing
             if (!userInfo && isAdminEmail) {
                 await supabase.from('profiles').upsert({
                     id: userId,
@@ -123,10 +159,12 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                 });
             }
             
+            // Update Last Login
             await supabase.from('profiles')
                 .update({ last_login: new Date().toISOString() })
                 .eq('id', userId);
             
+            // Map Session to App User Object
             const user = await mapSessionToUser(data.session);
             if (!user) throw new Error("Gagal memuat data pengguna.");
             
@@ -239,6 +277,29 @@ export const updateUser = async (updatedUser: User) => {
     if (error) throw error;
 };
 
+// --- FUNGSI UPDATE STATUS USER (PERBAIKAN) ---
+export const updateUserStatus = async (userId: string, status: 'active' | 'pending') => {
+    // METODE 1: Gunakan RPC Khusus Admin (Paling Kuat/Aman dari RLS)
+    // Pastikan Anda sudah menjalankan SQL 'admin_update_user_status' di Supabase
+    const { error: rpcError } = await supabase.rpc('admin_update_user_status', {
+        target_user_id: userId,
+        new_status: status
+    });
+
+    if (!rpcError) return; // Berhasil update via RPC
+
+    // METODE 2: Fallback ke Update Biasa 
+    // (Hanya berhasil jika Policy 'Admins update all profiles' sudah benar)
+    console.warn("RPC update failed/missing, trying direct update...", rpcError);
+    const { error } = await supabase
+        .from('profiles')
+        .update({ status: status })
+        .eq('id', userId);
+
+    if (error) throw error;
+};
+// ---------------------------------------------
+
 export const updateAdminPassword = async (newPassword: string) => {
     const { error } = await supabase.auth.updateUser({
         password: newPassword
@@ -263,6 +324,10 @@ export const incrementGenerationCount = async (userId: string) => {
 };
 
 export const deleteUser = async (id: string) => {
+    // Note: Deleting from profiles will cascade delete from auth.users if configured, 
+    // but usually standard Supabase flow requires calling auth.admin.deleteUser via Server Side.
+    // For Client Side, we can only delete from public.profiles.
+    // However, if we delete from profiles, the user cannot login due to checks in authenticate().
     await supabase.from('profiles').delete().eq('id', id);
 };
 

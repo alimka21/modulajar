@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig, User, AppSettings } from './types';
 import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
 import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials } from './services/geminiService';
-import { initializeStorage, authenticate, getSettings, incrementGenerationCount, saveHistory, updateHistory } from './services/storageService';
+import { initializeStorage, authenticate, getSettings, incrementGenerationCount, saveHistory, updateHistory, saveDraft, getDraft, clearDraft } from './services/storageService';
 import { swal, toast, showLoading, closeLoading } from './services/notificationService';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -44,24 +44,47 @@ const AppContent: React.FC = () => {
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedLessonPlan | null>(null);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
+  // --- INITIALIZATION & HYDRATION ---
   useEffect(() => {
     initializeStorage();
     setAppSettings(getSettings());
     
-    // --- POINT 3: BERSIHKAN STATE SAAT REFRESH/MOUNT ---
-    // Hapus data print sementara dari localStorage
+    // Clean up temporary print data
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('print_data_')) {
             localStorage.removeItem(key);
         }
     });
     
-    // Pastikan state generator bersih
-    setGeneratedPlan(null);
-    setCurrentHistoryId(null);
-    setLessonIdentity(INITIAL_LESSON_IDENTITY);
-    // ----------------------------------------------------
+    // PERSISTENCE: Try to load draft from localStorage
+    const draft = getDraft();
+    if (draft && draft.lessonIdentity) {
+        setLessonIdentity(draft.lessonIdentity);
+        setGeneratedPlan(draft.generatedPlan);
+        setCurrentHistoryId(draft.historyId || null);
+        
+        // Optional: User feedback that draft is loaded
+        if (draft.generatedPlan) {
+            // toast.fire({ icon: 'info', title: 'Draft Dipulihkan', text: 'Melanjutkan sesi sebelumnya.' });
+        }
+    } else {
+        // Only set default if no draft exists
+        if (!generatedPlan) {
+             setLessonIdentity(INITIAL_LESSON_IDENTITY);
+        }
+    }
   }, []);
+
+  // --- AUTO-SAVE WATCHER ---
+  useEffect(() => {
+     // Save to localStorage whenever critical state changes
+     // This ensures persistence across refreshes
+     saveDraft({
+         lessonIdentity,
+         generatedPlan,
+         historyId: currentHistoryId
+     });
+  }, [lessonIdentity, generatedPlan, currentHistoryId]);
 
   const safeUpdateHistory = (url: string, replace: boolean = false) => {
       if (typeof window === 'undefined' || !window.history) return;
@@ -103,16 +126,7 @@ const AppContent: React.FC = () => {
           } else {
               // User biasa
               if (path === '/app') {
-                  // Jika di /app tapi tidak ada data (refresh), kembalikan ke dashboard
-                  // Kecuali jika baru saja generate (ditandai oleh state generatedPlan yg tidak null, tapi di sini useEffect mount dijalankan dulu)
-                  // Karena state generatedPlan di-reset di mount, maka refresh di /app akan selalu kosong.
-                  // Jadi, logic: Refresh di /app -> Paksa ke Dashboard.
-                  if (!generatedPlan) {
-                      safeUpdateHistory('/dashboard', true);
-                      setViewMode('USER_DASHBOARD');
-                  } else {
-                      setViewMode('APP');
-                  }
+                  setViewMode('APP');
               } else if (path === '/dashboard') {
                   setViewMode('USER_DASHBOARD');
               } else {
@@ -130,7 +144,7 @@ const AppContent: React.FC = () => {
               setViewMode('LOGIN');
           }
       }
-  }, [user, loading]); // Remove generatedPlan from dep array to avoid loop
+  }, [user, loading]); 
 
   const navigateTo = (mode: ViewMode, url: string) => {
       safeUpdateHistory(url);
@@ -191,10 +205,14 @@ const AppContent: React.FC = () => {
         if (result.isConfirmed) {
             setViewMode('LOGIN'); 
             safeUpdateHistory('/auth', true);
+            
+            // CLEAR STATE & STORAGE
             setGeneratedPlan(null);
             setLessonIdentity(INITIAL_LESSON_IDENTITY);
             setCurrentHistoryId(null);
+            clearDraft(); // Remove persistent draft
             sessionStorage.removeItem('custom_api_key');
+            
             await supabase.auth.signOut();
         }
       });

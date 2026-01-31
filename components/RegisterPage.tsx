@@ -63,14 +63,18 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
           const waUrl = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
           
           // 3. Show Success & Redirect
+          // REMOVED TIMER: User must click "OK/Kirim WA" to proceed, fixing the redirect timing issue.
           swal.fire({
               title: 'Pendaftaran Berhasil!',
-              text: 'Membuka WhatsApp untuk verifikasi ke Admin, lalu kembali ke Login...',
+              text: 'Klik tombol di bawah untuk verifikasi ke Admin via WhatsApp.',
               icon: 'success',
-              timer: 2000, // Auto close after 2s
-              showConfirmButton: false,
-              willClose: () => {
-                  // Action saat alert ditutup (otomatis/manual)
+              confirmButtonText: 'Kirim ke WA & Login',
+              confirmButtonColor: '#25D366',
+              showCancelButton: false,
+              allowOutsideClick: false,
+          }).then((result: any) => {
+              if (result.isConfirmed) {
+                  // Action saat alert dikonfirmasi user
                   window.open(waUrl, '_blank');
                   onBack(); // Redirect ke Halaman Login
               }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings } from '../types';
-import { getUsers, saveUser, updateUser, deleteUser, getSettings, saveSettings, getAllGenerationStats, updateAdminPassword } from '../services/storageService';
+import { getUsers, saveUser, updateUser, updateUserStatus, deleteUser, getSettings, saveSettings, getAllGenerationStats, updateAdminPassword } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
 import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Clock, Circle, Eye, EyeOff } from 'lucide-react';
 
@@ -208,13 +208,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           confirmButtonText: 'Ya, Ubah'
       }).then(async (result: any) => {
           if (result.isConfirmed) {
+              // Optimistic update
               const updatedUsers = users.map(u => u.id === user.id ? { ...u, status: status } : u);
               setUsers(updatedUsers);
+              
               try {
-                  await updateUser({ ...user, status });
+                  // Use new specific function
+                  await updateUserStatus(user.id, status);
                   toast.fire({ icon: 'success', title: 'Status Diperbarui' });
-              } catch (error) {
+                  
+                  // Trigger refresh to ensure sync
                   refreshData();
+              } catch (error) {
+                  refreshData(); // Revert on error
                   toast.fire({ icon: 'error', title: 'Gagal Update' });
               }
           }
@@ -334,6 +340,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const pendingCount = users.filter(u => u.status === 'pending').length;
   const totalGenerations = genStats.length;
 
+  // REFRESH FILTERED USERS AUTOMATICALLY WHEN USERS STATE CHANGES
   const filteredUsers = users.filter(u => {
       const lowerSearch = searchTerm.toLowerCase();
       const matchSearch = u.name.toLowerCase().includes(lowerSearch) || u.email.toLowerCase().includes(lowerSearch) || (u.username && u.username.toLowerCase().includes(lowerSearch));
@@ -514,6 +521,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                                           <button onClick={() => handleEditClick(user)} className="bg-blue-50 text-blue-600 p-2 rounded-md hover:bg-blue-100 transition" title="Edit">
                                                               <Edit2 size={16} />
                                                           </button>
+                                                          {/* Delete button is available for both Pending and Active users now */}
                                                           <button onClick={() => handleDeleteUser(user.id)} className="bg-red-50 text-red-600 p-2 rounded-md hover:bg-red-100 transition" title="Hapus">
                                                               <Trash2 size={16} />
                                                           </button>
