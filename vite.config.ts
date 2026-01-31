@@ -12,8 +12,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Inject API Key ke dalam kode frontend secara spesifik (String Replacement)
-      // Ini lebih aman daripada mem-polyfill seluruh object process.env
+      // Inject API Key ke dalam kode frontend secara spesifik
       'process.env.API_KEY': JSON.stringify(apiKey),
       
       // Supabase Configuration
@@ -25,7 +24,21 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: false
+      sourcemap: false,
+      // Optimasi Chunking untuk Vercel
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            // Memisahkan library besar ke file terpisah
+            vendor: ['react', 'react-dom'],
+            ui: ['lucide-react'],
+            utils: ['@google/genai', 'docx', 'file-saver', '@supabase/supabase-js'],
+            chart: ['chart.js', 'sweetalert2']
+          }
+        }
+      },
+      // Meningkatkan batas peringatan chunk size
+      chunkSizeWarningLimit: 1000
     }
   };
 });
