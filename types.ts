@@ -68,15 +68,20 @@ export interface DeepLearningAssessment {
   };
 }
 
+export interface LKPDActivity {
+  content: string;
+  activityType: string;
+}
+
 export interface LKPDData {
   title: string;          
   objectives: string;     
   instructions: string[]; 
   stimulus: string;       
   activities: {
-      level1: string;     
-      level2: string;     
-      level3: string;     
+      level1: string | LKPDActivity;     
+      level2: string | LKPDActivity;     
+      level3: string | LKPDActivity;     
   };
   reflection: string[];   
 }
@@ -134,7 +139,7 @@ export interface MaterialsData {
   konsepInti: {
       definisi: string; 
       penjelasanBertahap: string[]; 
-      tabelVisual: string; 
+      tabelVisual: string | { headers: string[]; rows: string[][] }; 
       contohKonkret: string; 
   };
   trivia: string;

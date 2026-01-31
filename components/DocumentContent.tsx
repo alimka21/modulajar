@@ -79,6 +79,17 @@ const createTableFromBulletPoints = (lines: string[]): string | null => {
     return [header, separator, ...rows].join('\n');
 };
 
+// Helper to convert Table Object to Markdown String (for Materials Schema v2)
+const convertTableObjectToMarkdown = (tableObj: { headers: string[], rows: string[][] }): string => {
+    if (!tableObj || !tableObj.headers || !tableObj.rows) return "";
+    
+    const headerRow = `| ${tableObj.headers.join(' | ')} |`;
+    const separatorRow = `| ${tableObj.headers.map(() => '---').join(' | ')} |`;
+    const dataRows = tableObj.rows.map(row => `| ${row.join(' | ')} |`).join('\n');
+    
+    return `${headerRow}\n${separatorRow}\n${dataRows}`;
+};
+
 // Fungsi 2: Fix Markdown Table Format (Logic Baru: Block Processor)
 const fixMarkdownTableFormat = (text: string): string => {
   // OPTIMASI: Skip jika tidak ada karakter pipa (|)
@@ -207,10 +218,11 @@ const normalizeTableFormat = (text: string): string => {
 
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'murid');
+  // Use "Murid" (Title Case) instead of "murid" (lowercase) for better aesthetics
+  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'Murid');
   if (typeof val === 'number') return String(val);
   if (Array.isArray(val)) return val.map(safeString).join(", ");
-  if (typeof val === 'object') return (val.text || val.content || val.value || val.description || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'murid');
+  if (typeof val === 'object') return (val.text || val.content || val.value || val.description || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'Murid');
   return String(val);
 };
 
@@ -277,9 +289,12 @@ const renderInlineMarkdown = (text: string) => {
     return { __html: restoreLatex(formatted, placeholders) };
 };
 
-const OpenSection: React.FC<{ title: string; children?: React.ReactNode; className?: string; contentAlign?: string; }> = ({ title, children, className = "", contentAlign = "text-left" }) => (
+const OpenSection: React.FC<{ title: string; children?: React.ReactNode; className?: string; contentAlign?: string; noBorder?: boolean }> = ({ title, children, className = "", contentAlign = "text-left", noBorder = false }) => (
   <div className={`mb-4 break-inside-avoid text-black ${className}`}>
-      <h3 className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4">
+      <h3 
+        className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4" 
+        style={noBorder ? { borderBottom: 'none' } : {}}
+      >
           {title}
       </h3>
       <div className={`${contentAlign} text-black text-inherit`}>
@@ -339,8 +354,8 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
     return (
         <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6">MODUL AJAR</h1>
-            <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">TOPIK: {identitySection.topic}</h2>
+            <h1 className="text-inherit font-bold text-center mb-6">MODUL AJAR</h1>
+            <h2 className="text-inherit text-center mb-6 uppercase">TOPIK: {identitySection.topic}</h2>
 
             <OpenSection title="I. IDENTITAS UMUM">
                 <table className="w-full border-collapse border border-white mb-4 text-inherit identity-table">
@@ -355,10 +370,10 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                     </tbody>
                 </table>
 
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">Asesmen Awal (Opsional)</h4>
+                <h4 className="font-bold mb-1 text-inherit">Asesmen Awal (Opsional)</h4>
                 <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(initialAssessment || "Belum ada data.")} />
 
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">Dimensi Profil Lulusan</h4>
+                <h4 className="font-bold mb-1 text-inherit">Dimensi Profil Lulusan</h4>
                 <div className="pl-0 mb-2 text-inherit">
                     <ul className="list-disc pl-6 text-inherit font-medium">
                         {(graduateProfile || []).map((g, i) => <li key={i} className="text-inherit">{safeString(g)}</li>)}
@@ -367,27 +382,27 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             </OpenSection>
 
             <OpenSection title="II. KOMPONEN INTI">
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">1. Tujuan Pembelajaran</h4>
+                <h4 className="font-bold mb-1 text-inherit">1. Tujuan Pembelajaran</h4>
                 <ul className="list-disc pl-6 mb-2 text-inherit">
                     {(design.objectives || []).map((o, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(o)} />)}
                 </ul>
 
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">2. Praktik Pedagogis</h4>
+                <h4 className="font-bold mb-1 text-inherit">2. Praktik Pedagogis</h4>
                 <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.pedagogicalPractice)} />
 
                 {design.partnership && (
                     <>
-                        <h4 className="font-bold mb-1 text-inherit text-[13pt]">3. Kemitraan (Opsional)</h4>
+                        <h4 className="font-bold mb-1 text-inherit">3. Kemitraan (Opsional)</h4>
                         <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.partnership)} />
                     </>
                 )}
 
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">{design.partnership ? '4.' : '3.'} Lingkungan Belajar</h4>
+                <h4 className="font-bold mb-1 text-inherit">{design.partnership ? '4.' : '3.'} Lingkungan Belajar</h4>
                 <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.environment)} />
 
                 {design.digital && (
                     <>
-                        <h4 className="font-bold mb-1 text-inherit text-[13pt]">{design.partnership ? '5.' : '4.'} Pemanfaatan Digital (Opsional)</h4>
+                        <h4 className="font-bold mb-1 text-inherit">{design.partnership ? '5.' : '4.'} Pemanfaatan Digital (Opsional)</h4>
                         <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.digital)} />
                     </>
                 )}
@@ -401,7 +416,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                         </div>
 
                         <div className="mb-3">
-                            <h4 className="font-bold text-inherit text-[13pt]">A. Pendahuluan</h4>
+                            <h4 className="font-bold text-inherit">A. Pendahuluan</h4>
                             <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.introPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
                                 {step.intro.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
@@ -409,7 +424,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                         </div>
 
                         <div className="mb-3">
-                            <h4 className="font-bold text-inherit text-[13pt]">B. Kegiatan Inti</h4>
+                            <h4 className="font-bold text-inherit">B. Kegiatan Inti</h4>
                             <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.corePrinciple}</strong></p>
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">1. Memahami</p>
@@ -429,7 +444,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                         </div>
 
                         <div className="mb-3">
-                            <h4 className="font-bold text-inherit text-[13pt]">C. Penutup</h4>
+                            <h4 className="font-bold text-inherit">C. Penutup</h4>
                             <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.closingPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
                                 {step.closing.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
@@ -463,11 +478,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
           <div className="text-inherit">
             <OpenSection title="IV. ASESMEN PEMBELAJARAN">
                 
-                <h4 className="font-bold mb-2 text-inherit text-[13pt]">1. KKTP (Rubrik Pembelajaran Mendalam)</h4>
+                <h4 className="font-bold mb-2 text-inherit">1. KKTP (Rubrik Pembelajaran Mendalam)</h4>
                 <p className="italic mb-2 text-inherit text-slate-600 text-xs">Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)</p>
                 {kktp.length > 0 ? <RubricTable items={kktp} /> : <p className="text-red-500 italic">Data KKTP tidak tersedia.</p>}
 
-                <h4 className="font-bold mb-2 text-inherit text-[13pt]">2. Asesmen Formatif (Proses)</h4>
+                <h4 className="font-bold mb-2 text-inherit">2. Asesmen Formatif (Proses)</h4>
                 <div className="mb-6 break-inside-avoid">
                     <p className="font-bold mb-1 text-inherit">A. Lembar Observasi (Checklist)</p>
                     {checklist.length > 0 ? (
@@ -514,7 +529,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                     </div>
                 </div>
             
-                <h4 className="font-bold mb-2 text-inherit text-[13pt]">3. Asesmen Sumatif (Kisi-Kisi)</h4>
+                <h4 className="font-bold mb-2 text-inherit">3. Asesmen Sumatif (Kisi-Kisi)</h4>
                  <div className="mb-6 break-inside-avoid">
                      {grid.length > 0 ? (
                          <table className="w-full border-collapse border border-black text-inherit">
@@ -540,7 +555,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                      ) : <p className="italic text-slate-500">Kisi-kisi tidak tersedia.</p>}
                  </div>
 
-                <h4 className="font-bold mb-2 text-inherit text-[13pt]">4. Tindak Lanjut & Intervensi Guru</h4>
+                <h4 className="font-bold mb-2 text-inherit">4. Tindak Lanjut & Intervensi Guru</h4>
                  <div className="break-inside-avoid">
                     <table className="w-full border-collapse border border-black text-inherit">
                         <thead>
@@ -585,11 +600,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
       return (
           <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12">LAMPIRAN 3: BANK SOAL & EVALUASI</h1>
+            <h1 className="text-inherit font-bold text-center mb-6 mt-12">LAMPIRAN 3: BANK SOAL & EVALUASI</h1>
             
             {Object.entries(groupedItems).map(([type, items], groupIndex) => (
                 <div key={type} className="mb-8">
-                    <h3 className="text-inherit border-b border-black pb-1 mb-4 font-bold text-[14pt]">
+                    <h3 className="text-inherit border-b border-black pb-1 mb-4 font-bold">
                         {String.fromCharCode(65 + groupIndex)}. {type.toUpperCase()}
                     </h3>
                     
@@ -657,7 +672,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             ))}
 
             <div className="mt-8 pt-6 border-t-2 border-black break-inside-avoid">
-                <h3 className="text-lg font-bold text-center mb-4 uppercase text-[14pt]">KUNCI JAWABAN</h3>
+                <h3 className="text-lg font-bold text-center mb-4 uppercase">KUNCI JAWABAN</h3>
                 <div className="flex flex-col gap-6">
                     {Object.entries(groupedItems).map(([type, items], groupIndex) => (
                         <div key={type} className="text-xs">
@@ -702,12 +717,12 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
     return (
         <div className="text-inherit">
             <OpenSection title="V. REFLEKSI PEMBELAJARAN">
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">1. Refleksi Guru</h4>
+                <h4 className="font-bold mb-1 text-inherit">1. Refleksi Guru</h4>
                 <ul className="list-disc pl-6 mb-4 text-inherit">
                     {(data.reflection.teacher || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
                 </ul>
 
-                <h4 className="font-bold mb-1 text-inherit text-[13pt]">2. Refleksi Murid</h4>
+                <h4 className="font-bold mb-1 text-inherit">2. Refleksi Murid</h4>
                 <ul className="list-disc pl-6 text-inherit">
                     {(data.reflection.student || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
                 </ul>
@@ -726,18 +741,22 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                   <tbody>
                       <tr>
                           <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
-                              <p className="mb-32 text-inherit">
+                              <p className="mb-4 text-inherit">
                                   Mengetahui,<br/>
-                                  Kepala Sekolah<br/><br/>
+                                  Kepala Sekolah
                               </p>
+                              {/* Tambahan Jarak TTD (Sekitar 6rem/96px = 4-5 Enter) */}
+                              <div className="h-24"></div>
                               <p className="font-bold underline text-inherit">{approval.principalName}</p>
                               <p className="text-inherit">NIP. {approval.principalNip}</p>
                           </td>
                           <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
-                              <p className="mb-32 text-inherit">
+                              <p className="mb-4 text-inherit">
                                   {approval.location}, {approval.date}<br/>
-                                  Guru Mata Pelajaran<br/><br/>
+                                  Guru Mata Pelajaran
                               </p>
+                              {/* Tambahan Jarak TTD */}
+                              <div className="h-24"></div>
                               <p className="font-bold underline text-inherit">{approval.authorName}</p>
                               <p className="text-inherit">NIP. {approval.authorNip}</p>
                           </td>
@@ -752,29 +771,39 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       if (!data.materials) return null;
       const m = data.materials;
       
-      const processedVisual = (!m.konsepInti.tabelVisual.includes('|'))
-          ? convertBulletPointsToTable(m.konsepInti.tabelVisual)
-          : m.konsepInti.tabelVisual;
+      let visualContent = "";
+      
+      if (typeof m.konsepInti.tabelVisual === 'object' && m.konsepInti.tabelVisual !== null && !Array.isArray(m.konsepInti.tabelVisual)) {
+          // Handle Object format
+          const tableObj = m.konsepInti.tabelVisual as any;
+          visualContent = convertTableObjectToMarkdown(tableObj);
+      } else {
+          // Handle String format (legacy)
+          const rawText = String(m.konsepInti.tabelVisual);
+          visualContent = (!rawText.includes('|')) 
+              ? convertBulletPointsToTable(rawText) 
+              : rawText;
+      }
       
       return (
           <div className="text-inherit">
-            <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12 page-break-before">LAMPIRAN 1: MATERI AJAR</h1>
-            <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{m.judul}</h2>
+            <h1 className="text-inherit font-bold text-center mb-6 mt-12 page-break-before">LAMPIRAN 1: MATERI AJAR</h1>
+            <h2 className="text-inherit text-center mb-6 uppercase">{m.judul}</h2>
             
             <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Pemantik</h3>
+                <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Pemantik</h3>
                 <p className="italic text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.pemantik)} />
             </div>
 
             <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Sub Topik</h3>
+                <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Sub Topik</h3>
                 <ul className="list-disc pl-6 text-inherit">
                      {m.subTopik.map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s)} />)}
                 </ul>
             </div>
 
             <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Konsep Inti</h3>
+                <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Konsep Inti</h3>
                 <div className="mb-2 text-inherit">
                     <strong className="text-inherit">Definisi:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(m.konsepInti.definisi)} />
                 </div>
@@ -788,16 +817,16 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <div className="mb-2 pl-4 text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret)} />
 
                 <strong className="text-inherit">Visualisasi / Rangkuman Data:</strong>
-                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(processedVisual)} />
+                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(visualContent)} />
             </div>
             
             <div className="mb-4 text-inherit">
-                 <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">TAHUKAH KAMU?</h3>
+                 <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">TAHUKAH KAMU?</h3>
                  <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia)} />
             </div>
 
             <div className="mb-4 text-inherit">
-                <h3 className="font-bold text-[14pt] uppercase mb-2 text-inherit border-b border-black pb-1">Glosarium</h3>
+                <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Glosarium</h3>
                 <ul className="list-disc pl-6 text-inherit">
                      {m.glosarium.map((g, i) => (
                          <li key={i}>
@@ -815,7 +844,18 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       const l = data.lkpd;
 
       // POIN 3: Helper untuk render Aktivitas (Tabel atau Numbering)
-      const renderActivity = (text: string) => {
+      const renderActivity = (activity: any) => {
+          let text = "";
+          let activityType = "";
+
+          // Check if activity is object or string
+          if (typeof activity === 'object' && activity !== null) {
+              text = activity.content || "";
+              activityType = activity.activityType || "";
+          } else {
+              text = String(activity);
+          }
+
           const trimmed = text.trim();
           
           // Jika sudah tabel, render tabel
@@ -828,10 +868,13 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
           }
           
-          // Jika teks paragraf biasa, paksa jadi numbering untuk soal
+          // Jika teks paragraf biasa, paksa jadi numbering untuk soal (jika banyak baris)
           const lines = trimmed.split('\n').filter(t => t.trim() !== '');
-          if (lines.length > 0) {
-              const numberedText = lines.map((line, idx) => `${idx + 1}. ${line}`).join('\n');
+          if (lines.length > 1) {
+              const numberedText = lines.map((line, idx) => {
+                   if (/^\d+\./.test(line)) return line;
+                   return `${idx + 1}. ${line}`;
+              }).join('\n');
               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(numberedText)} />;
           }
           
@@ -839,9 +882,9 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       };
 
       return (
-          <div className="text-inherit lkpd-reset">
-              <h1 className="text-inherit font-bold text-[24pt] text-center mb-6 mt-12 page-break-before">LEMBAR KERJA</h1>
-              <h2 className="text-inherit text-[14pt] text-center mb-6 uppercase">{l.title}</h2>
+          <div className="text-inherit">
+              <h1 className="text-inherit font-bold text-center mb-6 mt-12 page-break-before">LEMBAR KERJA</h1>
+              <h2 className="text-inherit text-center mb-6 uppercase">{l.title}</h2>
               
               <OpenSection title="Identitas">
                   <p className="text-inherit">Nama: ...........................................................</p>
@@ -906,7 +949,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             }
             
             #konten-dokumen, #konten-dokumen * {
-                font-size: 11pt !important;
+                font-size: 12pt !important;
                 line-height: 1.3 !important;
                 font-family: 'Cambria', Georgia, serif !important;
                 color: #000000 !important;
@@ -916,6 +959,18 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 margin-bottom: 4pt !important;
                 text-align: justify;
             }
+            
+            /* ADD NEW RULE HERE FOR TABLE CONTENT ALIGNMENT */
+            #konten-dokumen table td, #konten-dokumen table td * {
+                text-align: left !important;
+            }
+            #konten-dokumen table th {
+                text-align: center !important;
+            }
+            #konten-dokumen table td p {
+                text-align: left !important;
+                margin-bottom: 0 !important;
+            }
 
             #konten-dokumen li {
                 margin-bottom: 2pt !important;
@@ -924,7 +979,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             }
             
             #konten-dokumen h1 { 
-                font-size: 20pt !important; 
+                font-size: 24pt !important; 
                 line-height: 1.2 !important; 
                 font-weight: bold !important; 
                 text-align: center; 
@@ -935,7 +990,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             #konten-dokumen h2 { font-size: 14pt !important; line-height: 1.2 !important; font-weight: bold !important; text-align: center; margin-bottom: 10pt; margin-top: 0pt; text-transform: uppercase; }
             
             #konten-dokumen h3 { 
-                font-size: 13pt !important; 
+                font-size: 14pt !important; 
                 line-height: 1.2 !important; 
                 font-weight: bold !important; 
                 text-transform: uppercase; 
@@ -947,8 +1002,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 page-break-after: avoid !important; 
             }
             
-            .lkpd-reset h3 { border-bottom: none !important; }
-
             #konten-dokumen h4 { font-size: 12pt !important; text-transform: uppercase; font-weight: bold !important; margin-bottom: 4pt; margin-top: 8pt; page-break-after: avoid !important; }
             
             .markdown-content table {

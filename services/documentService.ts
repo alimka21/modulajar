@@ -1,6 +1,6 @@
 
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, VerticalAlign, AlignmentType } from "docx";
-import * as FileSaver from "file-saver";
+import FileSaver from "file-saver";
 import { GeneratedLessonPlan, DocumentSettings, MaterialsData, LKPDData, QuestionBankData, DeepLearningAssessment } from "../types";
 
 const LINE_SPACING_BODY = 312; // 1.3 Line Spacing (240 * 1.3)
@@ -22,10 +22,11 @@ const CELL_MARGIN = { top: 120, bottom: 120, left: 120, right: 120 };
 
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'murid');
+  // Use "Murid" (Title Case) instead of "murid" (lowercase) for better aesthetics
+  if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'Murid');
   if (typeof val === 'number') return String(val);
   if (Array.isArray(val)) return val.map(safeString).join(", ");
-  if (typeof val === 'object') return (val.text || val.content || val.value || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'murid');
+  if (typeof val === 'object') return (val.text || val.content || val.value || JSON.stringify(val)).replace(/siswa|peserta didik/gi, 'Murid');
   return String(val);
 };
 
@@ -55,12 +56,16 @@ const createMultilineText = (text: string): any[] => {
                 spacing: { after: 120, line: LINE_SPACING_BODY }
              });
         }
-        // Numbered list approximation
+        // Numbered list approximation (1. , 2. , etc)
+        // Improved Regex to catch "1. Text" or "1.Text"
         if (/^\d+\./.test(trimmed)) {
+             // Remove the number from the text because numbering instance handles it? 
+             // NO, docx bullet/numbering is complex. 
+             // Hack: Use Indent to simulate hanging indent for manually numbered text
              return new Paragraph({
                 children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
                 spacing: { after: 120, line: LINE_SPACING_BODY },
-                indent: { left: 425, hanging: 283 }
+                indent: { left: 425, hanging: 283 } // Hanging indent for "1. "
              });
         }
         return new Paragraph({
@@ -326,6 +331,12 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       elements.push(createSubSectionTitle("Pemantik"));
       elements.push(...createMultilineText(materials.pemantik));
 
+      // FIX 1: Tampilkan Sub Topik di Export
+      if (materials.subTopik && materials.subTopik.length > 0) {
+          elements.push(createSubSectionTitle("Sub Topik"));
+          materials.subTopik.forEach(topic => elements.push(createListItem(topic)));
+      }
+
       elements.push(createSubSectionTitle("Konsep Inti"));
       elements.push(createPara([createText("Definisi: ", { bold: true }), createText(materials.konsepInti.definisi)]));
       
@@ -333,7 +344,33 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       materials.konsepInti.penjelasanBertahap.forEach(p => elements.push(...createMultilineText(p)));
       
       elements.push(createPara([createText("Visualisasi:", { bold: true })]));
-      elements.push(...createMultilineText(materials.konsepInti.tabelVisual));
+      
+      // Handle Table Visual - Object vs String
+      if (typeof materials.konsepInti.tabelVisual === 'object' && materials.konsepInti.tabelVisual !== null && !Array.isArray(materials.konsepInti.tabelVisual)) {
+          const tableObj = materials.konsepInti.tabelVisual as any;
+          const docTable = new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [
+                  new TableRow({
+                      children: tableObj.headers.map((h: string) => new TableCell({
+                          children: [new Paragraph({ children: [new TextRun({ text: h, font: FONT_FACE, size: SIZE_BODY, bold: true })] })],
+                          margins: CELL_MARGIN,
+                          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+                      }))
+                  }),
+                  ...tableObj.rows.map((row: string[]) => new TableRow({
+                      children: row.map((cell: string) => new TableCell({
+                          children: [new Paragraph({ children: [new TextRun({ text: cell, font: FONT_FACE, size: SIZE_BODY })] })],
+                          margins: CELL_MARGIN
+                      }))
+                  }))
+              ]
+           });
+           elements.push(docTable);
+           elements.push(new Paragraph("")); // spacer
+      } else {
+           elements.push(...createMultilineText(String(materials.konsepInti.tabelVisual)));
+      }
 
       elements.push(createSubSectionTitle("Glosarium"));
       materials.glosarium.forEach(g => elements.push(createListItem(`${g.istilah}: ${g.definisi}`)));
@@ -349,21 +386,37 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
       elements.push(createPara([createText("Nama: ...................................  Kelas: ...................................")], { spacing: { after: 240 } }));
 
+      // Restore underline for LKPD titles in DOCX
       elements.push(createSubSectionTitle("Tujuan"));
       elements.push(createPara([createText(lkpd.objectives)]));
 
       elements.push(createSubSectionTitle("Petunjuk"));
       lkpd.instructions.forEach(i => elements.push(createListItem(i)));
 
+      // FIX 2: Better activity rendering (Handle Lists/Numbering)
+      const renderActivityContent = (levelData: any) => {
+          let content = "";
+          if (typeof levelData === 'object' && levelData !== null) {
+              content = levelData.content;
+          } else {
+              content = String(levelData);
+          }
+          
+          return createMultilineText(content);
+      }
+
       elements.push(createSubSectionTitle("Aktivitas 1 (Dasar)"));
-      elements.push(...createMultilineText(lkpd.activities.level1));
+      elements.push(...renderActivityContent(lkpd.activities.level1));
 
       elements.push(createSubSectionTitle("Aktivitas 2 (Menengah)"));
-      elements.push(...createMultilineText(lkpd.activities.level2));
+      elements.push(...renderActivityContent(lkpd.activities.level2));
 
       elements.push(createSubSectionTitle("Aktivitas 3 (Lanjut)"));
-      elements.push(...createMultilineText(lkpd.activities.level3));
+      elements.push(...renderActivityContent(lkpd.activities.level3));
       
+      elements.push(createSubSectionTitle("Refleksi Diri"));
+      lkpd.reflection.forEach(r => elements.push(createListItem(r)));
+
       return elements;
   };
 
@@ -381,23 +434,68 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
               });
           }
 
+          // FIX 3: Matching Questions Layout (2 Column Table)
           if (item.matchingPairs) {
+              // Prepare sorted answers for column 2 (Similar to Preview)
+              const sortedPairs = [...item.matchingPairs].sort((a, b) => a.right.localeCompare(b.right));
+              
+              // Column 1 Content
+              const col1Elements = [
+                  createPara([createText("Premis", { bold: true, underline: true })]),
+                  ...item.matchingPairs.map((pair, i) => 
+                      createPara([createText(`${i + 1}. ${pair.left}`)], { indent: { left: 240, hanging: 240 }, spacing: { after: 60, line: LINE_SPACING_BODY } })
+                  )
+              ];
+
+              // Column 2 Content
+              const col2Elements = [
+                  createPara([createText("Pilihan Jawaban", { bold: true, underline: true })]),
+                  ...sortedPairs.map((pair, i) => 
+                      createPara([createText(`${String.fromCharCode(65 + i)}. ${pair.right}`)], { indent: { left: 240, hanging: 240 }, spacing: { after: 60, line: LINE_SPACING_BODY } })
+                  )
+              ];
+
               const table = new Table({
                   width: { size: 100, type: WidthType.PERCENTAGE },
-                  rows: item.matchingPairs.map(pair => new TableRow({
-                      children: [
-                          new TableCell({ children: [createPara([createText(pair.left)])], margins: CELL_MARGIN }),
-                          new TableCell({ children: [createPara([createText(pair.right)])], margins: CELL_MARGIN })
-                      ]
-                  }))
+                  rows: [
+                      new TableRow({
+                          children: [
+                              new TableCell({ children: col1Elements, margins: CELL_MARGIN, width: { size: 50, type: WidthType.PERCENTAGE } }),
+                              new TableCell({ children: col2Elements, margins: CELL_MARGIN, width: { size: 50, type: WidthType.PERCENTAGE } })
+                          ]
+                      })
+                  ],
+                  // Invisible borders
+                  borders: {
+                      top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                      bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                      left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                      right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                      insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" }
+                  }
               });
               elements.push(table);
+              elements.push(new Paragraph("")); // Spacer
           }
       });
 
       elements.push(createSubSectionTitle("Kunci Jawaban"));
       qb.items.forEach((item, idx) => {
-           elements.push(createPara([createText(`${idx + 1}. ${item.answerKey}`)]));
+           let displayKey = item.answerKey;
+           
+           // For matching, reconstruct the key display like preview: "1-A, 2-C"
+           if (item.matchingPairs) {
+                const sortedRight = [...item.matchingPairs].map(p => p.right).sort((a, b) => a.localeCompare(b));
+                const keyParts = item.matchingPairs.map((pair, i) => {
+                    const matchIndex = sortedRight.indexOf(pair.right);
+                    const letter = String.fromCharCode(65 + matchIndex);
+                    return `${i+1} - ${letter}`;
+                });
+                displayKey = keyParts.join(", ");
+           }
+
+           elements.push(createPara([createText(`${idx + 1}. ${displayKey}`)]));
       });
 
       return elements;
@@ -431,6 +529,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   });
 
   Packer.toBlob(doc).then((blob) => {
-      FileSaver.saveAs(blob, `Modul Ajar - ${data.identitySection.topic}.docx`);
+      // Robust handling: FileSaver might be the function itself, or an object with saveAs
+      const saveAs = (FileSaver as any).saveAs || FileSaver;
+      saveAs(blob, `Modul Ajar - ${data.identitySection.topic}.docx`);
   });
 };

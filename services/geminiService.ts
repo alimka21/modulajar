@@ -64,11 +64,19 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 
     for (const model of modelsToTest) {
         try {
-            const response = await ai.models.generateContent({
+            // Add timeout for validation too
+            const fetchPromise = ai.models.generateContent({
                 model: model, 
                 contents: 'Tes koneksi',
                 config: { maxOutputTokens: 1 }
             });
+            
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Timeout")), 10000)
+            );
+
+            const response: any = await Promise.race([fetchPromise, timeoutPromise]);
+            
             if (response) return { success: true, message: `✅ Koneksi Berhasil! (Model: ${model})` };
         } catch (error: any) {
             lastErrorMsg = error.message || JSON.stringify(error);
@@ -111,9 +119,9 @@ Tugas: Menyusun Modul Ajar dan konten pembelajaran berkualitas tinggi.
 
 ATURAN STRICT (JANGAN DILANGGAR):
 1. TERMINOLOGI:
-   Gunakan kata "MURID" (bukan siswa/peserta didik).
+   Gunakan kata "Murid" (bukan siswa/peserta didik). Gunakan huruf kapital standar (Sentence case), jangan gunakan huruf besar semua untuk kata murid.
 
-2. PRINSIP PEMBELAJARAN:
+2. PRINSIP PEMBELAJAN:
    Pada langkah pembelajaran, pilih prinsip: "Berkesadaran", "Bermakna", atau "Mengembirakan".
 
 3. LANGKAH PEMBELAJARAN (MICRO-STEPS):
@@ -126,6 +134,34 @@ ATURAN STRICT (JANGAN DILANGGAR):
    Jika diminta membuat tabel, gunakan format Markdown Table standar.
    
 Output wajib JSON valid sesuai Schema.
+`;
+
+// INSTRUKSI KHUSUS ASESMEN
+const ASSESSMENT_INSTRUCTION = `
+Anda adalah Pakar Penilaian & Deep Learning.
+Tugas: Menyusun Asesmen Pembelajaran berkualitas tinggi.
+
+ATURAN STRICT:
+1. KKTP (Kriteria Ketercapaian Tujuan Pembelajaran):
+   - Cantumkan 4 level: Perlu Bimbingan, Dasar, Profisien, Mahir
+   - Setiap criteria WAJIB punya indicator yang jelas
+
+2. PENILAIAN FORMATIF:
+   - Checklist: Aspek + Indikator (bukan rubrik)
+   - Feedback Guide: Klarifikasi (koreksi), Apresiasi (pujian), Saran (improvement)
+
+3. PENILAIAN SUMATIF:
+   - Grid: Indikator, Level (1-4), Teknik (Tes Tulis, Wawancara, Praktik, dll)
+   - Sesuaikan dengan jenjang murid
+
+4. PROGRAM INTERVENSI:
+   - Untuk setiap level: Perlu Bimbingan, Dasar, Profisien, Mahir
+   - Intervensi konkret, bukan hanya penjelasan
+
+5. TERMINOLOGI:
+   - Gunakan kata "Murid" (bukan siswa/peserta didik)
+
+6. OUTPUT: JSON VALID dengan structure yang tepat.
 `;
 
 const generateWithRetry = async (
@@ -143,7 +179,10 @@ const generateWithRetry = async (
       const { client } = clientInfo;
       console.log(`[Generate] Trying model: ${currentModel}`);
 
-      const response = await client.models.generateContent({
+      // SETUP TIMEOUT (Mencegah loading abadi)
+      const TIMEOUT_MS = 60000; // 60 Detik per model (diperpanjang agar asesmen tuntas)
+      
+      const fetchPromise = client.models.generateContent({
         model: currentModel,
         contents: prompt,
         config: {
@@ -155,6 +194,14 @@ const generateWithRetry = async (
         }
       });
 
+      // Promise Race: Mana yang duluan, respon AI atau Timeout
+      const response: any = await Promise.race([
+          fetchPromise,
+          new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(`Timeout limit reached (${TIMEOUT_MS}ms)`)), TIMEOUT_MS)
+          )
+      ]);
+
       if (!response.text) throw new Error("Empty response");
       let cleanText = response.text.trim().replace(/^```json\n/, '').replace(/\n```$/, '').replace(/^```\n/, '');
       return JSON.parse(cleanText);
@@ -163,8 +210,13 @@ const generateWithRetry = async (
       lastError = error;
       const msg = error.message || "";
       console.warn(`[Generate] Failed with ${currentModel}:`, msg);
+      
+      // Jika error karena timeout atau server error, loop akan lanjut ke model berikutnya
       if (msg.includes('401') || msg.includes('API key not valid')) throw new Error("API Key Tidak Valid/Expired.");
       if (msg.includes('429') || msg.includes('quota')) throw new Error("Kuota API Habis. Ganti API Key.");
+      
+      // Jika ini model terakhir dan masih gagal
+      if (i === MODEL_PRIORITY.length - 1) break;
       continue;
     }
   }
@@ -187,7 +239,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     
     DETAIL:
     1. Prinsip (intro/core/closing): Pilih salah satu -> Berkesadaran, Bermakna, Mengembirakan.
-    2. Langkah: Micro-steps (detail per aksi guru/murid).
+    2. Langkah: Micro-steps (Wajib detail, konkret, dan interaktif. Tuliskan skenario aksi/reaksi Guru & Murid yang spesifik).
     3. Math: Gunakan LaTeX ($...$).
     4. Profil Lulusan: List saja dimensinya (contoh: "Bernalar Kritis", "Kreatif"), jangan ada penjelasan.
     5. Praktik Pedagogis: Pilih SATU Model/Metode (misal: PBL), lalu jelaskan singkat dalam 1 paragraf.
@@ -216,14 +268,15 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
     const prompt = `Buat Materi Ajar: ${rppData.identitySection.topic}. 
     Mata Pelajaran: ${rppData.identitySection.subject}.
     Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
-    Bahasa untuk MURID. 
+    Bahasa untuk Murid. 
     ${complexity}
     
     Aturan Konten:
-    1. Penjelasan Bertahap: JANGAN BUAT LANGKAH-LANGKAH/PROSEDUR. Berikan URAIAN MATERI/PENJELASAN KONSEP TOPIK & SUB-TOPIK secara naratif dan mendalam.
-    2. Tabel Visual: Bagian ini WAJIB berformat MARKDOWN TABLE. Buatlah rangkuman, perbandingan, atau data penting dalam bentuk tabel yang rapi. Jangan gunakan list atau paragraf untuk bagian ini.
-    3. Trivia: Berikan fakta unik yang menarik ("Tahukah Kamu?").
-    4. LaTeX ($...$) untuk rumus.
+    1. Sub Topik: Buatlah sub-topik yang bersifat akademik dan merupakan turunan spesifik dari Topik utama. Jangan membuat sub-topik yang tidak relevan.
+    2. Penjelasan Bertahap: JANGAN BUAT LANGKAH-LANGKAH/PROSEDUR. Berikan URAIAN MATERI/PENJELASAN KONSEP TOPIK & SUB-TOPIK secara naratif dan mendalam.
+    3. Tabel Visual: Bagian ini WAJIB berformat TABLE OBJECT dengan 'headers' dan 'rows'. Buatlah rangkuman, perbandingan, atau data penting.
+    4. Trivia: Berikan fakta unik yang menarik ("Tahukah Kamu?").
+    5. LaTeX ($...$) untuk rumus.
     Output JSON.`;
     return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
@@ -239,9 +292,10 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
   Aturan:
   1. Petunjuk Pengerjaan: Berikan langkah teknis cara mengerjakan lembar ini.
   2. Aktivitas: Buat 3 level aktivitas (Dasar, Menengah, Lanjut). 
-     - JANGAN tuliskan prinsip pembelajaran (Berkesadaran, Bermakna, Mengembirakan) di teks aktivitas. Prinsip hanya untuk guru di RPP.
-     - WAJIB: Salah satu aktivitas HARUS berupa TABEL ISIAN (Markdown Table) untuk dikerjakan murid.
-     - Sesuaikan kesulitan dengan fase murid.
+   - activityType: Pilih "Teks", "Tabel", "ListSoal", atau "Diskusi".
+   - JIKA 'activityType' adalah 'ListSoal' (Uraian/Esai), MAKA format content WAJIB menggunakan penomoran (1. ..., 2. ...) untuk setiap butir soal.
+   - WAJIB: MINIMAL SATU aktivitas harus bertipe "Tabel".
+   - JANGAN tuliskan prinsip pembelajaran di teks aktivitas.
   3. Gunakan kata "Murid".
   Output JSON.`;
   return await generateWithRetry(prompt, LKPD_SCHEMA);
@@ -256,7 +310,8 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
   ${complexity}
   Output JSON.`;
-  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA);
+  
+  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA, ASSESSMENT_INSTRUCTION);
 };
 
 export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
@@ -281,7 +336,118 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
 // --- SCHEMAS ---
 const LEARNING_STEP_SCHEMA: Schema = { type: Type.OBJECT, properties: { meetingNo: { type: Type.INTEGER }, intro: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Micro-steps kegiatan awal" }, introPrinciple: { type: Type.STRING, description: "Pilih: Berkesadaran, Bermakna, atau Mengembirakan" }, core: { type: Type.OBJECT, properties: { memahami: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Micro-steps Memahami" }, mengaplikasi: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Micro-steps Mengaplikasi" }, merefleksi: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Micro-steps Merefleksi" } }, required: ['memahami', 'mengaplikasi', 'merefleksi'] }, corePrinciple: { type: Type.STRING, description: "Pilih: Berkesadaran, Bermakna, atau Mengembirakan" }, closing: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Micro-steps kegiatan penutup" }, closingPrinciple: { type: Type.STRING, description: "Pilih: Berkesadaran, Bermakna, atau Mengembirakan" } }, required: ['meetingNo', 'intro', 'introPrinciple', 'core', 'corePrinciple', 'closing', 'closingPrinciple'] };
 const RPP_SCHEMA: Schema = { type: Type.OBJECT, properties: { identitySection: { type: Type.OBJECT, properties: { schoolName: { type: Type.STRING }, subject: { type: Type.STRING }, grade: { type: Type.STRING }, semester: { type: Type.STRING }, timeAllocation: { type: Type.STRING }, meetingCount: { type: Type.STRING }, topic: { type: Type.STRING } }, required: ['schoolName', 'subject', 'topic'] }, initialAssessment: { type: Type.STRING }, graduateProfile: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Hanya nama dimensi, tanpa penjelasan" }, design: { type: Type.OBJECT, properties: { objectives: { type: Type.ARRAY, items: { type: Type.STRING } }, pedagogicalPractice: { type: Type.STRING, description: "Satu metode dan penjelasan singkat" }, partnership: { type: Type.STRING }, environment: { type: Type.STRING }, digital: { type: Type.STRING } }, required: ['objectives', 'pedagogicalPractice', 'environment'] }, learningExperience: { type: Type.ARRAY, items: LEARNING_STEP_SCHEMA }, reflection: { type: Type.OBJECT, properties: { teacher: { type: Type.ARRAY, items: { type: Type.STRING } }, student: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ['teacher', 'student'] } }, required: ['identitySection', 'design', 'learningExperience', 'reflection'] };
-const MATERIALS_SCHEMA: Schema = { type: Type.OBJECT, properties: { judul: { type: Type.STRING }, pemantik: { type: Type.STRING }, subTopik: { type: Type.ARRAY, items: { type: Type.STRING } }, konsepInti: { type: Type.OBJECT, properties: { definisi: { type: Type.STRING }, penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Uraian materi/konsep, bukan langkah kerja" }, tabelVisual: { type: Type.STRING, description: "Markdown Table String Only" }, contohKonkret: { type: Type.STRING } }, required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret'] }, trivia: { type: Type.STRING }, glosarium: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { istilah: { type: Type.STRING }, definisi: { type: Type.STRING } }, required: ['istilah', 'definisi'] } } }, required: ['judul', 'pemantik', 'subTopik', 'konsepInti', 'trivia', 'glosarium'] };
-const LKPD_SCHEMA: Schema = { type: Type.OBJECT, properties: { title: { type: Type.STRING }, objectives: { type: Type.STRING }, instructions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Langkah teknis pengerjaan" }, stimulus: { type: Type.STRING }, activities: { type: Type.OBJECT, properties: { level1: { type: Type.STRING }, level2: { type: Type.STRING }, level3: { type: Type.STRING } }, required: ['level1', 'level2', 'level3'] }, reflection: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ['title', 'objectives', 'instructions', 'stimulus', 'activities', 'reflection'] };
+
+const MATERIALS_SCHEMA: Schema = { 
+  type: Type.OBJECT, 
+  properties: { 
+    judul: { type: Type.STRING }, 
+    pemantik: { type: Type.STRING }, 
+    subTopik: { type: Type.ARRAY, items: { type: Type.STRING } }, 
+    konsepInti: { 
+      type: Type.OBJECT, 
+      properties: { 
+        definisi: { type: Type.STRING }, 
+        penjelasanBertahap: { 
+          type: Type.ARRAY, 
+          items: { type: Type.STRING }, 
+          description: "Uraian materi/konsep, bukan langkah kerja" 
+        }, 
+        tabelVisual: {
+          type: Type.OBJECT,
+          properties: {
+            headers: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "Judul kolom tabel"
+            },
+            rows: { 
+              type: Type.ARRAY, 
+              items: { 
+                type: Type.ARRAY, 
+                items: { type: Type.STRING }
+              },
+              description: "Baris data, setiap row adalah array string"
+            }
+          },
+          required: ['headers', 'rows']
+        },
+        contohKonkret: { type: Type.STRING } 
+      }, 
+      required: ['definisi', 'penjelasanBertahap', 'tabelVisual', 'contohKonkret'] 
+    }, 
+    trivia: { type: Type.STRING }, 
+    glosarium: { 
+      type: Type.ARRAY, 
+      items: { 
+        type: Type.OBJECT, 
+        properties: { 
+          istilah: { type: Type.STRING }, 
+          definisi: { type: Type.STRING } 
+        }, 
+        required: ['istilah', 'definisi'] 
+      } 
+    } 
+  }, 
+  required: ['judul', 'pemantik', 'subTopik', 'konsepInti', 'trivia', 'glosarium'] 
+};
+
+const LKPD_SCHEMA: Schema = { 
+  type: Type.OBJECT, 
+  properties: { 
+    title: { type: Type.STRING }, 
+    objectives: { type: Type.STRING }, 
+    instructions: { 
+      type: Type.ARRAY, 
+      items: { type: Type.STRING }, 
+      description: "Langkah teknis pengerjaan" 
+    }, 
+    stimulus: { type: Type.STRING }, 
+    activities: { 
+      type: Type.OBJECT, 
+      properties: { 
+        level1: {
+          type: Type.OBJECT,
+          properties: {
+            content: { type: Type.STRING },
+            activityType: { 
+              type: Type.STRING, 
+              description: "Teks | Tabel | ListSoal | Diskusi"
+            }
+          },
+          required: ['content', 'activityType']
+        },
+        level2: {
+          type: Type.OBJECT,
+          properties: {
+            content: { type: Type.STRING },
+            activityType: { 
+              type: Type.STRING, 
+              description: "Teks | Tabel | ListSoal | Diskusi"
+            }
+          },
+          required: ['content', 'activityType']
+        },
+        level3: {
+          type: Type.OBJECT,
+          properties: {
+            content: { type: Type.STRING },
+            activityType: { 
+              type: Type.STRING, 
+              description: "Teks | Tabel | ListSoal | Diskusi"
+            }
+          },
+          required: ['content', 'activityType']
+        }
+      }, 
+      required: ['level1', 'level2', 'level3'] 
+    }, 
+    reflection: { 
+      type: Type.ARRAY, 
+      items: { type: Type.STRING } 
+    } 
+  }, 
+  required: ['title', 'objectives', 'instructions', 'stimulus', 'activities', 'reflection'] 
+};
+
 const ASSESSMENT_SCHEMA: Schema = { type: Type.OBJECT, properties: { kktp: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { criteria: { type: Type.STRING }, needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } }, required: ['criteria', 'needsGuidance', 'basic', 'proficient', 'advanced'] } }, formative: { type: Type.OBJECT, properties: { checklist: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } }, required: ['aspect', 'indicator'] } }, feedbackGuide: { type: Type.OBJECT, properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } }, required: ['clarification', 'appreciation', 'suggestion'] } }, required: ['checklist', 'feedbackGuide'] }, summative: { type: Type.OBJECT, properties: { grid: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } }, required: ['indicator', 'level', 'technique'] } } }, required: ['grid'] }, intervention: { type: Type.OBJECT, properties: { needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } }, required: ['needsGuidance', 'basic', 'proficient', 'advanced'] } }, required: ['kktp', 'formative', 'summative', 'intervention'] };
 const QUESTION_BANK_SCHEMA: Schema = { type: Type.OBJECT, properties: { items: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { number: { type: Type.NUMBER }, type: { type: Type.STRING }, question: { type: Type.STRING }, stimulus: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, matchingPairs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { left: { type: Type.STRING }, right: { type: Type.STRING } } } }, answerKey: { type: Type.STRING } }, required: ['number', 'type', 'question', 'answerKey'] } } }, required: ['items'] };

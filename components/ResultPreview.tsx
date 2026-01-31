@@ -315,6 +315,17 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                 <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
             )}
 
+            {/* MANUAL ASSESSMENT TOOLBAR */}
+            {(activeTab === 'RPP_PLUS' || activeTab === 'SEMUA') && !data?.assessment && data && !isGeneratingAssessment && (
+                <GenerationToolbar 
+                    title="Asesmen Belum Tersedia" 
+                    onAction={onGenerateAssessment} 
+                    isLoading={isGeneratingAssessment} 
+                    actionLabel="Susun Asesmen" 
+                    icon={CheckSquare} 
+                />
+            )}
+
             {(activeTab === 'MATERI' || activeTab === 'SEMUA') && !data?.materials && data && !isGeneratingMaterials && (<GenerationToolbar title="Materi Ajar Belum Tersedia" onAction={onGenerateMaterials} isLoading={isGeneratingMaterials} actionLabel="Buat Materi" icon={BookText} />)}
             {(activeTab === 'LKPD' || activeTab === 'SEMUA') && !data?.lkpd && data && !isGeneratingLKPD && (<GenerationToolbar title="Lembar Kerja Belum Tersedia" onAction={onGenerateLKPD} isLoading={isGeneratingLKPD} actionLabel="Buat LKPD" icon={ClipboardCheck} />)}
             {(activeTab === 'SOAL' || activeTab === 'SEMUA') && !data?.questionBank && data && !isGeneratingQuestionBank && (<GenerationToolbar title="Bank Soal Belum Tersedia" onAction={() => setShowQuestionModal(true)} isLoading={isGeneratingQuestionBank} actionLabel="Buat Bank Soal" icon={BookKey} />)}

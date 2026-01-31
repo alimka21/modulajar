@@ -54,31 +54,28 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
               lastLogin: ''
           };
           
-          // AWAIT THIS to ensure it saves to Supabase before proceeding
+          // 1. Save to Supabase
           await saveUser(userPayload);
 
-          // 2. Prepare WhatsApp URL
-          const message = `Halo Admin Pakar Modul Ajar, saya ingin mendaftar akun.\n\nNama: ${formData.name}\nUsername: ${formData.username}\nEmail: ${formData.email}\n\nMohon konfirmasi pendaftaran saya. Terima kasih.`;
-          const encodedMessage = encodeURIComponent(message);
-          const waUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`;
+          // 2. Prepare WhatsApp URL (Format: wa.me)
+          const targetNumber = settings.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, '') : '62839829282'; // Default fallback number
+          const message = `Halo Admin Pakar Modul Ajar, saya sudah mendaftar.\n\nNama: ${formData.name}\nEmail: ${formData.email}\nUsername: ${formData.username}\n\nMohon verifikasi akun saya agar bisa login. Terima kasih.`;
+          const waUrl = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
           
-          // 3. Show SweetAlert and Redirect
+          // 3. Show Success & Redirect
           swal.fire({
               title: 'Pendaftaran Berhasil!',
-              text: 'Data Anda telah tersimpan. Klik tombol di bawah untuk konfirmasi ke Admin via WhatsApp agar akun segera diaktifkan.',
+              text: 'Membuka WhatsApp untuk verifikasi ke Admin, lalu kembali ke Login...',
               icon: 'success',
-              confirmButtonText: 'Hubungi Admin Sekarang',
-              confirmButtonColor: '#25D366', // WhatsApp color
-              showCancelButton: true,
-              cancelButtonText: 'Tutup',
-              cancelButtonColor: '#f1f5f9', // Slate-100 for button
-          }).then((result: any) => {
-              // Redirect to login page regardless of choice, as the account is created
-              if (result.isConfirmed) {
+              timer: 2000, // Auto close after 2s
+              showConfirmButton: false,
+              willClose: () => {
+                  // Action saat alert ditutup (otomatis/manual)
                   window.open(waUrl, '_blank');
+                  onBack(); // Redirect ke Halaman Login
               }
-              onBack(); // GO BACK TO LOGIN
           });
+
       } catch (error: any) {
           swal.fire({
               title: 'Gagal Mendaftar',
@@ -102,7 +99,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
          
          <div className="p-8">
             <p className="text-sm text-slate-600 mb-6 bg-blue-50 p-4 rounded-lg border border-blue-100">
-                Isi data diri Anda di bawah ini. Setelah mendaftar, Anda akan diarahkan ke WhatsApp Admin untuk aktivasi akun.
+                Isi data diri Anda. Sistem akan otomatis mengarahkan ke WhatsApp Admin untuk aktivasi setelah daftar.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -170,7 +167,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
                     className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition-all shadow-md hover:shadow-lg mt-4 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                     {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : <MessageCircle size={20} />}
-                    {isSubmitting ? 'Memproses...' : 'DAFTAR & HUBUNGI ADMIN'}
+                    {isSubmitting ? 'Mendaftarkan...' : 'DAFTAR & HUBUNGI ADMIN'}
                 </button>
             </form>
          </div>

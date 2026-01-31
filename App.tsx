@@ -47,6 +47,20 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     initializeStorage();
     setAppSettings(getSettings());
+    
+    // --- POINT 3: BERSIHKAN STATE SAAT REFRESH/MOUNT ---
+    // Hapus data print sementara dari localStorage
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('print_data_')) {
+            localStorage.removeItem(key);
+        }
+    });
+    
+    // Pastikan state generator bersih
+    setGeneratedPlan(null);
+    setCurrentHistoryId(null);
+    setLessonIdentity(INITIAL_LESSON_IDENTITY);
+    // ----------------------------------------------------
   }, []);
 
   const safeUpdateHistory = (url: string, replace: boolean = false) => {
@@ -89,10 +103,20 @@ const AppContent: React.FC = () => {
           } else {
               // User biasa
               if (path === '/app') {
-                  setViewMode('APP');
+                  // Jika di /app tapi tidak ada data (refresh), kembalikan ke dashboard
+                  // Kecuali jika baru saja generate (ditandai oleh state generatedPlan yg tidak null, tapi di sini useEffect mount dijalankan dulu)
+                  // Karena state generatedPlan di-reset di mount, maka refresh di /app akan selalu kosong.
+                  // Jadi, logic: Refresh di /app -> Paksa ke Dashboard.
+                  if (!generatedPlan) {
+                      safeUpdateHistory('/dashboard', true);
+                      setViewMode('USER_DASHBOARD');
+                  } else {
+                      setViewMode('APP');
+                  }
               } else if (path === '/dashboard') {
                   setViewMode('USER_DASHBOARD');
               } else {
+                  // Default ke dashboard jika path tidak dikenal
                   safeUpdateHistory('/dashboard', true);
                   setViewMode('USER_DASHBOARD');
               }
@@ -106,7 +130,7 @@ const AppContent: React.FC = () => {
               setViewMode('LOGIN');
           }
       }
-  }, [user, loading]);
+  }, [user, loading]); // Remove generatedPlan from dep array to avoid loop
 
   const navigateTo = (mode: ViewMode, url: string) => {
       safeUpdateHistory(url);
@@ -208,75 +232,38 @@ const AppContent: React.FC = () => {
     }
     
     setIsLoading(true);
-    showLoading('Sedang Menyusun RPM...', 'AI sedang menganalisis kurikulum...');
+    showLoading('Menyusun RPM', 'AI sedang menganalisis kurikulum dan menyusun langkah pembelajaran...');
     
-    let currentRppResult: GeneratedLessonPlan | null = null;
-
     try {
       // 1. Generate RPP
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
-      currentRppResult = rppResult;
+      
+      // FIX: Close loading prompt immediately before state updates to prevent UI hanging
+      closeLoading();
+      
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
       
-      // Close RPP Loading before starting Assessment
-      closeLoading(); 
-
-      // 2. Generate Assessment (Independent Try-Catch)
-      try {
-          showLoading('Menyusun Asesmen...', 'Membangun instrumen evaluasi Deep Learning...');
-          setIsGeneratingAssessment(true);
-          
-          const assessmentData = await generateAssessment(rppResult);
-          
-          const fullPlan = { ...rppResult, assessment: assessmentData };
-          setGeneratedPlan(fullPlan); // Update with assessment
-
-          if (user) {
-              const newId = await saveHistory(user.id, fullPlan, lessonIdentity, { 
-                  rpp: true, 
-                  assessment: true, 
-                  materials: false, 
-                  lkpd: false, 
-                  questionBank: false 
-              });
-              if (newId) setCurrentHistoryId(newId);
-          }
-          toast.fire({ icon: 'success', title: 'RPM & Asesmen Berhasil!' });
-
-      } catch (assessmentError: any) {
-          console.error("Assessment Gen Error:", assessmentError);
-          swal.fire({ 
-              icon: 'warning', 
-              title: 'Asesmen Gagal Disusun', 
-              text: 'Modul Ajar berhasil dibuat, namun AI gagal menyusun asesmen otomatis. Anda bisa mencoba klik menu "Asesmen" nanti untuk mencoba lagi.' 
+      // Save History (RPP Only)
+      if (user) {
+          const newId = await saveHistory(user.id, rppResult, lessonIdentity, { 
+              rpp: true, 
+              assessment: false, 
+              materials: false, 
+              lkpd: false, 
+              questionBank: false 
           });
-          
-          // Save history even without assessment (Backup)
-          if (user && currentRppResult) {
-              const newId = await saveHistory(user.id, currentRppResult, lessonIdentity, { 
-                  rpp: true, 
-                  assessment: false, 
-                  materials: false, 
-                  lkpd: false, 
-                  questionBank: false 
-              });
-              if (newId) setCurrentHistoryId(newId);
-          }
-      } finally {
-          setIsGeneratingAssessment(false);
-          closeLoading(); // FORCE CLOSE LOADING IN FINALLY BLOCK
+          if (newId) setCurrentHistoryId(newId);
       }
 
+      toast.fire({ icon: 'success', title: 'RPM Berhasil! Silakan lanjut susun Asesmen.' });
+
     } catch (e: any) {
-        // Main RPP Generation Error
         console.error("RPP Gen Error:", e);
+        closeLoading(); // Ensure closed on error
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message || "Terjadi kesalahan saat generate RPP." });
-        closeLoading();
     } finally {
         setIsLoading(false);
-        // Double check closing
-        setTimeout(() => closeLoading(), 500); 
     }
   };
 
@@ -286,14 +273,15 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
     try {
         const data = await generateMaterials(generatedPlan);
+        closeLoading(); // Close before update
         setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
     } catch (e: any) {
+        closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
     } finally {
         setIsGeneratingMaterials(false);
-        closeLoading();
     }
   };
 
@@ -303,30 +291,32 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
     try {
         const data = await generateLKPD(generatedPlan);
+        closeLoading(); // Close before update
         setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
     } catch (e: any) {
+        closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
     } finally {
         setIsGeneratingLKPD(false);
-        closeLoading();
     }
   };
 
   const handleGenerateAssessment = async () => {
     if (!generatedPlan) return;
     setIsGeneratingAssessment(true);
-    showLoading('Memperbarui Asesmen...', 'Sinkronisasi instrumen evaluasi...');
+    showLoading('Menyusun Asesmen...', 'Sinkronisasi instrumen evaluasi...');
     try {
         const data = await generateAssessment(generatedPlan);
+        closeLoading(); // Close before update
         setGeneratedPlan(prev => prev ? ({ ...prev, assessment: data }) : null);
-        toast.fire({ icon: 'success', title: 'Asesmen Diperbarui!' });
+        toast.fire({ icon: 'success', title: 'Asesmen Selesai!' });
     } catch (e: any) {
+        closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
     } finally {
         setIsGeneratingAssessment(false);
-        closeLoading();
     }
   };
 
@@ -336,14 +326,15 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
     try {
         const data = await generateQuestionBank(generatedPlan, config);
+        closeLoading(); // Close before update
         setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Bank Soal Selesai!' });
     } catch (e: any) {
+        closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message });
     } finally {
         setIsGeneratingQuestionBank(false);
-        closeLoading();
     }
   };
 
