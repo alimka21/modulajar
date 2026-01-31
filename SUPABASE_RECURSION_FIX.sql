@@ -21,7 +21,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Cek langsung tanpa memicu policy lain
+  -- Cek langsung tanpa memicu policy lain karena Security Definer
   RETURN EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'admin'
@@ -85,7 +85,7 @@ FOR UPDATE USING ( auth.uid() = id );
 CREATE POLICY "Users insert own profile" ON public.profiles
 FOR INSERT WITH CHECK ( auth.uid() = id );
 
--- B. Admin: Bisa lihat, edit, hapus semua
+-- B. Admin: Bisa lihat, edit, hapus semua (Via is_admin yang sudah aman)
 CREATE POLICY "Admins view all profiles" ON public.profiles
 FOR SELECT USING ( public.is_admin() );
 

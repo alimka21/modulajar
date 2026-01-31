@@ -1,10 +1,10 @@
 
 -- ==========================================
--- SCRIPT SETUP DATABASE SUPABASE (FIXED & SECURE)
+-- SCRIPT SETUP DATABASE SUPABASE (COMPLETE & SECURE)
 -- COPY & RUN DI: Supabase Dashboard > SQL Editor
 -- ==========================================
 
--- 1. BERSIHKAN POLICY & FUNGSI LAMA YANG BERMASALAH
+-- 1. BERSIHKAN POLICY & FUNGSI LAMA YANG BERMASALAH (CLEAN SLATE)
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
 DROP POLICY IF EXISTS "Users view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Admins view all profiles" ON public.profiles;
@@ -13,6 +13,8 @@ DROP POLICY IF EXISTS "Users update own profile" ON public.profiles;
 DROP FUNCTION IF EXISTS public.is_admin();
 DROP FUNCTION IF EXISTS public.get_login_info(text);
 DROP FUNCTION IF EXISTS public.check_user_status(text);
+DROP FUNCTION IF EXISTS public.get_all_users_secure();
+DROP FUNCTION IF EXISTS public.get_my_profile_safe(uuid);
 
 -- 2. SETUP TABEL PROFILES (Jika belum ada)
 create table if not exists public.profiles (
@@ -30,11 +32,28 @@ create table if not exists public.profiles (
   password_text text
 );
 
--- 3. FUNGSI KHUSUS LOGIN (RPC) - AGAR FRONTEND BISA CEK STATUS TANPA KENA BLOKIR RLS
+-- 3. FUNGSI CEK ADMIN (SECURITY DEFINER = Bypass RLS)
+-- Wajib dibuat sebelum Policy untuk mencegah Infinite Recursion
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+END;
+$$;
+
+-- 4. FUNGSI RPC SECURE (UTAMA) - UNTUK FRONTEND MENGHINDARI DIRECT SELECT
+-- A. Login Info (Bypass RLS untuk Cek User sebelum Login)
 CREATE OR REPLACE FUNCTION public.get_login_info(identifier text)
 RETURNS json
 LANGUAGE plpgsql
-SECURITY DEFINER -- Berjalan dengan hak akses admin (bypass RLS)
+SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
@@ -53,23 +72,48 @@ BEGIN
   RETURN result;
 END;
 $$;
--- Izinkan fungsi ini dipanggil oleh siapapun (termasuk sebelum login)
 GRANT EXECUTE ON FUNCTION public.get_login_info TO anon, authenticated;
 
--- 4. FUNGSI CEK ADMIN (UNTUK POLICY)
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN
+-- B. Get All Users (Khusus Admin Dashboard - Bypass RLS)
+CREATE OR REPLACE FUNCTION public.get_all_users_secure()
+RETURNS SETOF public.profiles
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
-  );
+  -- Hanya admin yang boleh eksekusi
+  IF (SELECT public.is_admin()) THEN
+      RETURN QUERY SELECT * FROM public.profiles ORDER BY joined_date DESC;
+  ELSE
+      RETURN; -- Kembalikan kosong jika bukan admin
+  END IF;
 END;
 $$;
+GRANT EXECUTE ON FUNCTION public.get_all_users_secure TO authenticated;
+
+-- C. Get My Profile (Safe Fetch untuk User/Admin)
+CREATE OR REPLACE FUNCTION public.get_my_profile_safe(target_id uuid)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result json;
+BEGIN
+  -- Hanya boleh mengambil data diri sendiri ATAU jika requester adalah admin
+  IF (auth.uid() = target_id) OR (SELECT public.is_admin()) THEN
+      SELECT row_to_json(p) INTO result
+      FROM public.profiles p
+      WHERE id = target_id;
+      RETURN result;
+  ELSE
+      RETURN NULL;
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_my_profile_safe TO authenticated, anon;
 
 -- 5. AKTIFKAN RLS (KEAMANAN DATA)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -88,7 +132,15 @@ FOR SELECT USING ( public.is_admin() );
 CREATE POLICY "Users update own profile" ON public.profiles
 FOR UPDATE USING ( auth.uid() = id );
 
--- D. User baru (insert) ditangani oleh Trigger Auth (lihat di bawah), tapi policy ini disiapkan
+-- D. Admin bisa update semua data
+CREATE POLICY "Admins update all profiles" ON public.profiles
+FOR UPDATE USING ( public.is_admin() );
+
+-- E. Admin bisa delete data
+CREATE POLICY "Admins delete profiles" ON public.profiles
+FOR DELETE USING ( public.is_admin() );
+
+-- F. User baru (insert) ditangani oleh Trigger Auth, tapi policy ini disiapkan untuk insert manual jika perlu
 CREATE POLICY "Users insert own profile" ON public.profiles
 FOR INSERT WITH CHECK ( auth.uid() = id );
 
@@ -145,4 +197,3 @@ DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
 create trigger on_auth_user_updated
   after update on auth.users
   for each row execute procedure public.handle_user_update();
-

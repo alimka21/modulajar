@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
@@ -23,7 +24,18 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  
+  // OPTIMASI: Cek token di localStorage untuk menentukan initial state loading
+  // Jika tidak ada token, jangan set loading=true (langsung tampilkan login)
+  const [loading, setLoading] = useState(() => {
+      if (typeof window !== 'undefined') {
+          // Cek apakah ada key yang berformat supabase token (sb-<project>-auth-token)
+          const hasSession = Object.keys(localStorage).some(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+          return hasSession;
+      }
+      return true; // Default fallback
+  });
+
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
