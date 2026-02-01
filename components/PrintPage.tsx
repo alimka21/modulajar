@@ -56,10 +56,39 @@ export default function PrintPage({ id }: PrintPageProps) {
 
   return (
     <div className="bg-white min-h-screen">
-      {/* print-container memberikan margin internal saat margin browser diatur ke 0 */}
-      <div className="print-container">
-        <DocumentContent data={data} inputData={inputData} activeTab="SEMUA" />
-      </div>
+      {/* 
+        TEKNIK TABLE HEADER REPEAT:
+        Browser secara otomatis mengulang <thead> dan <tfoot> di setiap halaman cetak.
+        Kita menggunakan div kosong (spacer) di dalam thead/tfoot untuk memaksa margin
+        atas dan bawah di setiap halaman, meskipun setting margin browser dimatikan (0mm).
+      */}
+      <table className="print-layout-table">
+        <thead>
+          <tr>
+            <td>
+              {/* Header Spacer - Menciptakan margin atas di setiap halaman */}
+              <div className="print-header-space"></div>
+            </td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div className="print-content-wrapper">
+                <DocumentContent data={data} inputData={inputData} activeTab="SEMUA" />
+              </div>
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>
+              {/* Footer Spacer - Menciptakan margin bawah di setiap halaman */}
+              <div className="print-footer-space"></div>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }

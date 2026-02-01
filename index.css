@@ -64,16 +64,6 @@ body {
     display: none !important;
   }
 
-  /* Container utama saat cetak menggantikan margin @page */
-  .print-container {
-      width: 100% !important;
-      box-shadow: none !important;
-      background: white !important;
-      /* Margin dokumen yang sebenarnya diatur di sini */
-      padding: 20mm !important; 
-      box-sizing: border-box;
-  }
-
   #root, #root > div {
     display: block !important;
     box-shadow: none !important;
@@ -104,22 +94,48 @@ body {
       break-inside: avoid !important;
   }
   
-  /* --- TABLE OPTIMIZATION FOR PRINT --- */
-  table {
-    page-break-inside: auto; /* Izinkan tabel pecah antar halaman */
+  /* --- TABLE LAYOUT HACK FOR MARGINS --- */
+  /* Ini memaksa header/footer tabel muncul di tiap halaman sebagai margin */
+  
+  .print-layout-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .print-header-space {
+    height: 20mm; /* Tinggi Margin Atas */
+  }
+  
+  .print-footer-space {
+    height: 20mm; /* Tinggi Margin Bawah */
+  }
+  
+  .print-content-wrapper {
+    /* Margin Kiri & Kanan diatur di sini sebagai padding */
+    padding: 0 25mm; 
+  }
+
+  /* Pastikan thead dan tfoot berperilaku sebagai grup header/footer */
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  
+  /* --- CONTENT TABLE OPTIMIZATION --- */
+  /* Reset properti tabel konten agar tidak bentrok dengan layout tabel wrapper */
+  #konten-dokumen table {
+    page-break-inside: auto;
     width: 100% !important;
   }
   
-  tr {
-    page-break-inside: avoid; /* Cegah baris terpotong di tengah teks */
+  #konten-dokumen tr {
+    page-break-inside: avoid;
     break-inside: avoid;
   }
   
-  thead {
-    display: table-header-group; /* ULANGI HEADER TABEL DI SETIAP HALAMAN BARU */
+  #konten-dokumen thead {
+    display: table-header-group;
   }
   
-  tfoot {
+  #konten-dokumen tfoot {
     display: table-footer-group;
   }
   
