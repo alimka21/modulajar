@@ -56,11 +56,30 @@ export const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); };
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
     try {
-        const { data: profile, error } = await supabase
-            .rpc('get_my_profile_safe', { target_id: session.user.id });
+        let profile = null;
 
-        if (error || !profile) {
-            console.warn("Profile not found via RPC. ID Mismatch suspected.");
+        // 1. Coba ambil via RPC (Metode Utama - Secure)
+        const { data: rpcProfile, error: rpcError } = await supabase
+            .rpc('get_my_profile_safe', { target_id: session.user.id });
+        
+        profile = rpcProfile;
+
+        // 2. Fallback: Jika RPC gagal/null (karena RLS/Latency), coba ambil langsung dari tabel
+        if (!profile) {
+            console.warn("RPC Profile fetch returned null, trying direct select fallback...");
+            const { data: directProfile, error: directError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .single();
+            
+            if (!directError && directProfile) {
+                profile = directProfile;
+            }
+        }
+
+        if (!profile) {
+            console.warn("Profile not found via RPC or Direct Select. ID Mismatch or Missing Row.");
             return null;
         }
 
@@ -108,7 +127,9 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         if (error) throw new Error(error.message === 'Invalid login credentials' ? "INVALID_PASSWORD" : error.message);
 
         if (data.user) {
+            // Update last login
             await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id);
+            
             const user = await mapSessionToUser(data.session);
             
             // Critical Check: Jika login Auth sukses tapi User object null, berarti Profile Database rusak/mismatch
@@ -222,7 +243,7 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        const MAX_HISTORY = 5; // BATAS MAKSIMAL RIWAYAT PER USER
+        const MAX_HISTORY = 3; // BATAS MAKSIMAL RIWAYAT PER USER
 
         // 1. Ambil riwayat yang ada, urutkan dari yang paling lama (ascending)
         const { data: currentHistory } = await supabase
