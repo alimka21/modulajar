@@ -1,13 +1,26 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Helper untuk membaca env var dengan aman (mendukung Vite 'import.meta.env' dan standar 'process.env')
+// Helper untuk membaca env var dengan aman (Anti-Error TypeScript Vercel)
 const getEnv = (key: string, fallback: string) => {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-    return import.meta.env[key];
+  // 1. Coba Vite Environment (dengan casting 'as any' agar TS tidak rewel)
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env[key]) {
+      return (import.meta as any).env[key];
+    }
+  } catch (e) {
+    // Abaikan error akses import.meta
   }
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key];
+
+  // 2. Coba Process Environment (Standard Node.js/Vercel)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {
+    // Abaikan error akses process
   }
+
+  // 3. Kembalikan Fallback jika tidak ditemukan
   return fallback;
 };
 

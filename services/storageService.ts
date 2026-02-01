@@ -4,13 +4,26 @@ import { supabase } from '../lib/supabaseClient';
 const SETTINGS_KEY = 'pakar_settings';
 const DRAFT_KEY = 'pakar_draft_workspace'; 
 
+// Helper untuk membaca env var dengan aman (Anti-Error TypeScript Vercel)
 const getEnv = (key: string, fallback: string) => {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-    return import.meta.env[key];
+  // 1. Coba Vite Environment (dengan casting 'as any' agar TS tidak rewel)
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env[key]) {
+      return (import.meta as any).env[key];
+    }
+  } catch (e) {
+    // Abaikan error
   }
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key];
+
+  // 2. Coba Process Environment (Standard Node.js/Vercel)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {
+    // Abaikan error
   }
+
   return fallback;
 };
 
@@ -35,16 +48,28 @@ export const initializeStorage = () => {
     }
 };
 
-// --- DRAFT / PERSISTENCE ---
+// --- DRAFT / PERSISTENCE FUNCTIONS ---
+
 export const saveDraft = (data: { lessonIdentity: LessonIdentity, generatedPlan: GeneratedLessonPlan | null, historyId: string | null }) => {
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch (e) { console.error(e); }
+    try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.error("Failed to save draft:", e);
+    }
 };
 
 export const getDraft = () => {
-    try { const data = localStorage.getItem(DRAFT_KEY); return data ? JSON.parse(data) : null; } catch (e) { return null; }
+    try {
+        const data = localStorage.getItem(DRAFT_KEY);
+        return data ? JSON.parse(data) : null;
+    } catch (e) {
+        return null;
+    }
 };
 
-export const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); };
+export const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+};
 
 // --- USER MAPPING ---
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
@@ -83,7 +108,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
     const passwordToLogin = passwordPlain.trim();
     
     try {
-        // Cek info user via RPC
         const { data: userInfo, error: rpcError } = await supabase
             .rpc('get_login_info', { identifier: identifier });
 
@@ -91,7 +115,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
              throw new Error("USERNAME_NOT_FOUND");
         }
 
-        // Validasi Status sebelum Login ke Auth Supabase
         if (userInfo && userInfo.role !== 'admin') {
             if (userInfo.status === 'pending') throw new Error("ACCOUNT_PENDING");
             if (userInfo.status === 'inactive') throw new Error("ACCOUNT_INACTIVE");
@@ -99,7 +122,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
         const finalEmail = userInfo ? userInfo.email : identifier;
 
-        // Login Supabase Auth
         const { data, error } = await supabase.auth.signInWithPassword({
             email: finalEmail,
             password: passwordToLogin,
@@ -110,7 +132,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
             throw error;
         }
 
-        // Update last login
         if (data.user) {
             await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id);
             const user = await mapSessionToUser(data.session);
@@ -127,14 +148,12 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 // --- SAVE USER (REGISTRATION) ---
 export const saveUser = async (user: User) => {
     try {
-        // Cek duplikasi via RPC
         const { data: existingUser } = await supabase.rpc('get_login_info', { identifier: user.email });
         if (existingUser) throw new Error("Email ini sudah terdaftar.");
 
         const { data: existingUsername } = await supabase.rpc('get_login_info', { identifier: user.username });
         if (existingUsername) throw new Error("Username ini sudah digunakan.");
 
-        // SignUp ke Supabase Auth
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
             password: user.password || '123456',
@@ -142,7 +161,7 @@ export const saveUser = async (user: User) => {
                 data: {
                     name: user.name,
                     username: user.username,
-                    password_text: user.password, // Disimpan di metadata untuk dicopy trigger
+                    password_text: user.password,
                     phone_number: user.phoneNumber
                 }
             }
@@ -267,7 +286,6 @@ export const incrementGenerationCount = async (userId: string) => {
 // --- HISTORY ---
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        // Limit 10 history
         const { data: currentHistory } = await supabase.from('generation_history').select('id').eq('user_id', userId).order('created_at', {ascending:true});
         if (currentHistory && currentHistory.length >= 10) {
             await supabase.from('generation_history').delete().eq('id', currentHistory[0].id);
