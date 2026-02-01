@@ -22,10 +22,14 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [isEditingKey, setIsEditingKey] = useState(false);
+  
+  // State Key Management
   const [isTestingKey, setIsTestingKey] = useState(false);
+  const [isSavingKey, setIsSavingKey] = useState(false); // State Loading Simpan
   const [isKeyValidated, setIsKeyValidated] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'NONE' | 'VALID' | 'INVALID'>('NONE');
   const [testMessage, setTestMessage] = useState('');
+  
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isIdentitySaved, setIsIdentitySaved] = useState(false);
@@ -136,7 +140,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
 
   const handleSaveApiKey = async () => {
       if (!isKeyValidated) return;
+      
+      setIsSavingKey(true); // Mulai Loading
       const cleanKey = apiKey.trim();
+      
       try {
           // 1. Simpan ke database
           await saveUserApiKey(user.id, cleanKey);
@@ -144,14 +151,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
           // 2. Set Session (Optimistic update agar langsung bisa dipakai)
           sessionStorage.setItem('custom_api_key', cleanKey);
           
-          // 3. Refresh Auth Context (Sync dari DB)
+          // 3. Refresh Auth Context (Sync dari DB agar state global update)
           await refreshAuth();
           
           setIsEditingKey(false);
           swal.fire({ icon: 'success', title: 'Tersimpan!', text: 'Sistem telah dikunci untuk selalu menggunakan API Key Anda.' });
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: 'Terjadi gangguan sinkronisasi database.' });
+          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: e.message || 'Terjadi gangguan sinkronisasi database.' });
+      } finally {
+          setIsSavingKey(false); // Selesai Loading
       }
   };
 
@@ -480,7 +489,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleTestKey}
-                                            disabled={!apiKey.trim() || isTestingKey}
+                                            disabled={!apiKey.trim() || isTestingKey || isSavingKey}
                                             className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                                                 !apiKey.trim() || isTestingKey
                                                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -502,15 +511,24 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
 
                                         <button
                                             onClick={handleSaveApiKey}
-                                            disabled={!isKeyValidated || isTestingKey}
+                                            disabled={!isKeyValidated || isTestingKey || isSavingKey}
                                             className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                                                isKeyValidated && !isTestingKey
+                                                isKeyValidated && !isTestingKey && !isSavingKey
                                                     ? 'bg-green-600 text-white hover:bg-green-700'
                                                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                             }`}
                                         >
-                                            <Save size={16} />
-                                            Simpan API Key
+                                            {isSavingKey ? (
+                                                <>
+                                                    <Loader2 size={16} className="animate-spin" />
+                                                    Menyimpan...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Save size={16} />
+                                                    Simpan API Key
+                                                </>
+                                            )}
                                         </button>
                                     </div>
 

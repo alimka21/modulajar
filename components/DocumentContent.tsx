@@ -226,7 +226,16 @@ const safeString = (val: any): string => {
   return String(val);
 };
 
-const cleanupUnnecessaryLatex = (text: string): string => {
+// UPDATE: Improved cleanup logic based on subject context
+const cleanupUnnecessaryLatex = (text: string, isMathSubject: boolean): string => {
+    // 1. Jika BUKAN Matematika/Sains, hapus SEMUA tanda $ (cegah teks biasa dianggap rumus)
+    if (!isMathSubject) {
+        return text.replace(/\$/g, '');
+    }
+
+    // 2. Jika Matematika/Sains, hanya hapus angka sederhana yang tidak perlu LaTeX
+    // Contoh: $10$ -> 10, $50%$ -> 50%, $5.5$ -> 5.5
+    // Tapi biarkan $x^2$, $\frac{1}{2}$ dll.
     let cleaned = text.replace(/\$(\d+(?:[.,]\d+)?\s?%?)\$/g, '$1');
     return cleaned;
 };
@@ -244,9 +253,9 @@ const restoreLatex = (html: string, placeholders: string[]) => {
     return html.replace(/LATEXPLACEHOLDER(\d+)/g, (_, index) => placeholders[parseInt(index)]);
 };
 
-const renderMarkdown = (text: string) => {
+const renderMarkdown = (text: string, isMathSubject: boolean) => {
     let stringText = safeString(text);
-    stringText = cleanupUnnecessaryLatex(stringText);
+    stringText = cleanupUnnecessaryLatex(stringText, isMathSubject);
     stringText = normalizeTableFormat(stringText); 
 
     let { protectedText, placeholders } = protectLatex(stringText);
@@ -264,10 +273,10 @@ const renderMarkdown = (text: string) => {
     return { __html: restoreLatex(formatted, placeholders) };
 };
 
-const renderInlineMarkdown = (text: string) => {
+const renderInlineMarkdown = (text: string, isMathSubject: boolean) => {
     let stringText = safeString(text);
     stringText = stringText.replace(/^\d+\.\s*/, ''); 
-    stringText = cleanupUnnecessaryLatex(stringText);
+    stringText = cleanupUnnecessaryLatex(stringText, isMathSubject);
 
     let { protectedText, placeholders } = protectLatex(stringText);
 
@@ -303,7 +312,7 @@ const OpenSection: React.FC<{ title: string; children?: React.ReactNode; classNa
   </div>
 );
 
-const RubricTable = ({ items }: { items: any[] }) => (
+const RubricTable = ({ items, isMathSubject }: { items: any[], isMathSubject: boolean }) => (
   <div className="mb-6 break-inside-avoid">
       <table className="w-full border-collapse border border-black table-fixed text-black text-inherit">
           <thead>
@@ -319,11 +328,11 @@ const RubricTable = ({ items }: { items: any[] }) => (
               {items.map((item, idx) => (
                   <tr key={idx}>
                       {/* Poin 1: Semua sel dibuat text-left */}
-                      <td className="border border-black p-2 text-left font-bold align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.criteria)} />
-                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.needsGuidance)} />
-                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.basic)} />
-                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.proficient)} />
-                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.advanced)} />
+                      <td className="border border-black p-2 text-left font-bold align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.criteria, isMathSubject)} />
+                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.needsGuidance, isMathSubject)} />
+                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.basic, isMathSubject)} />
+                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.proficient, isMathSubject)} />
+                      <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.advanced, isMathSubject)} />
                   </tr>
               ))}
           </tbody>
@@ -333,6 +342,13 @@ const RubricTable = ({ items }: { items: any[] }) => (
 
 const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, activeTab }) => {
   
+  // DETERMINE IF SUBJECT REQUIRES MATHJAX
+  const isMathSubject = React.useMemo(() => {
+    const subject = (inputData.subject || "").toLowerCase();
+    const mathKeywords = ['matematika', 'fisika', 'kimia', 'ipa', 'sains', 'ilmu pengetahuan alam', 'kalkulus', 'statistik', 'aljabar', 'geometri', 'numerasi'];
+    return mathKeywords.some(keyword => subject.includes(keyword));
+  }, [inputData.subject]);
+
   useEffect(() => {
     if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
       const container = document.getElementById('konten-dokumen');
@@ -342,7 +358,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
         }, 100);
       }
     }
-  }, [data, activeTab]);
+  }, [data, activeTab, isMathSubject]);
 
   const RppContent = () => {
     if (!data.identitySection || !data.design || !data.learningExperience) return null;
@@ -371,7 +387,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 </table>
 
                 <h4 className="font-bold mb-1 text-inherit">Asesmen Awal (Opsional)</h4>
-                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(initialAssessment || "Belum ada data.")} />
+                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(initialAssessment || "Belum ada data.", isMathSubject)} />
 
                 <h4 className="font-bold mb-1 text-inherit">Dimensi Profil Lulusan</h4>
                 <div className="pl-0 mb-2 text-inherit">
@@ -384,26 +400,26 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             <OpenSection title="II. KOMPONEN INTI">
                 <h4 className="font-bold mb-1 text-inherit">1. Tujuan Pembelajaran</h4>
                 <ul className="list-disc pl-6 mb-2 text-inherit">
-                    {(design.objectives || []).map((o, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(o)} />)}
+                    {(design.objectives || []).map((o, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(o, isMathSubject)} />)}
                 </ul>
 
                 <h4 className="font-bold mb-1 text-inherit">2. Praktik Pedagogis</h4>
-                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.pedagogicalPractice)} />
+                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.pedagogicalPractice, isMathSubject)} />
 
                 {design.partnership && (
                     <>
                         <h4 className="font-bold mb-1 text-inherit">3. Kemitraan (Opsional)</h4>
-                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.partnership)} />
+                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.partnership, isMathSubject)} />
                     </>
                 )}
 
                 <h4 className="font-bold mb-1 text-inherit">{design.partnership ? '4.' : '3.'} Lingkungan Belajar</h4>
-                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.environment)} />
+                <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.environment, isMathSubject)} />
 
                 {design.digital && (
                     <>
                         <h4 className="font-bold mb-1 text-inherit">{design.partnership ? '5.' : '4.'} Pemanfaatan Digital (Opsional)</h4>
-                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.digital)} />
+                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(design.digital, isMathSubject)} />
                     </>
                 )}
             </OpenSection>
@@ -419,7 +435,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                             <h4 className="font-bold text-inherit">A. Pendahuluan</h4>
                             <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.introPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
-                                {step.intro.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
+                                {step.intro.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
 
@@ -429,17 +445,17 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">1. Memahami</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.memahami.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
+                                {step.core.memahami.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">2. Mengaplikasi</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.mengaplikasi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
+                                {step.core.mengaplikasi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
 
                             <p className="font-bold mt-1 mb-1 text-inherit">3. Merefleksi</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.merefleksi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
+                                {step.core.merefleksi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
 
@@ -447,7 +463,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                             <h4 className="font-bold text-inherit">C. Penutup</h4>
                             <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.closingPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
-                                {step.closing.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item)} />)}
+                                {step.closing.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
                     </div>
@@ -480,7 +496,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 
                 <h4 className="font-bold mb-2 text-inherit">1. KKTP (Rubrik Pembelajaran Mendalam)</h4>
                 <p className="italic mb-2 text-inherit text-slate-600 text-xs">Menggunakan Taksonomi Bloom (Revisi Anderson & Krathwohl)</p>
-                {kktp.length > 0 ? <RubricTable items={kktp} /> : <p className="text-red-500 italic">Data KKTP tidak tersedia.</p>}
+                {kktp.length > 0 ? <RubricTable items={kktp} isMathSubject={isMathSubject} /> : <p className="text-red-500 italic">Data KKTP tidak tersedia.</p>}
 
                 <h4 className="font-bold mb-2 text-inherit">2. Asesmen Formatif (Proses)</h4>
                 <div className="mb-6 break-inside-avoid">
@@ -499,8 +515,8 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                 {checklist.map((item: any, idx: number) => (
                                     <tr key={idx}>
                                         <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
-                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.aspect || '-')} />
-                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-')} />
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.aspect || '-', isMathSubject)} />
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-', isMathSubject)} />
                                         <td className="border border-black p-2 text-center text-inherit"></td>
                                     </tr>
                                 ))}
@@ -515,15 +531,15 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                         <ul className="list-disc pl-5 space-y-2">
                             <li>
                                 <span className="font-bold text-inherit">KLARIFIKASI: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.clarification))} />
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.clarification), isMathSubject)} />
                             </li>
                             <li>
                                 <span className="font-bold text-inherit">APRESIASI: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.appreciation))} />
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.appreciation), isMathSubject)} />
                             </li>
                             <li>
                                 <span className="font-bold text-inherit">SARAN: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.suggestion))} />
+                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.suggestion), isMathSubject)} />
                             </li>
                         </ul>
                     </div>
@@ -545,9 +561,9 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                 {grid.map((item: any, idx: number) => (
                                     <tr key={idx}>
                                         <td className="border border-black p-2 text-center text-inherit">{idx + 1}</td>
-                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-')} />
-                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.level || '-')} />
-                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.technique || '-')} />
+                                        <td className="border border-black p-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.indicator || '-', isMathSubject)} />
+                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.level || '-', isMathSubject)} />
+                                        <td className="border border-black p-2 text-center text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(item.technique || '-', isMathSubject)} />
                                     </tr>
                                 ))}
                             </tbody>
@@ -567,19 +583,19 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                         <tbody>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Perlu Bimbingan</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance || '-')} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance || '-', isMathSubject)} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Cukup</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic || '-')} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic || '-', isMathSubject)} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient || '-')} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient || '-', isMathSubject)} />
                             </tr>
                             <tr>
                                 <td className="border border-black p-2 font-bold align-top text-inherit">Sangat Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced || '-')} />
+                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced || '-', isMathSubject)} />
                             </tr>
                         </tbody>
                     </table>
@@ -616,17 +632,17 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                     <div className="flex-1 text-inherit">
                                         {/* Stimulus: Sembunyikan untuk tipe Menjodohkan dan Benar/Salah */}
                                         {item.stimulus && !['Menjodohkan', 'Benar/Salah'].includes(item.type) && (
-                                            <div className="mb-2 italic text-gray-700 text-inherit bg-slate-50 p-3 border-l-4 border-slate-300 text-xs" dangerouslySetInnerHTML={renderMarkdown(item.stimulus)} />
+                                            <div className="mb-2 italic text-gray-700 text-inherit bg-slate-50 p-3 border-l-4 border-slate-300 text-xs" dangerouslySetInnerHTML={renderMarkdown(item.stimulus, isMathSubject)} />
                                         )}
                                         
-                                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question)} />
+                                        <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question, isMathSubject)} />
                                         
                                         {(item.type === 'Pilihan Ganda' || item.type === 'Pilihan Ganda Kompleks') && item.options && (
                                             <div className="grid grid-cols-1 gap-y-1 text-inherit mt-1 ml-4 text-xs">
                                                 {(item.options as any[]).map((opt, i) => (
                                                     <div key={i} className="flex gap-2 text-inherit">
                                                         <span className="font-bold min-w-[20px] text-inherit">{String.fromCharCode(65 + i)}.</span>
-                                                        <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(opt)} />
+                                                        <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(opt, isMathSubject)} />
                                                     </div>
                                                 ))}
                                             </div>
@@ -640,7 +656,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                     {(item.matchingPairs as any[]).map((pair, i) => (
                                                         <div key={i} className="flex gap-2 items-start py-1">
                                                             <div className="font-bold min-w-[20px]">{i+1}.</div>
-                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.left)} />
+                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.left, isMathSubject)} />
                                                         </div>
                                                     ))}
                                                 </div>
@@ -649,7 +665,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                     {[...item.matchingPairs].sort((a: any, b: any) => a.right.localeCompare(b.right)).map((pair, i) => (
                                                         <div key={i} className="flex gap-2 items-start py-1">
                                                             <div className="font-bold min-w-[20px]">{String.fromCharCode(65+i)}.</div>
-                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.right)} />
+                                                            <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.right, isMathSubject)} />
                                                         </div>
                                                     ))}
                                                 </div>
@@ -699,7 +715,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
                                     return (
                                         <li key={idx}>
-                                            <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(displayKey)} />
+                                            <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(displayKey, isMathSubject)} />
                                         </li>
                                     );
                                 })}
@@ -719,12 +735,12 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             <OpenSection title="V. REFLEKSI PEMBELAJARAN">
                 <h4 className="font-bold mb-1 text-inherit">1. Refleksi Guru</h4>
                 <ul className="list-disc pl-6 mb-4 text-inherit">
-                    {(data.reflection.teacher || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                    {(data.reflection.teacher || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r, isMathSubject)} />)}
                 </ul>
 
                 <h4 className="font-bold mb-1 text-inherit">2. Refleksi Murid</h4>
                 <ul className="list-disc pl-6 text-inherit">
-                    {(data.reflection.student || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                    {(data.reflection.student || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r, isMathSubject)} />)}
                 </ul>
             </OpenSection>
         </div>
@@ -792,37 +808,37 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             
             <div className="mb-4 text-inherit">
                 <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Pemantik</h3>
-                <p className="italic text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.pemantik)} />
+                <p className="italic text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.pemantik, isMathSubject)} />
             </div>
 
             <div className="mb-4 text-inherit">
                 <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Sub Topik</h3>
                 <ul className="list-disc pl-6 text-inherit">
-                     {m.subTopik.map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s)} />)}
+                     {m.subTopik.map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s, isMathSubject)} />)}
                 </ul>
             </div>
 
             <div className="mb-4 text-inherit">
                 <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Konsep Inti</h3>
                 <div className="mb-2 text-inherit">
-                    <strong className="text-inherit">Definisi:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(m.konsepInti.definisi)} />
+                    <strong className="text-inherit">Definisi:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(m.konsepInti.definisi, isMathSubject)} />
                 </div>
                 
                 <strong className="text-inherit">Uraian Materi:</strong>
                 <ul className="list-disc pl-6 mb-2 text-inherit">
-                     {m.konsepInti.penjelasanBertahap.map((p, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(p)} />)}
+                     {m.konsepInti.penjelasanBertahap.map((p, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(p, isMathSubject)} />)}
                 </ul>
 
                 <strong className="text-inherit">Contoh Konkret:</strong>
-                <div className="mb-2 pl-4 text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret)} />
+                <div className="mb-2 pl-4 text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret, isMathSubject)} />
 
                 <strong className="text-inherit">Visualisasi / Rangkuman Data:</strong>
-                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(visualContent)} />
+                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(visualContent, isMathSubject)} />
             </div>
             
             <div className="mb-4 text-inherit">
                  <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">TAHUKAH KAMU?</h3>
-                 <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia)} />
+                 <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.trivia, isMathSubject)} />
             </div>
 
             <div className="mb-4 text-inherit">
@@ -830,7 +846,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <ul className="list-disc pl-6 text-inherit">
                      {m.glosarium.map((g, i) => (
                          <li key={i}>
-                             <strong className="text-inherit">{g.istilah}:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(g.definisi)} />
+                             <strong className="text-inherit">{g.istilah}:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(g.definisi, isMathSubject)} />
                          </li>
                      ))}
                 </ul>
@@ -860,12 +876,12 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
           
           // Jika sudah tabel, render tabel
           if (trimmed.includes('|') && trimmed.includes('---')) {
-               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
           }
           
           // Jika sudah ada bullet/numbering di awal, render biasa
           if (/^\d+\.|^[-•]/.test(trimmed)) {
-               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
           }
           
           // Jika teks paragraf biasa, paksa jadi numbering untuk soal (jika banyak baris)
@@ -875,10 +891,10 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                    if (/^\d+\./.test(line)) return line;
                    return `${idx + 1}. ${line}`;
               }).join('\n');
-              return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(numberedText)} />;
+              return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(numberedText, isMathSubject)} />;
           }
           
-          return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed)} />;
+          return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
       };
 
       return (
@@ -892,17 +908,17 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
               </OpenSection>
 
               <OpenSection title="Tujuan Pembelajaran">
-                  <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(l.objectives)} />
+                  <div className="text-inherit" dangerouslySetInnerHTML={renderMarkdown(l.objectives, isMathSubject)} />
               </OpenSection>
 
               <OpenSection title="Petunjuk Pengerjaan">
                   <ul className="list-decimal pl-5 text-inherit" style={{ listStylePosition: 'outside', marginLeft: '1rem' }}>
-                      {l.instructions.map((ins, i) => <li key={i} className="pl-2 mb-1" dangerouslySetInnerHTML={renderMarkdown(ins)} />)}
+                      {l.instructions.map((ins, i) => <li key={i} className="pl-2 mb-1" dangerouslySetInnerHTML={renderMarkdown(ins, isMathSubject)} />)}
                   </ul>
               </OpenSection>
 
               <OpenSection title="Stimulus">
-                  <div className="text-inherit italic" dangerouslySetInnerHTML={renderMarkdown(l.stimulus)} />
+                  <div className="text-inherit italic" dangerouslySetInnerHTML={renderMarkdown(l.stimulus, isMathSubject)} />
               </OpenSection>
 
               <OpenSection title="Aktivitas 1 (Level Dasar)">
@@ -919,7 +935,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
               
               <OpenSection title="Refleksi Diri">
                    <ul className="list-disc pl-6 text-inherit">
-                      {l.reflection.map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r)} />)}
+                      {l.reflection.map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r, isMathSubject)} />)}
                    </ul>
               </OpenSection>
           </div>

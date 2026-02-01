@@ -62,11 +62,6 @@ const AppContent: React.FC = () => {
         setLessonIdentity(draft.lessonIdentity);
         setGeneratedPlan(draft.generatedPlan);
         setCurrentHistoryId(draft.historyId || null);
-        
-        // Optional: User feedback that draft is loaded
-        if (draft.generatedPlan) {
-            // toast.fire({ icon: 'info', title: 'Draft Dipulihkan', text: 'Melanjutkan sesi sebelumnya.' });
-        }
     } else {
         // Only set default if no draft exists
         if (!generatedPlan) {
@@ -77,8 +72,6 @@ const AppContent: React.FC = () => {
 
   // --- AUTO-SAVE WATCHER ---
   useEffect(() => {
-     // Save to localStorage whenever critical state changes
-     // This ensures persistence across refreshes
      saveDraft({
          lessonIdentity,
          generatedPlan,
@@ -165,28 +158,25 @@ const AppContent: React.FC = () => {
         } else if (errorMessage === "INVALID_PASSWORD") {
             setAuthError("Password salah. Silakan coba lagi.");
         } else if (errorMessage === "ACCOUNT_PENDING") {
-            setAuthError("Akun Anda sedang menunggu verifikasi dari Admin. Mohon tunggu konfirmasi.");
+            setAuthError("Akun Anda sedang menunggu verifikasi dari Admin.");
             swal.fire({
                 icon: 'info',
                 title: 'Akun Belum Diverifikasi',
                 text: 'Akun Anda telah terdaftar namun masih menunggu verifikasi dari Admin. Silakan hubungi Admin untuk mempercepat proses verifikasi.',
                 confirmButtonColor: '#2563eb'
             });
-        } else if (errorMessage === "ACCOUNT_INACTIVE") {
-            setAuthError("Akun Anda telah dinonaktifkan oleh Admin. Silakan hubungi Admin.");
+        } else if (errorMessage === "PROFILE_SYNC_ERROR") {
+            // ERROR KHUSUS KETIKA DATA ADMIN RUSAK (Mismatch Auth vs Public)
+            setAuthError("Data profil tidak sinkron. Harap jalankan script perbaikan SQL.");
             swal.fire({
-                icon: 'warning',
-                title: 'Akun Nonaktif',
-                text: 'Akun Anda telah dinonaktifkan. Silakan hubungi Admin untuk informasi lebih lanjut.',
+                icon: 'error',
+                title: 'Data Profil Rusak',
+                text: 'Akun terautentikasi tetapi profil tidak ditemukan. Harap jalankan script "SUPABASE_FIX_ADMIN_ACCESS.sql" di database untuk memperbaiki ID Mismatch.',
                 confirmButtonColor: '#ef4444'
             });
         } else if (errorMessage === "CONNECTION_ERROR") {
             setAuthError("Gagal terhubung ke server. Periksa koneksi internet Anda.");
-            swal.fire({
-                icon: 'error',
-                title: 'Koneksi Gagal',
-                text: 'Sistem tidak dapat menghubungi server database. Pastikan perangkat terhubung ke internet.',
-            });
+            swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: 'Sistem tidak dapat menghubungi server database.' });
         } else {
             setAuthError(errorMessage);
         }
@@ -205,14 +195,11 @@ const AppContent: React.FC = () => {
         if (result.isConfirmed) {
             setViewMode('LOGIN'); 
             safeUpdateHistory('/auth', true);
-            
-            // CLEAR STATE & STORAGE
             setGeneratedPlan(null);
             setLessonIdentity(INITIAL_LESSON_IDENTITY);
             setCurrentHistoryId(null);
-            clearDraft(); // Remove persistent draft
+            clearDraft();
             sessionStorage.removeItem('custom_api_key');
-            
             await supabase.auth.signOut();
         }
       });
@@ -248,37 +235,22 @@ const AppContent: React.FC = () => {
         swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sudah diisi di Dashboard.' });
         return;
     }
-    
     setIsLoading(true);
     showLoading('Menyusun RPM', 'AI sedang menganalisis kurikulum dan menyusun langkah pembelajaran...');
-    
     try {
-      // 1. Generate RPP
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
-      
-      // FIX: Close loading prompt immediately before state updates to prevent UI hanging
       closeLoading();
-      
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
-      
-      // Save History (RPP Only)
       if (user) {
           const newId = await saveHistory(user.id, rppResult, lessonIdentity, { 
-              rpp: true, 
-              assessment: false, 
-              materials: false, 
-              lkpd: false, 
-              questionBank: false 
+              rpp: true, assessment: false, materials: false, lkpd: false, questionBank: false 
           });
           if (newId) setCurrentHistoryId(newId);
       }
-
       toast.fire({ icon: 'success', title: 'RPM Berhasil! Silakan lanjut susun Asesmen.' });
-
     } catch (e: any) {
-        console.error("RPP Gen Error:", e);
-        closeLoading(); // Ensure closed on error
+        closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message || "Terjadi kesalahan saat generate RPP." });
     } finally {
         setIsLoading(false);
@@ -291,7 +263,7 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
     try {
         const data = await generateMaterials(generatedPlan);
-        closeLoading(); // Close before update
+        closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
@@ -309,7 +281,7 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
     try {
         const data = await generateLKPD(generatedPlan);
-        closeLoading(); // Close before update
+        closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
@@ -327,7 +299,7 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Asesmen...', 'Sinkronisasi instrumen evaluasi...');
     try {
         const data = await generateAssessment(generatedPlan);
-        closeLoading(); // Close before update
+        closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, assessment: data }) : null);
         toast.fire({ icon: 'success', title: 'Asesmen Selesai!' });
     } catch (e: any) {
@@ -344,7 +316,7 @@ const AppContent: React.FC = () => {
     showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
     try {
         const data = await generateQuestionBank(generatedPlan, config);
-        closeLoading(); // Close before update
+        closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: data }) : null);
         if (user) incrementGenerationCount(user.id);
         toast.fire({ icon: 'success', title: 'Bank Soal Selesai!' });

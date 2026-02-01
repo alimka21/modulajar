@@ -1,3 +1,4 @@
+
 /* Custom Global Styles */
 
 body { 
@@ -42,7 +43,11 @@ body {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 15mm;
+    /* 
+       PENTING: Margin 0mm menyembunyikan Header/Footer bawaan Browser 
+       (URL, Tanggal, Judul Halaman, dll).
+    */
+    margin: 0mm; 
   }
 
   html, body {
@@ -51,18 +56,22 @@ body {
     padding: 0 !important;
     height: auto;
     overflow: visible !important;
+    -webkit-print-color-adjust: exact !important; 
+    print-color-adjust: exact !important; 
   }
 
   .no-print {
     display: none !important;
   }
 
-  /* Container utama saat cetak */
+  /* Container utama saat cetak menggantikan margin @page */
   .print-container {
       width: 100% !important;
       box-shadow: none !important;
       background: white !important;
-      padding: 0 !important;
+      /* Margin dokumen yang sebenarnya diatur di sini */
+      padding: 20mm !important; 
+      box-sizing: border-box;
   }
 
   #root, #root > div {
@@ -95,8 +104,28 @@ body {
       break-inside: avoid !important;
   }
   
-  * { 
-      -webkit-print-color-adjust: exact !important; 
-      print-color-adjust: exact !important; 
+  /* --- TABLE OPTIMIZATION FOR PRINT --- */
+  table {
+    page-break-inside: auto; /* Izinkan tabel pecah antar halaman */
+    width: 100% !important;
+  }
+  
+  tr {
+    page-break-inside: avoid; /* Cegah baris terpotong di tengah teks */
+    break-inside: avoid;
+  }
+  
+  thead {
+    display: table-header-group; /* ULANGI HEADER TABEL DI SETIAP HALAMAN BARU */
+  }
+  
+  tfoot {
+    display: table-footer-group;
+  }
+  
+  /* Prevent MathJax formulas from breaking awkwardly */
+  mjx-container, .MathJax {
+      page-break-inside: avoid;
+      display: inline-block;
   }
 }

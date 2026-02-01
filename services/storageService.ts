@@ -1,3 +1,4 @@
+
 import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
@@ -6,23 +7,17 @@ const DRAFT_KEY = 'pakar_draft_workspace';
 
 // Helper untuk membaca env var dengan aman (Anti-Error TypeScript Vercel)
 const getEnv = (key: string, fallback: string) => {
-  // 1. Coba Vite Environment (dengan casting 'as any' agar TS tidak rewel)
   try {
     if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env[key]) {
       return (import.meta as any).env[key];
     }
-  } catch (e) {
-    // Abaikan error
-  }
+  } catch (e) { }
 
-  // 2. Coba Process Environment (Standard Node.js/Vercel)
   try {
     if (typeof process !== 'undefined' && process.env && process.env[key]) {
       return process.env[key];
     }
-  } catch (e) {
-    // Abaikan error
-  }
+  } catch (e) { }
 
   return fallback;
 };
@@ -48,30 +43,16 @@ export const initializeStorage = () => {
     }
 };
 
-// --- DRAFT / PERSISTENCE FUNCTIONS ---
-
 export const saveDraft = (data: { lessonIdentity: LessonIdentity, generatedPlan: GeneratedLessonPlan | null, historyId: string | null }) => {
-    try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
-    } catch (e) {
-        console.error("Failed to save draft:", e);
-    }
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch (e) { console.error("Failed to save draft:", e); }
 };
 
 export const getDraft = () => {
-    try {
-        const data = localStorage.getItem(DRAFT_KEY);
-        return data ? JSON.parse(data) : null;
-    } catch (e) {
-        return null;
-    }
+    try { const data = localStorage.getItem(DRAFT_KEY); return data ? JSON.parse(data) : null; } catch (e) { return null; }
 };
 
-export const clearDraft = () => {
-    localStorage.removeItem(DRAFT_KEY);
-};
+export const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); };
 
-// --- USER MAPPING ---
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
     try {
@@ -79,7 +60,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .rpc('get_my_profile_safe', { target_id: session.user.id });
 
         if (error || !profile) {
-            console.warn("Profile not found via RPC, user might be deleted or trigger failed.");
+            console.warn("Profile not found via RPC. ID Mismatch suspected.");
             return null;
         }
 
@@ -102,40 +83,37 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
     }
 };
 
-// --- AUTHENTICATION ---
 export const authenticate = async (emailOrUsername: string, passwordPlain: string): Promise<User> => {
     let identifier = emailOrUsername.trim();
     const passwordToLogin = passwordPlain.trim();
     
     try {
-        const { data: userInfo, error: rpcError } = await supabase
-            .rpc('get_login_info', { identifier: identifier });
+        const { data: userInfo } = await supabase.rpc('get_login_info', { identifier: identifier });
 
-        if (!userInfo && !identifier.includes('@')) {
-             throw new Error("USERNAME_NOT_FOUND");
-        }
+        // Jika user tidak ditemukan via RPC dan identifier bukan email, error
+        if (!userInfo && !identifier.includes('@')) throw new Error("USERNAME_NOT_FOUND");
 
+        // Cek status jika user ditemukan via RPC
         if (userInfo && userInfo.role !== 'admin') {
             if (userInfo.status === 'pending') throw new Error("ACCOUNT_PENDING");
             if (userInfo.status === 'inactive') throw new Error("ACCOUNT_INACTIVE");
         }
 
+        // Tentukan email target (dari RPC atau input langsung)
         const finalEmail = userInfo ? userInfo.email : identifier;
+        
+        // Login Auth
+        const { data, error } = await supabase.auth.signInWithPassword({ email: finalEmail, password: passwordToLogin });
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: finalEmail,
-            password: passwordToLogin,
-        });
-
-        if (error) {
-            if (error.message.includes('Invalid login credentials')) throw new Error("INVALID_PASSWORD");
-            throw error;
-        }
+        if (error) throw new Error(error.message === 'Invalid login credentials' ? "INVALID_PASSWORD" : error.message);
 
         if (data.user) {
             await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id);
             const user = await mapSessionToUser(data.session);
-            if (!user) throw new Error("Gagal memuat data pengguna.");
+            
+            // Critical Check: Jika login Auth sukses tapi User object null, berarti Profile Database rusak/mismatch
+            if (!user) throw new Error("PROFILE_SYNC_ERROR");
+            
             return user;
         }
     } catch (error: any) {
@@ -145,7 +123,6 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
     throw new Error("Login gagal.");
 };
 
-// --- SAVE USER (REGISTRATION) ---
 export const saveUser = async (user: User) => {
     try {
         const { data: existingUser } = await supabase.rpc('get_login_info', { identifier: user.email });
@@ -158,12 +135,7 @@ export const saveUser = async (user: User) => {
             email: user.email,
             password: user.password || '123456',
             options: {
-                data: {
-                    name: user.name,
-                    username: user.username,
-                    password_text: user.password,
-                    phone_number: user.phoneNumber
-                }
+                data: { name: user.name, username: user.username, password_text: user.password, phone_number: user.phoneNumber }
             }
         });
 
@@ -175,25 +147,14 @@ export const saveUser = async (user: User) => {
     }
 };
 
-// --- ADMIN FUNCTIONS ---
 export const getUsers = async (): Promise<User[]> => {
     try {
         const { data, error } = await supabase.rpc('get_all_users_secure');
-
         if (error) throw error;
-        
         return (data || []).map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            username: p.username,
-            email: p.email,
-            password: p.password_text, 
-            role: p.role,
-            status: p.status,
-            joinedDate: p.joined_date,
-            lastLogin: p.last_login,
-            generationCount: p.generation_count,
-            apiKey: p.api_key
+            id: p.id, name: p.name, username: p.username, email: p.email, password: p.password_text, 
+            role: p.role, status: p.status, joinedDate: p.joined_date, lastLogin: p.last_login,
+            generationCount: p.generation_count, apiKey: p.api_key
         }));
     } catch (e: any) {
         console.error("Get Users Error:", e);
@@ -203,44 +164,28 @@ export const getUsers = async (): Promise<User[]> => {
 
 export const updateUser = async (updatedUser: User) => {
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update({
-                name: updatedUser.name,
-                username: updatedUser.username,
-                status: updatedUser.status,
-                role: updatedUser.role,
-                password_text: updatedUser.password
-            })
-            .eq('id', updatedUser.id);
+        const { error } = await supabase.from('profiles').update({
+                name: updatedUser.name, username: updatedUser.username, status: updatedUser.status,
+                role: updatedUser.role, password_text: updatedUser.password
+            }).eq('id', updatedUser.id);
         if (error) throw error;
-    } catch (e) {
-        handleNetworkError(e);
-    }
+    } catch (e) { handleNetworkError(e); }
 };
 
 export const updateUserStatus = async (userId: string, status: 'active' | 'pending') => {
     try {
-        const { error } = await supabase.rpc('admin_update_user_status', {
-            target_user_id: userId,
-            new_status: status
-        });
+        const { error } = await supabase.rpc('admin_update_user_status', { target_user_id: userId, new_status: status });
         if (error) throw error;
-    } catch (error: any) {
-        handleNetworkError(error);
-    }
+    } catch (error: any) { handleNetworkError(error); }
 };
 
 export const deleteUser = async (id: string) => {
     try {
         const { error } = await supabase.from('profiles').delete().eq('id', id);
         if (error) throw error;
-    } catch (e) {
-        handleNetworkError(e);
-    }
+    } catch (e) { handleNetworkError(e); }
 };
 
-// --- SETTINGS & STATS ---
 export const getSettings = (): AppSettings => {
     const data = localStorage.getItem(SETTINGS_KEY);
     return data ? JSON.parse(data) : DEFAULT_SETTINGS;
@@ -254,22 +199,14 @@ export const updateAdminPassword = async (newPassword: string) => {
     try {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) throw error;
-        
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            await supabase.from('profiles').update({ password_text: newPassword }).eq('id', user.id);
-        }
-    } catch (e) {
-        handleNetworkError(e);
-    }
+        if (user) await supabase.from('profiles').update({ password_text: newPassword }).eq('id', user.id);
+    } catch (e) { handleNetworkError(e); }
 };
 
 export const getAllGenerationStats = async (): Promise<string[]> => {
     try {
-        const { data, error } = await supabase
-            .from('generation_history')
-            .select('created_at')
-            .order('created_at', { ascending: true });
+        const { data, error } = await supabase.from('generation_history').select('created_at').order('created_at', { ascending: true });
         if (error) return [];
         return data.map((d: any) => d.created_at);
     } catch (e) { return []; }
@@ -283,27 +220,47 @@ export const incrementGenerationCount = async (userId: string) => {
     } catch (e) { }
 };
 
-// --- HISTORY ---
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        const { data: currentHistory } = await supabase.from('generation_history').select('id').eq('user_id', userId).order('created_at', {ascending:true});
-        if (currentHistory && currentHistory.length >= 10) {
-            await supabase.from('generation_history').delete().eq('id', currentHistory[0].id);
+        const MAX_HISTORY = 5; // BATAS MAKSIMAL RIWAYAT PER USER
+
+        // 1. Ambil riwayat yang ada, urutkan dari yang paling lama (ascending)
+        const { data: currentHistory } = await supabase
+            .from('generation_history')
+            .select('id')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true });
+
+        // 2. Jika jumlah riwayat sudah mencapai batas (atau lebih), hapus yang paling lama
+        if (currentHistory && currentHistory.length >= MAX_HISTORY) {
+            // Hitung berapa yang harus dihapus agar tersisa (MAX_HISTORY - 1) untuk slot baru
+            const itemsToDeleteCount = currentHistory.length - MAX_HISTORY + 1;
+            
+            // Ambil ID item-item terlama
+            const idsToDelete = currentHistory.slice(0, itemsToDeleteCount).map(item => item.id);
+            
+            if (idsToDelete.length > 0) {
+                 await supabase.from('generation_history').delete().in('id', idsToDelete);
+            }
         }
 
+        // 3. Simpan riwayat baru
         const { data: result, error } = await supabase.from('generation_history').insert({
-                user_id: userId,
-                subject: inputData.subject,
-                grade: inputData.grade,
+                user_id: userId, 
+                subject: inputData.subject, 
+                grade: inputData.grade, 
                 topic: inputData.topic,
-                features: features,
-                full_data: data,
+                features: features, 
+                full_data: data, 
                 input_data: inputData
             }).select().single();
 
         if (error) throw error;
         return result.id;
-    } catch (err) { return null; }
+    } catch (err) { 
+        console.error("Save History Error:", err);
+        return null; 
+    }
 };
 
 export const updateHistory = async (historyId: string, data: GeneratedLessonPlan, features: any) => {
@@ -319,5 +276,11 @@ export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
 };
 
 export const saveUserApiKey = async (userId: string, apiKey: string | null) => {
-    try { await supabase.from('profiles').update({ api_key: apiKey }).eq('id', userId); } catch (e) { }
+    try { 
+        const { error } = await supabase.from('profiles').update({ api_key: apiKey }).eq('id', userId);
+        if (error) throw error;
+    } catch (e) {
+        handleNetworkError(e);
+        throw e; 
+    }
 };

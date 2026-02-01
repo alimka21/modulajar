@@ -121,16 +121,19 @@ ATURAN STRICT (JANGAN DILANGGAR):
 1. TERMINOLOGI:
    Gunakan kata "Murid" (bukan siswa/peserta didik). Gunakan huruf kapital standar (Sentence case), jangan gunakan huruf besar semua untuk kata murid.
 
-2. PRINSIP PEMBELAJAN:
-   Pada langkah pembelajaran, pilih prinsip: "Berkesadaran", "Bermakna", atau "Mengembirakan".
+2. FORMAT MATEMATIKA & LATEX (SANGAT PENTING):
+   - DILARANG MENGGUNAKAN LaTeX ($...$) untuk:
+     * Operasi aritmatika dasar (+, -, x, :, =, %)
+     * Mata uang (Rp)
+     * Teks biasa atau variabel sederhana
+   - Gunakan LaTeX ($...$) HANYA untuk rumus kompleks (integral, akar, pangkat, sigma).
+   - Contoh BENAR: "Zakat = 2,5% x Total Harta", "Luas = Panjang x Lebar".
+   - Contoh SALAH: "$Z = 2,5\% \\times \\text{Total Harta}$", "$L = p \\times l$".
 
-3. LANGKAH PEMBELAJARAN (MICRO-STEPS):
-   Instruksi harus detail per aksi (Micro-steps).
+3. LANGKAH PEMBELAJARAN:
+   Instruksi harus detail per aksi (Micro-steps). Pilih prinsip: "Berkesadaran", "Bermakna", atau "Mengembirakan".
 
-4. FORMAT MATEMATIKA (LATEX):
-   Gunakan format $...$ untuk rumus. Contoh: $x^2$.
-
-5. FORMAT TABEL:
+4. FORMAT TABEL:
    Jika diminta membuat tabel, gunakan format Markdown Table standar.
    
 Output wajib JSON valid sesuai Schema.
@@ -240,7 +243,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     DETAIL:
     1. Prinsip (intro/core/closing): Pilih salah satu -> Berkesadaran, Bermakna, Mengembirakan.
     2. Langkah: Micro-steps (Wajib detail, konkret, dan interaktif. Tuliskan skenario aksi/reaksi Guru & Murid yang spesifik).
-    3. Math: Gunakan LaTeX ($...$).
+    3. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa (misal: "2,5% x Harta").
     4. Profil Lulusan: List saja dimensinya (contoh: "Bernalar Kritis", "Kreatif"), jangan ada penjelasan.
     5. Praktik Pedagogis: Pilih SATU Model/Metode (misal: PBL), lalu jelaskan singkat dalam 1 paragraf.
     
@@ -276,7 +279,7 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
     2. Penjelasan Bertahap: JANGAN BUAT LANGKAH-LANGKAH/PROSEDUR. Berikan URAIAN MATERI/PENJELASAN KONSEP TOPIK & SUB-TOPIK secara naratif dan mendalam.
     3. Tabel Visual: Bagian ini WAJIB berformat TABLE OBJECT dengan 'headers' dan 'rows'. Buatlah rangkuman, perbandingan, atau data penting.
     4. Trivia: Berikan fakta unik yang menarik ("Tahukah Kamu?").
-    5. LaTeX ($...$) untuk rumus.
+    5. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa.
     Output JSON.`;
     return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
@@ -327,7 +330,7 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
   1. Menjodohkan: Field 'matchingPairs' wajib diisi array object {left: "pertanyaan/premis", right: "jawaban/pasangan"}.
   2. Benar/Salah: Soal berupa pernyataan.
   3. Gunakan kata "Murid".
-  4. LaTeX ($...$) untuk rumus.
+  4. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa.
   
   Output JSON.`;
   return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
