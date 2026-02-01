@@ -78,8 +78,37 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             }
         }
 
+        // 3. AUTO-HEAL: Jika profile masih null, buat profile baru dari data session Auth
+        // Ini memperbaiki error "Data Profil Rusak" jika data auth ada tapi profiles hilang.
         if (!profile) {
-            console.warn("Profile not found via RPC or Direct Select. ID Mismatch or Missing Row.");
+             console.warn("Profile missing in DB. Auto-creating profile from Auth metadata...");
+             const metadata = session.user.user_metadata || {};
+             
+             // Prepare payload
+             const newProfile = {
+                 id: session.user.id,
+                 email: session.user.email,
+                 name: metadata.name || session.user.email?.split('@')[0] || 'User',
+                 username: metadata.username || session.user.email?.split('@')[0],
+                 role: 'user', // Default role
+                 status: 'active', // Auto-activate for existing auth users to prevent lockout
+                 joined_date: new Date().toISOString(),
+                 password_text: metadata.password_text || '',
+                 phone_number: metadata.phone_number || ''
+             };
+
+             // Insert to Supabase
+             const { error: insertError } = await supabase.from('profiles').insert(newProfile);
+             
+             if (!insertError) {
+                 profile = newProfile;
+             } else {
+                 console.error("Failed to auto-create profile:", insertError);
+             }
+        }
+
+        if (!profile) {
+            console.warn("Profile not found via RPC, Direct Select, or Auto-Heal.");
             return null;
         }
 
@@ -127,7 +156,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         if (error) throw new Error(error.message === 'Invalid login credentials' ? "INVALID_PASSWORD" : error.message);
 
         if (data.user) {
-            // Update last login
+            // Update last login (ignore error if profile missing, mapped user creation will handle it)
             await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id);
             
             const user = await mapSessionToUser(data.session);
