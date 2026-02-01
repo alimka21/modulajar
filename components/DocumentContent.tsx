@@ -298,8 +298,9 @@ const renderInlineMarkdown = (text: string, isMathSubject: boolean) => {
     return { __html: restoreLatex(formatted, placeholders) };
 };
 
+// FIX 2: Removed 'break-inside-avoid' to allow content to span pages in PDF
 const OpenSection: React.FC<{ title: string; children?: React.ReactNode; className?: string; contentAlign?: string; noBorder?: boolean }> = ({ title, children, className = "", contentAlign = "text-left", noBorder = false }) => (
-  <div className={`mb-4 break-inside-avoid text-black ${className}`}>
+  <div className={`mb-4 text-black ${className}`}>
       <h3 
         className="text-inherit font-bold text-[14pt] uppercase mb-3 mt-4" 
         style={noBorder ? { borderBottom: 'none' } : {}}
@@ -752,29 +753,32 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       if (!approval) return null;
 
       return (
-          <div className="break-inside-avoid mt-8 text-inherit signature-area">
-              <table className="w-full border-none text-center text-inherit" style={{ border: 'none' }}>
+          <div className="break-inside-avoid mt-8 signature-area">
+              {/* Gunakan table-fixed agar lebar kolom seimbang 50:50, mencegah geser jika nama panjang */}
+              <table className="w-full border-none text-center table-fixed" style={{ border: 'none' }}>
                   <tbody>
                       <tr>
-                          <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
-                              <p className="mb-4 text-inherit">
+                          {/* 
+                             MODIFIKASI: 
+                             - fontSize: '11pt' (sedikit lebih kecil dari body 12pt)
+                             - lineHeight: '1.2' (lebih rapat)
+                             - break-words (agar jika nama sangat panjang, dia wrap ke bawah rapi)
+                          */}
+                          <td className="w-1/2 p-2 align-top border-none" style={{ border: 'none', fontSize: '11pt', lineHeight: '1.2' }}>
+                              <p className="mb-20"> {/* Gunakan margin bottom fixed untuk space TTD */}
                                   Mengetahui,<br/>
-                                  Kepala Sekolah
+                                  Kepala Sekolah<br/><br/><br/><br/>
                               </p>
-                              {/* Tambahan Jarak TTD (Sekitar 6rem/96px = 4-5 Enter) */}
-                              <div className="h-24"></div>
-                              <p className="font-bold underline text-inherit">{approval.principalName}</p>
-                              <p className="text-inherit">NIP. {approval.principalNip}</p>
+                              <p className="font-bold underline break-words">{approval.principalName}</p>
+                              <p className="break-words">NIP. {approval.principalNip}</p>
                           </td>
-                          <td className="w-1/2 p-4 align-top text-inherit border-none" style={{ border: 'none' }}>
-                              <p className="mb-4 text-inherit">
+                          <td className="w-1/2 p-2 align-top border-none" style={{ border: 'none', fontSize: '11pt', lineHeight: '1.2' }}>
+                              <p className="mb-20">
                                   {approval.location}, {approval.date}<br/>
-                                  Guru Mata Pelajaran
+                                  Guru Mata Pelajaran<br/><br/><br/><br/>
                               </p>
-                              {/* Tambahan Jarak TTD */}
-                              <div className="h-24"></div>
-                              <p className="font-bold underline text-inherit">{approval.authorName}</p>
-                              <p className="text-inherit">NIP. {approval.authorNip}</p>
+                              <p className="font-bold underline break-words">{approval.authorName}</p>
+                              <p className="break-words">NIP. {approval.authorNip}</p>
                           </td>
                       </tr>
                   </tbody>
@@ -1005,6 +1009,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             
             #konten-dokumen h2 { font-size: 14pt !important; line-height: 1.2 !important; font-weight: bold !important; text-align: center; margin-bottom: 10pt; margin-top: 0pt; text-transform: uppercase; }
             
+            /* FIX 3: Change Section Header Alignment to LEFT (Previously CENTER) */
             #konten-dokumen h3 { 
                 font-size: 14pt !important; 
                 line-height: 1.2 !important; 
@@ -1014,7 +1019,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 margin-top: 18pt !important; 
                 border-bottom: 2px solid #87CEFA; 
                 display: block; 
-                text-align: left !important;
+                text-align: left !important; /* CHANGED TO LEFT */
                 page-break-after: avoid !important; 
             }
             

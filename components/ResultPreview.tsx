@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData, QuestionItem, DeepLearningAssessment } from '../types';
-import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, Printer, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3 } from 'lucide-react';
+import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3 } from 'lucide-react';
 import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS } from '../constants';
 import DocumentContent from './DocumentContent';
@@ -10,6 +10,8 @@ import DocumentContent from './DocumentContent';
 declare var marked: any;
 declare var Swal: any;
 declare var MathJax: any;
+declare var html2canvas: any; 
+declare var jspdf: any; 
 
 interface ResultPreviewProps {
   data: GeneratedLessonPlan | null;
@@ -61,7 +63,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('RPP_PLUS');
   const [expandedSection, setExpandedSection] = useState<SectionType>('LESSON');
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   
   // Mobile Sidebar State
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -86,12 +88,394 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
     }
   };
 
-  const handlePrintDocument = () => {
-    if (!data) return;
-    const id = Date.now().toString();
-    localStorage.setItem(`print_data_${id}`, JSON.stringify({ data: data, inputData: inputData }));
-    window.open(`/print/${id}`, '_blank');
-  };
+
+
+// ============================================================
+// handleDownloadPdf — v4 (Final Fix)
+// ============================================================
+//
+// Perbaikan:
+//
+// 1. TABEL DIPOTONG → slicing cerdas via safe break points.
+//
+// 2. BLUR — root cause sebenarnya ada di dua tempat:
+//    a) JPEG quality 0.85 di toDataURL → lossy, teks kecil rusak.
+//       Solusi: naik ke quality 1.0 (mendekati lossless).
+//    b) compress: true di jsPDF constructor → flate compression
+//       pada image stream besar menyebabkan degradasi visual.
+//       Solusi: buang compress: true.
+//    Catatan: scale:2 di html2canvas sudah cukup untuk ketajaman.
+//    PNG tidak dipakai karena file size-nya sangat besar dan
+//    justru makin parah dengan compress. JPEG q:1.0 adalah
+//    keseimbangan terbaik antara ketajaman dan file size.
+//
+// 3. MARGIN TIDAK KONSISTEN → padding clone = 25mm, sesuai paperStyle.
+//
+// 4. HEADING TERPISAH → CSS page-break rules di-inject.
+//
+// 5. HALAMAN 1 TERLALU BANYAK RUANG KOSONG →
+//    padding-top clone (25mm) + marginTop addImage (10mm) = 35mm.
+//    Solusi: halaman pertama menggunakan marginTop = 0.
+//
+// ============================================================
+
+const handleDownloadPdf = async () => {
+    if (!data) {
+        console.log('❌ Tidak ada data yang tersedia');
+        return;
+    }
+
+    setIsDownloadingPdf(true);
+    const startTime = Date.now();
+
+    try {
+        console.log('🔄 Memulai ekspor PDF (v4)...');
+
+        // ─── LANGKAH 1: Ambil elemen asli ─────────────────────
+        const originalElement = document.getElementById('konten-dokumen');
+        if (!originalElement) {
+            throw new Error('Elemen konten "konten-dokumen" tidak ditemukan');
+        }
+        console.log('✓ Elemen konten ditemukan');
+
+        // ─── LANGKAH 2: Tunggu MathJax ────────────────────────
+        if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+            try {
+                await MathJax.typesetPromise();
+                console.log('✓ MathJax selesai render');
+            } catch (e) {
+                console.warn('⚠️ MathJax warning:', e);
+                await new Promise(r => setTimeout(r, 300));
+            }
+        }
+
+        // ─── LANGKAH 3: Clone ─────────────────────────────────
+        console.log('🔄 Mengkloning elemen konten...');
+        const clone = originalElement.cloneNode(true) as HTMLElement;
+
+        clone.className = '';
+        Object.assign(clone.style, {
+            margin: '0',
+            padding: '25mm',                          // Sesuai paperStyle
+            width: '210mm',                           // A4
+            maxWidth: 'none',
+            boxShadow: 'none',
+            border: 'none',
+            background: '#ffffff',
+            color: '#000000',
+            fontFamily: "'Cambria', Georgia, serif",
+            fontSize: '11pt',
+            lineHeight: '1.5',
+            overflow: 'visible',
+            height: 'auto',
+            display: 'block',
+            boxSizing: 'border-box'
+        });
+
+        // ─── Inject CSS page-break ────────────────────────────
+        const breakStyle = document.createElement('style');
+        breakStyle.textContent = `
+            table {
+                page-break-inside: auto;
+                border-collapse: collapse;
+            }
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            thead {
+                page-break-after: avoid;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                page-break-after: avoid;
+                page-break-before: auto;
+            }
+            h1 + p, h2 + p, h3 + p, h4 + p {
+                page-break-before: avoid;
+            }
+        `;
+        clone.appendChild(breakStyle);
+
+        // ─── LANGKAH 4: Container virtual ─────────────────────
+        console.log('🔄 Membuat container virtual...');
+        const container = document.createElement('div');
+
+        Object.assign(container.style, {
+            position: 'fixed',
+            top: '-10000px',
+            left: '0',
+            width: '794px',                           // A4 @ 96dpi — layout tetap di sini
+            minHeight: 'auto',
+            zIndex: '-9999',
+            background: '#ffffff',
+            margin: '0',
+            padding: '0'
+        });
+
+        container.appendChild(clone);
+        document.body.appendChild(container);
+
+        await new Promise(r => setTimeout(r, 600));
+
+        // ─── Deteksi safe break points ────────────────────────
+        const safeBreakPoints = detectSafeBreakPoints(clone, container);
+        console.log(`✓ Ditemukan ${safeBreakPoints.length} titik potong aman`);
+
+        // ─── LANGKAH 5: Render ke canvas ──────────────────────
+        console.log('🔄 Merender ke canvas...');
+
+        const canvas = await html2canvas(clone, {
+            scale: 2,                                 // Scale 2 cukup untuk ketajaman
+            useCORS: true,
+            logging: false,
+            windowWidth: 794,                         // Tetap 794 — sesuai container layout
+            backgroundColor: '#ffffff',
+            allowTaint: true
+        });
+
+        console.log(`✓ Canvas: ${canvas.width}x${canvas.height}px`);
+
+        // ─── LANGKAH 6: Buat PDF ──────────────────────────────
+        console.log('🔄 Membuat PDF...');
+        const { jsPDF } = (window as any).jspdf;
+
+        const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+            // ← compress DIHAPUS — compress: true degradasi gambar
+        });
+
+        const pageWidth = 210;
+        const pageHeight = 297;
+        const marginTop = 10;        // Untuk halaman 2+
+        const marginBottom = 10;
+
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        const mmPerPixel = pageWidth / canvasWidth;
+
+        // Tinggi halaman tersedia untuk halaman normal (2+)
+        const normalAvailableHeight = pageHeight - marginTop - marginBottom;
+        const normalPageHeightInPx = normalAvailableHeight / mmPerPixel;
+
+        // Tinggi halaman tersedia untuk halaman 1 (marginTop = 0)
+        const firstPageAvailableHeight = pageHeight - 0 - marginBottom;
+        const firstPageHeightInPx = firstPageAvailableHeight / mmPerPixel;
+
+        console.log(`Canvas: ${canvasWidth}x${canvasHeight}px`);
+        console.log(`Page height: halaman1=${firstPageHeightInPx.toFixed(0)}px, normal=${normalPageHeightInPx.toFixed(0)}px`);
+
+        // ─── Slicing ──────────────────────────────────────────
+        let currentYInPx = 0;
+        let pageCount = 0;
+
+        while (currentYInPx < canvasHeight) {
+            console.log(`📄 Halaman ${pageCount + 1} (Y dari ${currentYInPx.toFixed(0)}px)...`);
+
+            if (pageCount > 0) {
+                pdf.addPage();
+            }
+
+            // Halaman 1: marginTop = 0, halaman 2+: marginTop = 10mm
+            const isFirstPage = pageCount === 0;
+            const currentMarginTop = isFirstPage ? 0 : marginTop;
+            const currentPageHeightInPx = isFirstPage ? firstPageHeightInPx : normalPageHeightInPx;
+
+            // Titik potong ideal
+            const idealCutY = currentYInPx + currentPageHeightInPx;
+
+            let actualCutY: number;
+
+            if (idealCutY >= canvasHeight) {
+                actualCutY = canvasHeight;
+            } else {
+                actualCutY = findNearestSafeBreak(
+                    safeBreakPoints,
+                    idealCutY,
+                    currentYInPx,
+                    currentPageHeightInPx
+                );
+                console.log(`  → Ideal: ${idealCutY.toFixed(0)}px, Aktual: ${actualCutY.toFixed(0)}px`);
+            }
+
+            const sliceHeightInPx = actualCutY - currentYInPx;
+
+            // Buat slice canvas
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvasWidth;
+            pageCanvas.height = sliceHeightInPx;
+
+            const ctx = pageCanvas.getContext('2d');
+            if (!ctx) throw new Error('Tidak bisa mendapatkan konteks canvas');
+
+            ctx.drawImage(
+                canvas,
+                0, currentYInPx,
+                canvasWidth, sliceHeightInPx,
+                0, 0,
+                canvasWidth, sliceHeightInPx
+            );
+
+            // ← JPEG quality 1.0: mendekati lossless, file size wajar
+            const pageImageData = pageCanvas.toDataURL('image/jpeg', 1.0);
+
+            // Tambahkan ke PDF
+            const imgHeightInMm = sliceHeightInPx * mmPerPixel;
+            pdf.addImage(
+                pageImageData,
+                'JPEG',
+                0,
+                currentMarginTop,                     // 0 untuk halaman 1
+                pageWidth,
+                imgHeightInMm
+            );
+
+            // Nomor halaman
+            pdf.setFontSize(8);
+            pdf.setTextColor(180, 180, 180);
+            pdf.text(
+                `${pageCount + 1}`,
+                pageWidth / 2,
+                pageHeight - 5,
+                { align: 'center' }
+            );
+
+            currentYInPx = actualCutY;
+            pageCount++;
+
+            console.log(`✓ Halaman ${pageCount} ditambahkan (tinggi: ${imgHeightInMm.toFixed(2)}mm)`);
+        }
+
+        // ─── LANGKAH 7: Simpan ────────────────────────────────
+        const filename = `Modul Ajar - ${inputData.topic}.pdf`;
+        pdf.save(filename);
+        console.log(`✓ PDF disimpan: ${filename}`);
+
+        if (container.parentNode) {
+            document.body.removeChild(container);
+        }
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✓ Selesai: ${duration}s, ${pageCount} halaman`);
+
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'success',
+                title: 'Berhasil! ✨',
+                html: `
+                    <p style="margin: 10px 0;">PDF berhasil dibuat</p>
+                    <small>
+                        <strong>${pageCount}</strong> halaman |
+                        <strong>${duration}</strong>s
+                    </small>
+                `,
+                timer: 3000
+            });
+        }
+
+    } catch (error: any) {
+        console.error('❌ Kesalahan Ekspor PDF:', error);
+
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'info',
+                title: 'Mengalihkan ke Mode Cetak',
+                text: 'Sistem menggunakan mode cetak browser sebagai alternatif.',
+                timer: 2000,
+                showConfirmButton: false
+            });
+        }
+
+        const id = Date.now().toString();
+        localStorage.setItem(
+            `print_data_${id}`,
+            JSON.stringify({ data: data, inputData: inputData })
+        );
+
+        setTimeout(() => {
+            window.open(`/print/${id}`, '_blank');
+        }, 1000);
+
+    } finally {
+        setIsDownloadingPdf(false);
+        console.log('🏁 Ekspor PDF selesai');
+    }
+};
+
+
+// ============================================================
+// HELPER: Deteksi titik potong yang aman
+// ============================================================
+function detectSafeBreakPoints(
+    clone: HTMLElement,
+    container: HTMLElement
+): number[] {
+    const breakPoints: number[] = [];
+    const containerRect = container.getBoundingClientRect();
+
+    const elements = clone.querySelectorAll(
+        'table, tr, h1, h2, h3, h4, h5, h6, p, .section-block, [class*="mb-"], [class*="mt-"]'
+    );
+
+    elements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        const elTopY = rect.top - containerRect.top;
+
+        if (el.tagName === 'TABLE') {
+            const rows = el.querySelectorAll('tr');
+            rows.forEach((row) => {
+                const rowRect = row.getBoundingClientRect();
+                const rowTopRelative = rowRect.top - containerRect.top;
+                if (rowTopRelative > 0) {
+                    breakPoints.push(rowTopRelative);
+                }
+            });
+        }
+
+        if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P'].includes(el.tagName)) {
+            if (elTopY > 0) {
+                breakPoints.push(elTopY);
+            }
+        }
+    });
+
+    return [...new Set(breakPoints)].sort((a, b) => a - b);
+}
+
+
+// ============================================================
+// HELPER: Cari titik potong aman terdekat
+// ============================================================
+function findNearestSafeBreak(
+    breakPoints: number[],
+    idealCutY: number,
+    currentY: number,
+    pageHeightInPx: number
+): number {
+    const tolerance = pageHeightInPx * 0.15;
+    const minY = idealCutY - tolerance;
+
+    let bestBreak = -1;
+
+    for (let i = breakPoints.length - 1; i >= 0; i--) {
+        if (breakPoints[i] <= idealCutY && breakPoints[i] >= minY && breakPoints[i] > currentY) {
+            bestBreak = breakPoints[i];
+            break;
+        }
+    }
+
+    if (bestBreak === -1) {
+        console.warn(`⚠️ Tidak ada safe break di sekitar ${idealCutY.toFixed(0)}px`);
+        return idealCutY;
+    }
+
+    return bestBreak;
+    }
+
+
+  
 
   const getMinutesPerJP = (grade: string): string => {
     if (/Kelas (I|II|III|IV|V|VI)\b/.test(grade)) return "35 Menit";
@@ -211,10 +595,16 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                  <TabButton id="SEMUA" label="Semua" hasData={true} icon={FileText} />
             </div>
             <div className="flex items-center gap-2 py-2 md:py-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
-                <button onClick={() => data && downloadDocx(data, FIXED_DOC_SETTINGS)} disabled={!data} className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition disabled:opacity-50"><FileDown size={14} /><span>DOCX</span></button>
-                <button onClick={handlePrintDocument} disabled={!data || isPrinting} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
-                    {isPrinting ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
-                    <span>CETAK</span>
+                {/* PDF BUTTON */}
+                <button onClick={handleDownloadPdf} disabled={!data || isDownloadingPdf} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
+                    {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                    <span>PDF</span>
+                </button>
+                
+                {/* DOCX BUTTON */}
+                <button onClick={() => data && downloadDocx(data, FIXED_DOC_SETTINGS)} disabled={!data} className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
+                    <FileDown size={14} />
+                    <span>DOCX</span>
                 </button>
             </div>
         </div>

@@ -1,17 +1,18 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
-import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
 /**
  * Model fallback strategy:
  * Sistem akan mencoba model urut dari atas ke bawah.
+ * Menggunakan model Gemini 3 Series dan 2.0 Flash sesuai pedoman.
+ * Fallback ke 'gemini-flash-latest' jika preview models tidak stabil.
  */
 const MODEL_PRIORITY = [
   'gemini-3-flash-preview', 
-  'gemini-2.0-flash-exp',   
-  'gemini-1.5-flash',       
-  'gemini-1.5-pro'          
+  'gemini-3-pro-preview',   
+  'gemini-2.0-flash-exp',
+  'gemini-flash-latest'
 ];
 
 const cleanApiKey = (key: string | null | undefined): string => {
@@ -21,7 +22,6 @@ const cleanApiKey = (key: string | null | undefined): string => {
 
 const getSystemApiKey = (): string => {
   // process.env.API_KEY di-inject oleh Vite (lihat vite.config.ts)
-  // Vercel akan mengisi ini saat build time
   const key = process.env.API_KEY;
   return cleanApiKey(key);
 };
@@ -57,36 +57,55 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
-    // PENTING: Gunakan instance baru dengan key yang sedang dites, bukan key global
     const ai = new GoogleGenAI({ apiKey: apiKey });
-    const modelsToTest = ['gemini-3-flash-preview', 'gemini-2.0-flash-exp', 'gemini-1.5-flash'];
-    let lastErrorMsg = "";
-
-    for (const model of modelsToTest) {
+    // Gunakan beberapa model untuk validasi agar tidak false negative jika satu model down
+    const modelsToTest = ['gemini-3-flash-preview', 'gemini-2.0-flash-exp', 'gemini-flash-latest'];
+    
+    for (let i = 0; i < modelsToTest.length; i++) {
+        const model = modelsToTest[i];
         try {
-            // Add timeout for validation too
+            // Gunakan timeout pendek untuk validasi
+            const TIMEOUT_MS = 10000;
+            
             const fetchPromise = ai.models.generateContent({
                 model: model, 
-                contents: 'Tes koneksi',
-                config: { maxOutputTokens: 1 }
+                contents: "Tes koneksi server.", 
+                config: { maxOutputTokens: 10 }
             });
-            
+
             const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Timeout")), 10000)
+                setTimeout(() => reject(new Error(`Timeout (${TIMEOUT_MS}ms)`)), TIMEOUT_MS)
             );
 
             const response: any = await Promise.race([fetchPromise, timeoutPromise]);
             
-            if (response) return { success: true, message: `✅ Koneksi Berhasil! (Model: ${model})` };
+            if (response && (response.text !== undefined || response.candidates)) {
+                 return { success: true, message: `✅ Koneksi Berhasil! (Model: ${model})` };
+            }
         } catch (error: any) {
-            lastErrorMsg = error.message || JSON.stringify(error);
-            const errorStr = lastErrorMsg.toLowerCase();
-            if (errorStr.includes("400") || errorStr.includes("invalid_argument") || errorStr.includes("api key not valid")) {
-                return { success: false, message: "❌ API Key Salah (400) atau Tidak Valid." };
+            const errorMsg = (error.message || String(error)).toLowerCase();
+            console.warn(`Validation failed for ${model}:`, errorMsg);
+            
+            // Critical Auth Errors - Stop immediately
+            if (errorMsg.includes("400") || errorMsg.includes("invalid_argument") || errorMsg.includes("api key not valid")) {
+                 return { success: false, message: "❌ API Key Salah atau Format Tidak Valid." };
+            }
+            if (errorMsg.includes("401") || errorMsg.includes("unauthenticated")) {
+                 return { success: false, message: "❌ API Key Tidak Dikenal (401). Periksa kembali Key Anda." };
+            }
+            
+            // Network Errors - Continue to next model if available
+            // "Failed to fetch" usually means Network Error or Blocked Request (CORS/AdBlock)
+            if (errorMsg.includes("failed to fetch") || errorMsg.includes("network error") || errorMsg.includes("typeerror")) {
+                if (i === modelsToTest.length - 1) {
+                    return { success: false, message: "❌ Gagal Terhubung. Periksa internet atau matikan AdBlocker Anda." };
+                }
+                continue;
             }
         }
     }
-    return { success: false, message: `❌ Validasi Gagal: ${lastErrorMsg.substring(0, 80)}...` };
+    
+    return { success: false, message: "❌ Tidak ada respon valid dari server AI." };
 };
 
 // --- HELPER KOMPLEKSITAS ---
@@ -119,7 +138,7 @@ Tugas: Menyusun Modul Ajar dan konten pembelajaran berkualitas tinggi.
 
 ATURAN STRICT (JANGAN DILANGGAR):
 1. TERMINOLOGI:
-   Gunakan kata "Murid" (bukan siswa/peserta didik). Gunakan huruf kapital standar (Sentence case), jangan gunakan huruf besar semua untuk kata murid.
+   Gunakan kata "Murid" (bukan siswa/peserta didik). Gunakan huruf kapital standar (Sentence case).
 
 2. FORMAT MATEMATIKA & LATEX (SANGAT PENTING):
    - DILARANG MENGGUNAKAN LaTeX ($...$) untuk:
@@ -127,8 +146,6 @@ ATURAN STRICT (JANGAN DILANGGAR):
      * Mata uang (Rp)
      * Teks biasa atau variabel sederhana
    - Gunakan LaTeX ($...$) HANYA untuk rumus kompleks (integral, akar, pangkat, sigma).
-   - Contoh BENAR: "Zakat = 2,5% x Total Harta", "Luas = Panjang x Lebar".
-   - Contoh SALAH: "$Z = 2,5\% \\times \\text{Total Harta}$", "$L = p \\times l$".
 
 3. LANGKAH PEMBELAJARAN:
    Instruksi harus detail per aksi (Micro-steps). Pilih prinsip: "Berkesadaran", "Bermakna", atau "Mengembirakan".
@@ -150,19 +167,18 @@ ATURAN STRICT:
    - Setiap criteria WAJIB punya indicator yang jelas
 
 2. PENILAIAN FORMATIF:
-   - Checklist: Aspek + Indikator (bukan rubrik)
+   - Checklist: Aspek + Indikator
    - Feedback Guide: Klarifikasi (koreksi), Apresiasi (pujian), Saran (improvement)
 
 3. PENILAIAN SUMATIF:
    - Grid: Indikator, Level (1-4), Teknik (Tes Tulis, Wawancara, Praktik, dll)
-   - Sesuaikan dengan jenjang murid
 
 4. PROGRAM INTERVENSI:
    - Untuk setiap level: Perlu Bimbingan, Dasar, Profisien, Mahir
    - Intervensi konkret, bukan hanya penjelasan
 
 5. TERMINOLOGI:
-   - Gunakan kata "Murid" (bukan siswa/peserta didik)
+   - Gunakan kata "Murid"
 
 6. OUTPUT: JSON VALID dengan structure yang tepat.
 `;
@@ -178,12 +194,12 @@ const generateWithRetry = async (
   for (let i = 0; i < MODEL_PRIORITY.length; i++) {
     const currentModel = MODEL_PRIORITY[i];
     try {
-      clientInfo = getClientInfo(); // Selalu ambil info terbaru (user key vs system key)
+      clientInfo = getClientInfo(); 
       const { client } = clientInfo;
       console.log(`[Generate] Trying model: ${currentModel}`);
 
-      // SETUP TIMEOUT (Mencegah loading abadi)
-      const TIMEOUT_MS = 60000; // 60 Detik per model (diperpanjang agar asesmen tuntas)
+      // Timeout 90 detik untuk konten panjang
+      const TIMEOUT_MS = 90000; 
       
       const fetchPromise = client.models.generateContent({
         model: currentModel,
@@ -197,7 +213,6 @@ const generateWithRetry = async (
         }
       });
 
-      // Promise Race: Mana yang duluan, respon AI atau Timeout
       const response: any = await Promise.race([
           fetchPromise,
           new Promise((_, reject) => 
@@ -205,24 +220,46 @@ const generateWithRetry = async (
           )
       ]);
 
-      if (!response.text) throw new Error("Empty response");
-      let cleanText = response.text.trim().replace(/^```json\n/, '').replace(/\n```$/, '').replace(/^```\n/, '');
+      if (!response || !response.text) throw new Error("Empty response from AI");
+      
+      let cleanText = response.text.trim()
+        .replace(/^```json\s*/, '')
+        .replace(/\s*```$/, '')
+        .replace(/^```\s*/, '');
+        
       return JSON.parse(cleanText);
 
     } catch (error: any) {
       lastError = error;
-      const msg = error.message || "";
+      const msg = (error.message || String(error)).toLowerCase();
       console.warn(`[Generate] Failed with ${currentModel}:`, msg);
       
-      // Jika error karena timeout atau server error, loop akan lanjut ke model berikutnya
-      if (msg.includes('401') || msg.includes('API key not valid')) throw new Error("API Key Tidak Valid/Expired.");
-      if (msg.includes('429') || msg.includes('quota')) throw new Error("Kuota API Habis. Ganti API Key.");
+      // Handle Network Error (Failed to fetch) specially
+      if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network request failed')) {
+          if (i === MODEL_PRIORITY.length - 1) {
+              throw new Error("Gagal terhubung ke server AI. Periksa koneksi internet Anda atau coba matikan AdBlocker (pemblokir iklan).");
+          }
+          // Delay sedikit sebelum retry
+          await new Promise(r => setTimeout(r, 1000));
+          continue; 
+      }
+
+      if (msg.includes('401') || msg.includes('api key not valid')) throw new Error("API Key Tidak Valid/Expired. Cek Dashboard.");
+      if (msg.includes('429') || msg.includes('quota')) {
+          if (i === MODEL_PRIORITY.length - 1) throw new Error("Kuota API Habis. Silakan gunakan API Key pribadi di Dashboard.");
+          continue;
+      }
       
-      // Jika ini model terakhir dan masih gagal
       if (i === MODEL_PRIORITY.length - 1) break;
       continue;
     }
   }
+  
+  const finalMsg = (lastError?.message || "").toLowerCase();
+  if (finalMsg.includes('failed to fetch')) {
+      throw new Error("Gagal terhubung ke server AI. Periksa koneksi internet Anda atau matikan AdBlocker.");
+  }
+  
   throw lastError || new Error("Gagal generate konten. Server AI sibuk atau API Key bermasalah.");
 };
 
@@ -242,10 +279,10 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     
     DETAIL:
     1. Prinsip (intro/core/closing): Pilih salah satu -> Berkesadaran, Bermakna, Mengembirakan.
-    2. Langkah: Micro-steps (Wajib detail, konkret, dan interaktif. Tuliskan skenario aksi/reaksi Guru & Murid yang spesifik).
-    3. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa (misal: "2,5% x Harta").
-    4. Profil Lulusan: List saja dimensinya (contoh: "Bernalar Kritis", "Kreatif"), jangan ada penjelasan.
-    5. Praktik Pedagogis: Pilih SATU Model/Metode (misal: PBL), lalu jelaskan singkat dalam 1 paragraf.
+    2. Langkah: Micro-steps (Wajib detail, konkret, dan interaktif).
+    3. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar.
+    4. Profil Lulusan: List saja dimensinya.
+    5. Praktik Pedagogis: Pilih SATU Model/Metode.
     
     Wajib JSON Valid.
   `;
@@ -275,11 +312,10 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
     ${complexity}
     
     Aturan Konten:
-    1. Sub Topik: Buatlah sub-topik yang bersifat akademik dan merupakan turunan spesifik dari Topik utama. Jangan membuat sub-topik yang tidak relevan.
-    2. Penjelasan Bertahap: JANGAN BUAT LANGKAH-LANGKAH/PROSEDUR. Berikan URAIAN MATERI/PENJELASAN KONSEP TOPIK & SUB-TOPIK secara naratif dan mendalam.
-    3. Tabel Visual: Bagian ini WAJIB berformat TABLE OBJECT dengan 'headers' dan 'rows'. Buatlah rangkuman, perbandingan, atau data penting.
-    4. Trivia: Berikan fakta unik yang menarik ("Tahukah Kamu?").
-    5. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa.
+    1. Sub Topik: Akademik dan relevan.
+    2. Penjelasan Bertahap: Naratif dan mendalam (bukan poin-poin).
+    3. Tabel Visual: WAJIB format TABLE OBJECT (headers, rows).
+    4. Trivia: Fakta unik.
     Output JSON.`;
     return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
@@ -293,12 +329,9 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
   ${complexity}
   
   Aturan:
-  1. Petunjuk Pengerjaan: Berikan langkah teknis cara mengerjakan lembar ini.
-  2. Aktivitas: Buat 3 level aktivitas (Dasar, Menengah, Lanjut). 
+  1. Aktivitas: 3 level (Dasar, Menengah, Lanjut). 
    - activityType: Pilih "Teks", "Tabel", "ListSoal", atau "Diskusi".
-   - JIKA 'activityType' adalah 'ListSoal' (Uraian/Esai), MAKA format content WAJIB menggunakan penomoran (1. ..., 2. ...) untuk setiap butir soal.
-   - WAJIB: MINIMAL SATU aktivitas harus bertipe "Tabel".
-   - JANGAN tuliskan prinsip pembelajaran di teks aktivitas.
+   - WAJIB: MINIMAL SATU aktivitas bertipe "Tabel".
   3. Gunakan kata "Murid".
   Output JSON.`;
   return await generateWithRetry(prompt, LKPD_SCHEMA);
@@ -327,11 +360,9 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
   
   Aturan Khusus:
-  1. Menjodohkan: Field 'matchingPairs' wajib diisi array object {left: "pertanyaan/premis", right: "jawaban/pasangan"}.
+  1. Menjodohkan: Field 'matchingPairs' wajib diisi.
   2. Benar/Salah: Soal berupa pernyataan.
   3. Gunakan kata "Murid".
-  4. Format Math: DILARANG pakai LaTeX ($...$) untuk aritmatika dasar, persen, atau uang. Tulis biasa.
-  
   Output JSON.`;
   return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
 };

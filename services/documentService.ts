@@ -20,6 +20,16 @@ const COLOR_WHITE = "FFFFFF";
 // Padding for table cells (Twips: 1/1440 inch). 120 = ~2mm
 const CELL_MARGIN = { top: 120, bottom: 120, left: 120, right: 120 };
 
+// Standard border style for tables to ensure visibility in Word
+const TABLE_BORDERS_FULL = {
+    top: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+    bottom: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+    left: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+    right: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+    insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+    insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+};
+
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
   // Use "Murid" (Title Case) instead of "murid" (lowercase) for better aesthetics
@@ -98,7 +108,8 @@ const createTableFromMarkdown = (mdTable: string): any[] => {
 
         return [new Table({
             rows: rows,
-            width: { size: 100, type: WidthType.PERCENTAGE }
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: TABLE_BORDERS_FULL // Explicitly add borders to all generated tables
         }), new Paragraph("")]; // Add spacer
     } catch (e) {
         return [new Paragraph(mdTable)];
@@ -120,11 +131,13 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   const createHeading = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H1 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 240, line: LINE_SPACING_BODY } });
   
+  // FIX: ALIGNMENT CHANGED TO LEFT AS REQUESTED
   const createSectionTitle = (text: string, pageBreak = false) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H2 })], { 
-      alignment: AlignmentType.CENTER, 
+      alignment: AlignmentType.LEFT,  // Changed from CENTER to LEFT
       spacing: { before: 240, after: 240, line: LINE_SPACING_BODY }, 
       pageBreakBefore: pageBreak, 
-      keepNext: true // Keep with following content
+      keepNext: true, // Keep with following content
+      border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: COLOR_ACCENT } } // Add underline for Sections in Word too
   });
   
   const createSubSectionTitle = (text: string, hasUnderline = true) => createPara([createText(safeString(text), { bold: true, size: SIZE_H3 })], { 
@@ -247,11 +260,11 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
     const kktpRows = assessment.kktp.map(item => new TableRow({
         children: [
-            new TableCell({ children: [createPara([createText(safeString(item.criteria))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-            new TableCell({ children: [createPara([createText(safeString(item.needsGuidance))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-            new TableCell({ children: [createPara([createText(safeString(item.basic))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-            new TableCell({ children: [createPara([createText(safeString(item.proficient))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-            new TableCell({ children: [createPara([createText(safeString(item.advanced))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+            new TableCell({ children: [createPara([createText(safeString(item.criteria))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+            new TableCell({ children: [createPara([createText(safeString(item.needsGuidance))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+            new TableCell({ children: [createPara([createText(safeString(item.basic))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+            new TableCell({ children: [createPara([createText(safeString(item.proficient))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+            new TableCell({ children: [createPara([createText(safeString(item.advanced))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
         ]
     }));
 
@@ -260,11 +273,12 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
         rows: [
             new TableRow({
                 children: ["Kriteria", "Perlu Bimbingan", "Cukup", "Baik", "Sangat Baik"].map(text => 
-                    new TableCell({ children: [createPara([createText(text, { bold: true })], { alignment: AlignmentType.CENTER })], shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, margins: CELL_MARGIN })
+                    new TableCell({ children: [createPara([createText(text, { bold: true })], { alignment: AlignmentType.CENTER })], shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL })
                 )
             }),
             ...kktpRows
-        ]
+        ],
+        borders: TABLE_BORDERS_FULL
     }));
     
     elements.push(createSubSectionTitle("2. Asesmen Formatif"));
@@ -274,52 +288,118 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
         elements.push(createPara([createText("A. Checklist Observasi", { bold: true })]));
         const checkRows = assessment.formative.checklist.map((item, idx) => new TableRow({
             children: [
-                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText(safeString(item.aspect))])], width: { size: 45, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 40, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText("")])], width: { size: 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText(safeString(item.aspect))])], width: { size: 45, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 40, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText("")])], width: { size: 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
             ]
         }));
         elements.push(new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
                 new TableRow({
-                    children: ["No", "Aspek", "Indikator", "Cek"].map((t, i) => new TableCell({ children: [createPara([createText(t, { bold: true })])], width: { size: i === 0 ? 5 : i === 1 ? 45 : i === 2 ? 40 : 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" } }))
+                    children: ["No", "Aspek", "Indikator", "Cek"].map((t, i) => new TableCell({ children: [createPara([createText(t, { bold: true })])], width: { size: i === 0 ? 5 : i === 1 ? 45 : i === 2 ? 40 : 10, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, borders: TABLE_BORDERS_FULL }))
                 }),
                 ...checkRows
-            ]
+            ],
+            borders: TABLE_BORDERS_FULL
         }));
     }
 
-    elements.push(createPara([createText("B. Tangga Umpan Balik", { bold: true })], { spacing: { before: 240 } }));
+    // UPDATED: Added spacer spacing for "B. Tangga Umpan Balik" and after list
+    elements.push(createPara([createText("B. Tangga Umpan Balik", { bold: true })], { spacing: { before: 240, after: 120 } }));
+    
     if (assessment.formative.feedbackGuide) {
         elements.push(createListItem(`Klarifikasi: ${assessment.formative.feedbackGuide.clarification}`));
         elements.push(createListItem(`Apresiasi: ${assessment.formative.feedbackGuide.appreciation}`));
         elements.push(createListItem(`Saran: ${assessment.formative.feedbackGuide.suggestion}`));
     }
     
+    // ADDED: Spacer Paragraph
+    elements.push(new Paragraph(""));
+    
     elements.push(createSubSectionTitle("3. Asesmen Sumatif (Kisi-Kisi)"));
     if (assessment.summative.grid && assessment.summative.grid.length > 0) {
         const gridRows = assessment.summative.grid.map((item, idx) => new TableRow({
             children: [
-                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 55, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText(safeString(item.level))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
-                new TableCell({ children: [createPara([createText(safeString(item.technique))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN }),
+                new TableCell({ children: [createPara([createText(String(idx + 1))])], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText(safeString(item.indicator))])], width: { size: 55, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText(safeString(item.level))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
+                new TableCell({ children: [createPara([createText(safeString(item.technique))])], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
             ]
         }));
         elements.push(new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
                 new TableRow({
-                    children: ["No", "Indikator Soal", "Level Kognitif", "Bentuk Soal"].map(t => new TableCell({ children: [createPara([createText(t, { bold: true })])], margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" } }))
+                    children: ["No", "Indikator Soal", "Level Kognitif", "Bentuk Soal"].map(t => new TableCell({ children: [createPara([createText(t, { bold: true })])], margins: CELL_MARGIN, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, borders: TABLE_BORDERS_FULL }))
                 }),
                 ...gridRows
-            ]
+            ],
+            borders: TABLE_BORDERS_FULL
         }));
     }
 
     return elements;
+  };
+
+  // ADDED: REFLECTION SECTION GENERATOR
+  const createReflectionSection = (reflection: any): any[] => {
+      if (!reflection) return [];
+      const elements: any[] = [];
+      
+      elements.push(createSectionTitle("V. REFLEKSI PEMBELAJARAN"));
+      
+      elements.push(createSubSectionTitle("1. Refleksi Guru"));
+      (reflection.teacher || []).forEach((r: string) => elements.push(createListItem(r)));
+
+      elements.push(createSubSectionTitle("2. Refleksi Murid"));
+      (reflection.student || []).forEach((r: string) => elements.push(createListItem(r)));
+
+      return elements;
+  };
+
+  // ADDED: APPROVAL / SIGNATURE SECTION GENERATOR
+  const createApprovalSection = (approval: any): any[] => {
+      if (!approval) return [];
+      
+      // Invisible table for layout (2 columns)
+      const sigTable = new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+              new TableRow({
+                  children: [
+                      // Left Cell: Kepala Sekolah
+                      new TableCell({
+                          children: [
+                              createPara([createText("Mengetahui,")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText("Kepala Sekolah")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText("")], { spacing: { before: 800 } }), // Space for signature
+                              createPara([createText(approval.principalName, { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText(`NIP. ${approval.principalNip}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                          ],
+                          width: { size: 50, type: WidthType.PERCENTAGE },
+                          borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+                      }),
+                      // Right Cell: Guru Mapel
+                      new TableCell({
+                          children: [
+                              createPara([createText(`${approval.location}, ${approval.date}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText("Guru Mata Pelajaran")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText("")], { spacing: { before: 800 } }), // Space for signature
+                              createPara([createText(approval.authorName, { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                              createPara([createText(`NIP. ${approval.authorNip}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
+                          ],
+                          width: { size: 50, type: WidthType.PERCENTAGE },
+                          borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+                      })
+                  ]
+              })
+          ],
+          borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE } }
+      });
+
+      return [new Paragraph(""), new Paragraph(""), sigTable];
   };
   
   const createMaterialsSection = (materials: MaterialsData | undefined): any[] => {
@@ -355,16 +435,19 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                       children: tableObj.headers.map((h: string) => new TableCell({
                           children: [new Paragraph({ children: [new TextRun({ text: h, font: FONT_FACE, size: SIZE_BODY, bold: true })] })],
                           margins: CELL_MARGIN,
-                          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" }
+                          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" },
+                          borders: TABLE_BORDERS_FULL
                       }))
                   }),
                   ...tableObj.rows.map((row: string[]) => new TableRow({
                       children: row.map((cell: string) => new TableCell({
                           children: [new Paragraph({ children: [new TextRun({ text: cell, font: FONT_FACE, size: SIZE_BODY })] })],
-                          margins: CELL_MARGIN
+                          margins: CELL_MARGIN,
+                          borders: TABLE_BORDERS_FULL
                       }))
                   }))
-              ]
+              ],
+              borders: TABLE_BORDERS_FULL
            });
            elements.push(docTable);
            elements.push(new Paragraph("")); // spacer
@@ -465,7 +548,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                           ]
                       })
                   ],
-                  // Invisible borders
+                  // Invisible borders for layout
                   borders: {
                       top: { style: BorderStyle.NONE, size: 0, color: "auto" },
                       bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -521,6 +604,8 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           children: [
               ...rppSections,
               ...createAssessmentSection(data.assessment),
+              ...createReflectionSection(data.reflection), // ADDED REFLECTION
+              ...createApprovalSection(data.approval),     // ADDED SIGNATURE
               ...createMaterialsSection(data.materials),
               ...createLKPDSection(data.lkpd),
               ...createQuestionBankSection(data.questionBank)

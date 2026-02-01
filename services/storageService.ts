@@ -1,4 +1,3 @@
-
 import { User, AppSettings, GeneratedLessonPlan, LessonIdentity, HistoryItem } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
@@ -31,10 +30,12 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const handleNetworkError = (error: any) => {
-    if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('Network request failed'))) {
-        throw new Error("Gagal terhubung ke server. Periksa koneksi internet Anda.");
+    const msg = (error.message || String(error)).toLowerCase();
+    // Hanya lempar error fatal jika benar-benar network error
+    if (msg.includes('failed to fetch') || msg.includes('network request failed') || msg.includes('networkerror')) {
+        throw new Error("Gagal terhubung ke server. Periksa koneksi internet Anda atau pastikan tidak ada AdBlocker yang memblokir akses database.");
     }
-    throw error;
+    // Jangan throw error lain di sini, biarkan flow utama yang menangani
 };
 
 export const initializeStorage = () => {
@@ -55,6 +56,22 @@ export const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); };
 
 export const mapSessionToUser = async (session: any): Promise<User | null> => {
     if (!session || !session.user) return null;
+    
+    // Default fallback user from Session (Auth) - Digunakan jika DB Blocked/Down
+    const fallbackUser: User = {
+        id: session.user.id,
+        name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+        username: session.user.user_metadata?.username,
+        email: session.user.email || '',
+        password: '',
+        role: 'user', 
+        status: 'active',
+        joinedDate: session.user.created_at || new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        generationCount: 0,
+        apiKey: ''
+    };
+
     try {
         let profile = null;
 
@@ -62,11 +79,12 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         const { data: rpcProfile, error: rpcError } = await supabase
             .rpc('get_my_profile_safe', { target_id: session.user.id });
         
-        profile = rpcProfile;
+        if (!rpcError && rpcProfile) {
+            profile = rpcProfile;
+        }
 
-        // 2. Fallback: Jika RPC gagal/null (karena RLS/Latency), coba ambil langsung dari tabel
+        // 2. Fallback: Jika RPC gagal/null, coba ambil langsung dari tabel
         if (!profile) {
-            console.warn("RPC Profile fetch returned null, trying direct select fallback...");
             const { data: directProfile, error: directError } = await supabase
                 .from('profiles')
                 .select('*')
@@ -79,98 +97,183 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
         }
 
         // 3. AUTO-HEAL: Jika profile masih null, buat profile baru dari data session Auth
-        // Ini memperbaiki error "Data Profil Rusak" jika data auth ada tapi profiles hilang.
         if (!profile) {
-             console.warn("Profile missing in DB. Auto-creating profile from Auth metadata...");
+             console.warn("Profile missing. Auto-creating from Auth metadata...");
              const metadata = session.user.user_metadata || {};
              
-             // Prepare payload
              const newProfile = {
                  id: session.user.id,
                  email: session.user.email,
                  name: metadata.name || session.user.email?.split('@')[0] || 'User',
                  username: metadata.username || session.user.email?.split('@')[0],
-                 role: 'user', // Default role
-                 status: 'active', // Auto-activate for existing auth users to prevent lockout
+                 role: 'user', 
+                 status: 'active', 
                  joined_date: new Date().toISOString(),
                  password_text: metadata.password_text || '',
                  phone_number: metadata.phone_number || ''
              };
 
-             // Insert to Supabase
              const { error: insertError } = await supabase.from('profiles').insert(newProfile);
-             
-             if (!insertError) {
-                 profile = newProfile;
-             } else {
-                 console.error("Failed to auto-create profile:", insertError);
-             }
+             if (!insertError) profile = newProfile;
         }
 
-        if (!profile) {
-            console.warn("Profile not found via RPC, Direct Select, or Auto-Heal.");
-            return null;
+        if (profile) {
+            return {
+                id: session.user.id,
+                name: profile.name || session.user.email?.split('@')[0],
+                username: profile.username,
+                email: session.user.email || '',
+                password: profile.password_text || '', 
+                role: profile.role || 'user',
+                status: profile.status || 'pending',
+                joinedDate: profile.joined_date,
+                lastLogin: profile.last_login,
+                generationCount: profile.generation_count || 0,
+                apiKey: profile.api_key || '' 
+            };
         }
-
-        return {
-            id: session.user.id,
-            name: profile.name || session.user.email?.split('@')[0],
-            username: profile.username,
-            email: session.user.email || '',
-            password: profile.password_text || '', 
-            role: profile.role || 'user',
-            status: profile.status || 'pending',
-            joinedDate: profile.joined_date,
-            lastLogin: profile.last_login,
-            generationCount: profile.generation_count || 0,
-            apiKey: profile.api_key || '' 
-        };
     } catch (e) {
-        console.error("Mapping error:", e);
-        return null;
+        console.error("Mapping error (using fallback):", e);
     }
+    
+    // Jika semua DB akses gagal, kembalikan user dari session auth agar tetap bisa login
+    return fallbackUser;
 };
 
 export const authenticate = async (emailOrUsername: string, passwordPlain: string): Promise<User> => {
     let identifier = emailOrUsername.trim();
     const passwordToLogin = passwordPlain.trim();
+    const isEmail = identifier.includes('@');
+    
+    console.log('🔐 [AUTH] Starting authentication for:', identifier);
+    console.log('🔐 [AUTH] Is Email:', isEmail);
     
     try {
-        const { data: userInfo } = await supabase.rpc('get_login_info', { identifier: identifier });
+        let userInfo = null;
+        let finalEmail = isEmail ? identifier : null;
 
-        // Jika user tidak ditemukan via RPC dan identifier bukan email, error
-        if (!userInfo && !identifier.includes('@')) throw new Error("USERNAME_NOT_FOUND");
-
-        // Cek status jika user ditemukan via RPC
-        if (userInfo && userInfo.role !== 'admin') {
-            if (userInfo.status === 'pending') throw new Error("ACCOUNT_PENDING");
-            if (userInfo.status === 'inactive') throw new Error("ACCOUNT_INACTIVE");
+        // 1. Hanya Coba RPC jika login dengan USERNAME (bukan email)
+        if (!isEmail) {
+            try {
+                console.log('📞 [RPC] Calling get_login_info for username...');
+                const { data, error } = await supabase.rpc('get_login_info', { identifier: identifier });
+                
+                if (error) {
+                    console.error('❌ [RPC] Error:', error);
+                    throw error;
+                }
+                
+                if (!data) {
+                    console.error('❌ [RPC] Username not found');
+                    throw new Error("USERNAME_NOT_FOUND");
+                }
+                
+                console.log('✅ [RPC] Success, email resolved:', data.email);
+                userInfo = data;
+                finalEmail = data.email;
+                
+            } catch (rpcErr: any) {
+                console.error("🚨 [RPC] Failed:", rpcErr);
+                
+                // Jika network error, lempar ke user
+                const errMsg = (rpcErr.message || String(rpcErr)).toLowerCase();
+                if (errMsg.includes('failed to fetch') || 
+                    errMsg.includes('network request failed') || 
+                    errMsg.includes('networkerror')) {
+                    throw new Error("Gagal terhubung ke server. Periksa koneksi internet Anda atau pastikan tidak ada AdBlocker yang memblokir akses database.");
+                }
+                
+                // Error lain (username not found, etc)
+                throw new Error("USERNAME_NOT_FOUND");
+            }
+            
+            // Cek status user (hanya untuk username login)
+            if (userInfo && userInfo.role !== 'admin') {
+                if (userInfo.status === 'pending') {
+                    console.warn('⚠️ [AUTH] Account pending');
+                    throw new Error("ACCOUNT_PENDING");
+                }
+                if (userInfo.status === 'inactive') {
+                    console.warn('⚠️ [AUTH] Account inactive');
+                    throw new Error("ACCOUNT_INACTIVE");
+                }
+            }
         }
-
-        // Tentukan email target (dari RPC atau input langsung)
-        const finalEmail = userInfo ? userInfo.email : identifier;
         
-        // Login Auth
-        const { data, error } = await supabase.auth.signInWithPassword({ email: finalEmail, password: passwordToLogin });
-
-        if (error) throw new Error(error.message === 'Invalid login credentials' ? "INVALID_PASSWORD" : error.message);
-
-        if (data.user) {
-            // Update last login (ignore error if profile missing, mapped user creation will handle it)
-            await supabase.from('profiles').update({ last_login: new Date().toISOString() }).eq('id', data.user.id);
-            
-            const user = await mapSessionToUser(data.session);
-            
-            // Critical Check: Jika login Auth sukses tapi User object null, berarti Profile Database rusak/mismatch
-            if (!user) throw new Error("PROFILE_SYNC_ERROR");
-            
-            return user;
+        if (!finalEmail) {
+            console.error('❌ [AUTH] No email to login with');
+            throw new Error("EMAIL_REQUIRED");
         }
+
+        // 2. Login Auth (Core - INI YANG PALING PENTING)
+        console.log('🔑 [AUTH] Attempting signInWithPassword for:', finalEmail);
+        
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+            email: finalEmail, 
+            password: passwordToLogin 
+        });
+
+        if (error) {
+            console.error('❌ [AUTH] Login error:', error);
+            console.error('❌ [AUTH] Error message:', error.message);
+            console.error('❌ [AUTH] Error status:', error.status);
+            
+            // Handle network errors
+            const errMsg = (error.message || '').toLowerCase();
+            if (errMsg.includes('failed to fetch') || 
+                errMsg.includes('network request failed') || 
+                errMsg.includes('networkerror') ||
+                errMsg.includes('fetch')) {
+                throw new Error("Gagal terhubung ke server. Periksa koneksi internet Anda atau pastikan tidak ada AdBlocker yang memblokir akses database.");
+            }
+            
+            // Handle invalid credentials
+            if (error.message === 'Invalid login credentials' || errMsg.includes('invalid login')) {
+                throw new Error("INVALID_PASSWORD");
+            }
+            
+            // Handle email not confirmed
+            if (errMsg.includes('email not confirmed')) {
+                throw new Error("Email belum dikonfirmasi. Silakan cek inbox Anda.");
+            }
+            
+            // Other errors
+            throw new Error(error.message || "Login gagal");
+        }
+
+        if (!data || !data.user) {
+            console.error('❌ [AUTH] No user data returned');
+            throw new Error("Login gagal - tidak ada data user");
+        }
+
+        console.log('✅ [AUTH] Login successful for user:', data.user.id);
+
+        // 3. Update last login (fire and forget)
+        supabase.from('profiles')
+            .update({ last_login: new Date().toISOString() })
+            .eq('id', data.user.id)
+            .then(() => console.log('✅ [AUTH] Last login updated'))
+            .catch(err => console.warn("⚠️ [AUTH] Failed to update last_login:", err));
+        
+        // 4. Map session to user
+        console.log('🔄 [AUTH] Mapping session to user...');
+        const user = await mapSessionToUser(data.session);
+        
+        if (!user) {
+            console.error('❌ [AUTH] Profile sync error');
+            throw new Error("PROFILE_SYNC_ERROR");
+        }
+        
+        console.log('✅ [AUTH] Authentication complete!');
+        return user;
+        
     } catch (error: any) {
-        handleNetworkError(error);
+        console.error('🔴 [AUTH] Final catch error:', error);
+        console.error('🔴 [AUTH] Error message:', error.message);
+        
+        // Re-throw tanpa mengubah pesan jika sudah formatted
         throw error;
     }
-    throw new Error("Login gagal.");
 };
 
 export const saveUser = async (user: User) => {
@@ -178,8 +281,10 @@ export const saveUser = async (user: User) => {
         const { data: existingUser } = await supabase.rpc('get_login_info', { identifier: user.email });
         if (existingUser) throw new Error("Email ini sudah terdaftar.");
 
-        const { data: existingUsername } = await supabase.rpc('get_login_info', { identifier: user.username });
-        if (existingUsername) throw new Error("Username ini sudah digunakan.");
+        if (user.username) {
+             const { data: existingUsername } = await supabase.rpc('get_login_info', { identifier: user.username });
+             if (existingUsername) throw new Error("Username ini sudah digunakan.");
+        }
 
         const { data, error } = await supabase.auth.signUp({
             email: user.email,
@@ -272,29 +377,22 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        const MAX_HISTORY = 3; // BATAS MAKSIMAL RIWAYAT PER USER
+        const MAX_HISTORY = 3; 
 
-        // 1. Ambil riwayat yang ada, urutkan dari yang paling lama (ascending)
         const { data: currentHistory } = await supabase
             .from('generation_history')
             .select('id')
             .eq('user_id', userId)
             .order('created_at', { ascending: true });
 
-        // 2. Jika jumlah riwayat sudah mencapai batas (atau lebih), hapus yang paling lama
         if (currentHistory && currentHistory.length >= MAX_HISTORY) {
-            // Hitung berapa yang harus dihapus agar tersisa (MAX_HISTORY - 1) untuk slot baru
             const itemsToDeleteCount = currentHistory.length - MAX_HISTORY + 1;
-            
-            // Ambil ID item-item terlama
             const idsToDelete = currentHistory.slice(0, itemsToDeleteCount).map(item => item.id);
-            
             if (idsToDelete.length > 0) {
                  await supabase.from('generation_history').delete().in('id', idsToDelete);
             }
         }
 
-        // 3. Simpan riwayat baru
         const { data: result, error } = await supabase.from('generation_history').insert({
                 user_id: userId, 
                 subject: inputData.subject, 

@@ -253,7 +253,8 @@ const AppContent: React.FC = () => {
         closeLoading();
         swal.fire({ icon: 'error', title: 'Gagal', text: e.message || "Terjadi kesalahan saat generate RPP." });
     } finally {
-        setIsLoading(false);
+        // FIX: Ensure loading state is reset even if render takes time
+        setTimeout(() => setIsLoading(false), 500);
     }
   };
 
