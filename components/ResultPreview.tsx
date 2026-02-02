@@ -10,8 +10,6 @@ import DocumentContent from './DocumentContent';
 declare var marked: any;
 declare var Swal: any;
 declare var MathJax: any;
-declare var html2canvas: any; 
-declare var jspdf: any; 
 
 interface ResultPreviewProps {
   data: GeneratedLessonPlan | null;
@@ -55,16 +53,6 @@ const QUESTION_COUNTS = [5, 10, 15, 20];
 const QUESTION_LEVELS: QuestionLevel[] = ['LOTS', 'HOTS', 'CAMPURAN'];
 const QUESTION_TYPES: QuestionType[] = ['Pilihan Ganda', 'Pilihan Ganda Kompleks', 'Menjodohkan', 'Benar/Salah', 'Isian Singkat', 'Uraian'];
 
-/**
- * Konfigurasi PDF sesuai Referensi
- */
-const PDF_CONFIG = {
-  A4_WIDTH_PX: 794,  // Lebar A4 dalam pixel pada 96 DPI (approx)
-  A4_HEIGHT_PX: 1123, // Tinggi A4
-  PAGE_MARGIN: 20,   // Margin aman (px)
-  SCALE: 2.5,        // Kualitas Render (2.5 - 3x agar tidak buram)
-};
-
 const ResultPreview: React.FC<ResultPreviewProps> = ({ 
     data, inputData, onInputChange, schoolData, onSchoolChange, onGenerate, isLoading,
     onGenerateMaterials, isGeneratingMaterials,
@@ -73,7 +61,6 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('RPP_PLUS');
   const [expandedSection, setExpandedSection] = useState<SectionType>('LESSON');
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   
   // Mobile Sidebar State
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -97,222 +84,6 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
       scrollContainerRef.current.scrollTop = 0;
     }
   };
-
-// --- DOWNLOAD PDF (SMART PAGINATION STRATEGY) ---
-const handleDownloadPdf = async () => {
-    if (!data) {
-        console.log('❌ No data available');
-        return;
-    }
-
-    setIsDownloadingPdf(true);
-    const startTime = Date.now();
-
-    try {
-        console.log('🔄 Starting Smart PDF Export...');
-
-        const originalElement = document.getElementById('konten-dokumen');
-        if (!originalElement) {
-            throw new Error('Content element "konten-dokumen" not found');
-        }
-
-        // 1. Wait for MathJax
-        if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
-            try {
-                await MathJax.typesetPromise();
-            } catch (e) {
-                console.warn('⚠️ MathJax warning:', e);
-            }
-        }
-
-        // 2. CLONE ELEMENT & SETUP CONTAINER (Sesuai Referensi)
-        console.log('🔄 Cloning & Setup Container...');
-        const clone = originalElement.cloneNode(true) as HTMLElement;
-        
-        // Setup container tersembunyi untuk clone
-        const container = document.createElement('div');
-        container.style.position = 'absolute';
-        container.style.top = '-9999px';
-        container.style.left = '0';
-        // Paksa lebar tetap agar hasil PDF konsisten (seperti A4)
-        container.style.width = `${PDF_CONFIG.A4_WIDTH_PX}px`;
-        container.style.zIndex = '-9999';
-        container.style.background = '#ffffff';
-        
-        // Reset style clone agar sesuai kertas
-        clone.style.margin = '0';
-        clone.style.padding = '20px'; // Sedikit padding internal
-        clone.style.width = '100%';
-        clone.style.maxWidth = 'none';
-        clone.style.height = 'auto';
-        clone.style.overflow = 'visible';
-        clone.style.boxShadow = 'none';
-        
-        container.appendChild(clone);
-        document.body.appendChild(container);
-
-        // Tunggu sebentar agar DOM merender layout clone
-        await new Promise(r => setTimeout(r, 500));
-
-        // 3. SMART PAGINATION LOGIC (Sesuai Referensi)
-        console.log('🔄 Applying Smart Page Breaks...');
-        
-        const addSmartPageBreaks = (element: HTMLElement) => {
-             const children = Array.from(element.children) as HTMLElement[];
-             let currentHeight = 0;
-             
-             // Tinggi efektif per halaman (dikurangi sedikit margin aman untuk footer/header)
-             // Buffer 40px dari referensi
-             const PAGE_BREAK_THRESHOLD = PDF_CONFIG.A4_HEIGHT_PX - 40; 
-             
-             children.forEach((child) => {
-                 // Hitung tinggi elemen termasuk margin
-                 const style = window.getComputedStyle(child);
-                 const marginTop = parseInt(style.marginTop) || 0;
-                 const marginBottom = parseInt(style.marginBottom) || 0;
-                 const childHeight = child.offsetHeight + marginTop + marginBottom;
-                 
-                 // Cek posisi elemen saat ini
-                 const elementBottom = currentHeight + childHeight;
-                 
-                 // Cek apakah elemen ini menabrak batas halaman
-                 // Rumus: (Posisi Bawah % Tinggi Halaman) < (Tinggi Elemen) 
-                 // Artinya: Elemen mulai di halaman X tapi berakhir di halaman X+1
-                 
-                 const pageNumberStart = Math.floor(currentHeight / PAGE_BREAK_THRESHOLD);
-                 const pageNumberEnd = Math.floor(elementBottom / PAGE_BREAK_THRESHOLD);
-                 
-                 if (pageNumberEnd > pageNumberStart) {
-                     // Elemen ini menyeberang halaman! -> Pindahkan ke halaman berikutnya
-                     console.log(`✂️ Breaking page for element:`, child.tagName, child.innerText.substring(0, 20));
-                     
-                     const spaceNeeded = (PAGE_BREAK_THRESHOLD * pageNumberEnd) - currentHeight;
-                     
-                     // Tambahkan margin top 'palsu' untuk mendorong elemen ke halaman baru
-                     const existingMarginTop = parseInt(child.style.marginTop || '0');
-                     
-                     // +40px buffer agar tidak terlalu mepet atas
-                     child.style.marginTop = `${existingMarginTop + spaceNeeded + 40}px`; 
-                     
-                     // Update currentHeight dengan tambahan margin tadi
-                     currentHeight += spaceNeeded + 40 + childHeight;
-                 } else {
-                     currentHeight += childHeight;
-                 }
-                 
-                 // Rekursif opsional (jika container besar)
-                 // if (child.children.length > 0) addSmartPageBreaks(child);
-             });
-        };
-
-        // Jalankan Smart Pagination pada clone
-        addSmartPageBreaks(clone);
-
-        // 4. RENDER KE CANVAS (High Quality)
-        console.log('🔄 Rendering to canvas...');
-        const canvas = await html2canvas(clone, {
-            scale: PDF_CONFIG.SCALE, // Kunci agar tidak buram!
-            useCORS: true, 
-            logging: false,
-            windowWidth: PDF_CONFIG.A4_WIDTH_PX,
-            backgroundColor: '#ffffff'
-        });
-
-        // 5. GENERATE PDF DENGAN SLICING (Tetap menggunakan slicing robust yang sudah ada)
-        // Kita menggunakan hasil canvas dari Smart Pagination, di mana sudah ada "gap" putih
-        // yang dibuat oleh margin-top. Slicing akan memotong tepat di gap tersebut.
-        
-        const { jsPDF } = (window as any).jspdf;
-        const pdf = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4',
-            compress: true
-        });
-
-        const pageWidth = 210;
-        const pageHeight = 297; 
-        const marginTop = 10;
-        const marginBottom = 10;
-        const availableHeight = pageHeight - marginTop - marginBottom;
-
-        const canvasWidth = canvas.width;
-        const canvasHeight = canvas.height;
-        const mmPerPixel = pageWidth / canvasWidth;
-        const pageHeightInPx = availableHeight / mmPerPixel;
-
-        let currentYInPx = 0;
-        let pageCount = 0;
-
-        while (currentYInPx < canvasHeight) {
-            if (pageCount > 0) pdf.addPage();
-
-            const remainingHeightInPx = canvasHeight - currentYInPx;
-            const sliceHeightInPx = Math.min(pageHeightInPx, remainingHeightInPx);
-
-            const pageCanvas = document.createElement('canvas');
-            pageCanvas.width = canvasWidth;
-            pageCanvas.height = sliceHeightInPx;
-
-            const ctx = pageCanvas.getContext('2d');
-            if (!ctx) throw new Error('Could not get canvas context');
-
-            // Draw portion of the source canvas
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvasWidth, sliceHeightInPx);
-            ctx.drawImage(
-                canvas,
-                0, currentYInPx,
-                canvasWidth, sliceHeightInPx,
-                0, 0,
-                canvasWidth, sliceHeightInPx
-            );
-
-            const pageImageData = pageCanvas.toDataURL('image/jpeg', 0.95);
-            const imgHeightInMm = sliceHeightInPx * mmPerPixel;
-            
-            pdf.addImage(pageImageData, 'JPEG', 0, marginTop, pageWidth, imgHeightInMm);
-            
-            // Footer Page Number
-            pdf.setFontSize(8);
-            pdf.setTextColor(150, 150, 150);
-            pdf.text(`${pageCount + 1}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
-
-            currentYInPx += sliceHeightInPx;
-            pageCount++;
-        }
-
-        // 6. SAVE FILE
-        const filename = `Modul Ajar - ${inputData.topic}.pdf`;
-        pdf.save(filename);
-
-        // Cleanup
-        if (container.parentNode) {
-            document.body.removeChild(container);
-        }
-
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        if (typeof Swal !== 'undefined') {
-            Swal.fire({
-                icon: 'success',
-                title: 'PDF Berhasil Dibuat',
-                html: `<small>Smart Pagination aktif. <br/>Total ${pageCount} halaman dalam ${duration} detik.</small>`,
-                timer: 3000,
-                showConfirmButton: false
-            });
-        }
-
-    } catch (error: any) {
-        console.error('❌ PDF Export Error:', error);
-        if (typeof Swal !== 'undefined') {
-            Swal.fire({ icon: 'error', title: 'Gagal Export PDF', text: 'Mengalihkan ke mode cetak browser...' });
-        }
-        // Fallback ke window.print
-        setTimeout(() => window.print(), 1000);
-    } finally {
-        setIsDownloadingPdf(false);
-    }
-};
 
   const getMinutesPerJP = (grade: string): string => {
     if (/Kelas (I|II|III|IV|V|VI)\b/.test(grade)) return "35 Menit";
@@ -432,12 +203,6 @@ const handleDownloadPdf = async () => {
                  <TabButton id="SEMUA" label="Semua" hasData={true} icon={FileText} />
             </div>
             <div className="flex items-center gap-2 py-2 md:py-0 border-t md:border-t-0 border-slate-100 w-full md:w-auto justify-end">
-                {/* PDF BUTTON */}
-                <button onClick={handleDownloadPdf} disabled={!data || isDownloadingPdf} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
-                    {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-                    <span>PDF</span>
-                </button>
-                
                 {/* DOCX BUTTON */}
                 <button onClick={() => data && downloadDocx(data, FIXED_DOC_SETTINGS)} disabled={!data} className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
                     <FileDown size={14} />
