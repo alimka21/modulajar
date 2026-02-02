@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
@@ -23,21 +24,24 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true); // Default true agar aman
+  const [loading, setLoading] = useState(true);
 
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Helper mapping session
+  // Optimized Session Handler
   const handleSession = async (session: any) => {
     if (!session) {
       setUser(null);
       sessionStorage.removeItem('custom_api_key');
+      setLoading(false);
       return;
     }
 
     try {
+      // mapSessionToUser now uses optimized Direct Select (no RPC)
       const mappedUser = await mapSessionToUser(session);
+      
       if (mappedUser) {
         setUser(mappedUser);
         if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
@@ -47,12 +51,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         resetIdleTimer();
       } else {
-        // Session ada tapi data user di DB tidak valid
+        // Sesi ada, tapi profil DB tidak ditemukan
+        console.warn("User authenticated but no profile found.");
         setUser(null);
       }
     } catch (error) {
-      console.error("Auth Mapping Error:", error);
+      console.error("Auth Context Error:", error);
       setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -91,40 +98,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    const initAuth = async () => {
-      try {
-        // Cek session dari Supabase
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        
-        if (mounted) await handleSession(session);
-      } catch (e) {
-        console.error("Init Auth Error:", e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
+    // 1. Initial Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted) handleSession(session);
+    });
 
-    initAuth();
-
-    // SAFETY GUARD: Force stop loading after 5 seconds
-    // Ini solusi untuk masalah "Stuck Loading"
-    const safetyTimeout = setTimeout(() => {
-        if (mounted && loading) {
-            console.warn("Loading took too long, forcing render.");
-            setLoading(false);
-        }
-    }, 5000); 
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // 2. Real-time Subscription (onAuthStateChange)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (event === 'SIGNED_OUT') {
+      
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          handleSession(session);
+      } else if (event === 'SIGNED_OUT') {
           setUser(null);
           sessionStorage.removeItem('custom_api_key');
-          if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-          setLoading(false);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          await handleSession(session);
           setLoading(false);
       }
     });
@@ -135,7 +122,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false;
-      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
       activityEvents.forEach(evt => window.removeEventListener(evt, activityHandler));
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);

@@ -6,13 +6,11 @@ import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, Question
  * Model fallback strategy:
  * Sistem akan mencoba model urut dari atas ke bawah.
  * Menggunakan model Gemini 3 Series dan 2.0 Flash sesuai pedoman.
- * Fallback ke 'gemini-flash-latest' jika preview models tidak stabil.
  */
 const MODEL_PRIORITY = [
   'gemini-3-flash-preview', 
   'gemini-3-pro-preview',   
-  'gemini-2.0-flash-exp',
-  'gemini-flash-latest'
+  'gemini-2.0-flash-exp'    
 ];
 
 const cleanApiKey = (key: string | null | undefined): string => {
@@ -57,55 +55,46 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
-    const ai = new GoogleGenAI({ apiKey: apiKey });
-    // Gunakan beberapa model untuk validasi agar tidak false negative jika satu model down
-    const modelsToTest = ['gemini-3-flash-preview', 'gemini-2.0-flash-exp', 'gemini-flash-latest'];
-    
-    for (let i = 0; i < modelsToTest.length; i++) {
-        const model = modelsToTest[i];
-        try {
-            // Gunakan timeout pendek untuk validasi
-            const TIMEOUT_MS = 10000;
-            
-            const fetchPromise = ai.models.generateContent({
-                model: model, 
-                contents: "Tes koneksi server.", 
-                config: { maxOutputTokens: 10 }
-            });
+    try {
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        const modelToTest = 'gemini-3-flash-preview';
 
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`Timeout (${TIMEOUT_MS}ms)`)), TIMEOUT_MS)
-            );
+        // Gunakan timeout pendek untuk validasi
+        const TIMEOUT_MS = 15000;
+        
+        const fetchPromise = ai.models.generateContent({
+            model: modelToTest, 
+            contents: { parts: [{ text: "Tes koneksi server." }] },
+            config: { maxOutputTokens: 10 }
+        });
 
-            const response: any = await Promise.race([fetchPromise, timeoutPromise]);
-            
-            if (response && (response.text !== undefined || response.candidates)) {
-                 return { success: true, message: `✅ Koneksi Berhasil! (Model: ${model})` };
-            }
-        } catch (error: any) {
-            const errorMsg = (error.message || String(error)).toLowerCase();
-            console.warn(`Validation failed for ${model}:`, errorMsg);
-            
-            // Critical Auth Errors - Stop immediately
-            if (errorMsg.includes("400") || errorMsg.includes("invalid_argument") || errorMsg.includes("api key not valid")) {
-                 return { success: false, message: "❌ API Key Salah atau Format Tidak Valid." };
-            }
-            if (errorMsg.includes("401") || errorMsg.includes("unauthenticated")) {
-                 return { success: false, message: "❌ API Key Tidak Dikenal (401). Periksa kembali Key Anda." };
-            }
-            
-            // Network Errors - Continue to next model if available
-            // "Failed to fetch" usually means Network Error or Blocked Request (CORS/AdBlock)
-            if (errorMsg.includes("failed to fetch") || errorMsg.includes("network error") || errorMsg.includes("typeerror")) {
-                if (i === modelsToTest.length - 1) {
-                    return { success: false, message: "❌ Gagal Terhubung. Periksa internet atau matikan AdBlocker Anda." };
-                }
-                continue;
-            }
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`Timeout (${TIMEOUT_MS}ms)`)), TIMEOUT_MS)
+        );
+
+        const response: any = await Promise.race([fetchPromise, timeoutPromise]);
+        
+        if (response && response.text) {
+             return { success: true, message: `✅ Koneksi Berhasil! (Model: ${modelToTest})` };
         }
+        
+        return { success: false, message: "❌ Tidak ada respon dari server AI." };
+
+    } catch (error: any) {
+        const errorMsg = (error.message || String(error)).toLowerCase();
+        
+        if (errorMsg.includes("failed to fetch") || errorMsg.includes("network error") || errorMsg.includes("typeerror")) {
+            return { success: false, message: "❌ Gagal Terhubung (Network Error). Periksa internet/DNS Anda." };
+        }
+        if (errorMsg.includes("400") || errorMsg.includes("invalid_argument")) {
+             return { success: false, message: "❌ API Key Salah atau Format Tidak Valid." };
+        }
+        if (errorMsg.includes("401") || errorMsg.includes("unauthenticated")) {
+             return { success: false, message: "❌ API Key Tidak Dikenal (401)." };
+        }
+        
+        return { success: false, message: `❌ Error: ${errorMsg.substring(0, 100)}...` };
     }
-    
-    return { success: false, message: "❌ Tidak ada respon valid dari server AI." };
 };
 
 // --- HELPER KOMPLEKSITAS ---
@@ -237,7 +226,7 @@ const generateWithRetry = async (
       // Handle Network Error (Failed to fetch) specially
       if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network request failed')) {
           if (i === MODEL_PRIORITY.length - 1) {
-              throw new Error("Gagal terhubung ke server AI. Periksa koneksi internet Anda atau coba matikan AdBlocker (pemblokir iklan).");
+              throw new Error("Gagal terhubung ke server AI. Periksa koneksi internet Anda. Pastikan tidak ada AdBlocker yang memblokir akses ke Google AI.");
           }
           // Delay sedikit sebelum retry
           await new Promise(r => setTimeout(r, 1000));
@@ -257,7 +246,7 @@ const generateWithRetry = async (
   
   const finalMsg = (lastError?.message || "").toLowerCase();
   if (finalMsg.includes('failed to fetch')) {
-      throw new Error("Gagal terhubung ke server AI. Periksa koneksi internet Anda atau matikan AdBlocker.");
+      throw new Error("Gagal terhubung ke server AI (Network Error). Periksa koneksi internet Anda.");
   }
   
   throw lastError || new Error("Gagal generate konten. Server AI sibuk atau API Key bermasalah.");
@@ -269,11 +258,14 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   const meetingNum = parseInt((lessonData.meetingCount || '1').split(' ')[0]) || 1;
   const complexity = getComplexityInstruction(lessonData.grade);
   
+  // NOTE: timeAllocation dikirim ke AI, tapi nanti di-overwrite agar sesuai input user persis
+  
   const prompt = `
     Susun MODUL AJAR (RPM) Deep Learning.
     Sekolah: ${schoolData.schoolName}, Mapel: ${lessonData.subject}, Kelas: ${lessonData.grade}, Topik: ${lessonData.topic}
     Tujuan: ${lessonData.objectives}
     Jumlah Pertemuan: ${meetingNum}
+    Alokasi Waktu Input: ${lessonData.timeAllocation}
     
     ${complexity}
     
@@ -288,6 +280,11 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   `;
   
   const aiResult = await generateWithRetry(prompt, RPP_SCHEMA);
+  
+  // FIX ISSUE 1: Paksa timeAllocation sesuai input user, jangan biarkan AI menghitung ulang (misal 2 JP jadi 4 JP)
+  if (aiResult.identitySection) {
+      aiResult.identitySection.timeAllocation = lessonData.timeAllocation;
+  }
   
   return {
       ...aiResult,
@@ -323,16 +320,18 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
 export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
+  // FIX 2: Paksa format aktivitas spesifik (Level 1: Soal, Level 2: Tabel, Level 3: Bullet)
   const prompt = `Buat Lembar Kerja Murid (Tanpa kata "LKPD" di judul): ${rppData.identitySection.topic}.
   Mata Pelajaran: ${rppData.identitySection.subject}.
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
   ${complexity}
   
-  Aturan:
-  1. Aktivitas: 3 level (Dasar, Menengah, Lanjut). 
-   - activityType: Pilih "Teks", "Tabel", "ListSoal", atau "Diskusi".
-   - WAJIB: MINIMAL SATU aktivitas bertipe "Tabel".
-  3. Gunakan kata "Murid".
+  Aturan Wajib (STRICT):
+  1. Aktivitas 1 (Dasar): WAJIB bentuk Soal Sederhana atau List/Numbering. Jangan paragraf.
+  2. Aktivitas 2 (Menengah): WAJIB berupa Markdown TABLE isian untuk murid (Kolom Pertanyaan vs Kolom Jawaban Kosong).
+  3. Aktivitas 3 (Lanjut): WAJIB bentuk Bullet Points/Numbering untuk langkah analisis/diskusi. Jangan paragraf panjang.
+  4. Tujuan Pembelajaran: Tulis dalam bentuk list poin (bullet points).
+  5. Gunakan kata "Murid".
   Output JSON.`;
   return await generateWithRetry(prompt, LKPD_SCHEMA);
 };
@@ -352,17 +351,30 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
 
 export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
+  const grade = rppData.identitySection.grade.toLowerCase();
   
+  // FIX ISSUE 4: HOTS Instruction
+  const hotsInstruction = config.level === 'HOTS' 
+    ? "STIMULUS WAJIB PANJANG (minimal 2 paragraf), mendalam, berupa studi kasus/data riil, menuntut analisis kompleks (C4-C6). Jangan buat soal ingatan/hapalan."
+    : "";
+
+  const isHighSchool = grade.includes('fase e') || grade.includes('fase f') || grade.includes('sma') || grade.includes('smk') || grade.includes('ma') || grade.includes('kelas x') || grade.includes('kelas xi') || grade.includes('kelas xii');
+  const optionCount = isHighSchool ? 5 : 4;
+  const optionRange = isHighSchool ? 'A-E' : 'A-D';
+
   const prompt = `Buat ${config.count} Soal (${config.types.join(', ')}). 
   ${complexity}
+  ${hotsInstruction}
   Topik: ${rppData.identitySection.topic}.
   Mata Pelajaran: ${rppData.identitySection.subject}.
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
   
   Aturan Khusus:
-  1. Menjodohkan: Field 'matchingPairs' wajib diisi.
-  2. Benar/Salah: Soal berupa pernyataan.
-  3. Gunakan kata "Murid".
+  1. Pilihan Ganda / PG Kompleks: WAJIB buat ${optionCount} opsi jawaban (${optionRange}). 
+     JANGAN tulis label huruf (A, B, C) di dalam teks opsi, hanya teks jawabannya saja.
+  2. Menjodohkan: Field 'matchingPairs' wajib diisi.
+  3. Benar/Salah: Soal berupa pernyataan.
+  4. Gunakan kata "Murid".
   Output JSON.`;
   return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
 };

@@ -55,6 +55,16 @@ const QUESTION_COUNTS = [5, 10, 15, 20];
 const QUESTION_LEVELS: QuestionLevel[] = ['LOTS', 'HOTS', 'CAMPURAN'];
 const QUESTION_TYPES: QuestionType[] = ['Pilihan Ganda', 'Pilihan Ganda Kompleks', 'Menjodohkan', 'Benar/Salah', 'Isian Singkat', 'Uraian'];
 
+/**
+ * Konfigurasi PDF sesuai Referensi
+ */
+const PDF_CONFIG = {
+  A4_WIDTH_PX: 794,  // Lebar A4 dalam pixel pada 96 DPI (approx)
+  A4_HEIGHT_PX: 1123, // Tinggi A4
+  PAGE_MARGIN: 20,   // Margin aman (px)
+  SCALE: 2.5,        // Kualitas Render (2.5 - 3x agar tidak buram)
+};
+
 const ResultPreview: React.FC<ResultPreviewProps> = ({ 
     data, inputData, onInputChange, schoolData, onSchoolChange, onGenerate, isLoading,
     onGenerateMaterials, isGeneratingMaterials,
@@ -88,40 +98,10 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
     }
   };
 
-
-
-// ============================================================
-// handleDownloadPdf — v4 (Final Fix)
-// ============================================================
-//
-// Perbaikan:
-//
-// 1. TABEL DIPOTONG → slicing cerdas via safe break points.
-//
-// 2. BLUR — root cause sebenarnya ada di dua tempat:
-//    a) JPEG quality 0.85 di toDataURL → lossy, teks kecil rusak.
-//       Solusi: naik ke quality 1.0 (mendekati lossless).
-//    b) compress: true di jsPDF constructor → flate compression
-//       pada image stream besar menyebabkan degradasi visual.
-//       Solusi: buang compress: true.
-//    Catatan: scale:2 di html2canvas sudah cukup untuk ketajaman.
-//    PNG tidak dipakai karena file size-nya sangat besar dan
-//    justru makin parah dengan compress. JPEG q:1.0 adalah
-//    keseimbangan terbaik antara ketajaman dan file size.
-//
-// 3. MARGIN TIDAK KONSISTEN → padding clone = 25mm, sesuai paperStyle.
-//
-// 4. HEADING TERPISAH → CSS page-break rules di-inject.
-//
-// 5. HALAMAN 1 TERLALU BANYAK RUANG KOSONG →
-//    padding-top clone (25mm) + marginTop addImage (10mm) = 35mm.
-//    Solusi: halaman pertama menggunakan marginTop = 0.
-//
-// ============================================================
-
+// --- DOWNLOAD PDF (SMART PAGINATION STRATEGY) ---
 const handleDownloadPdf = async () => {
     if (!data) {
-        console.log('❌ Tidak ada data yang tersedia');
+        console.log('❌ No data available');
         return;
     }
 
@@ -129,187 +109,157 @@ const handleDownloadPdf = async () => {
     const startTime = Date.now();
 
     try {
-        console.log('🔄 Memulai ekspor PDF (v4)...');
+        console.log('🔄 Starting Smart PDF Export...');
 
-        // ─── LANGKAH 1: Ambil elemen asli ─────────────────────
         const originalElement = document.getElementById('konten-dokumen');
         if (!originalElement) {
-            throw new Error('Elemen konten "konten-dokumen" tidak ditemukan');
+            throw new Error('Content element "konten-dokumen" not found');
         }
-        console.log('✓ Elemen konten ditemukan');
 
-        // ─── LANGKAH 2: Tunggu MathJax ────────────────────────
+        // 1. Wait for MathJax
         if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
             try {
                 await MathJax.typesetPromise();
-                console.log('✓ MathJax selesai render');
             } catch (e) {
                 console.warn('⚠️ MathJax warning:', e);
-                await new Promise(r => setTimeout(r, 300));
             }
         }
 
-        // ─── LANGKAH 3: Clone ─────────────────────────────────
-        console.log('🔄 Mengkloning elemen konten...');
+        // 2. CLONE ELEMENT & SETUP CONTAINER (Sesuai Referensi)
+        console.log('🔄 Cloning & Setup Container...');
         const clone = originalElement.cloneNode(true) as HTMLElement;
-
-        clone.className = '';
-        Object.assign(clone.style, {
-            margin: '0',
-            padding: '25mm',                          // Sesuai paperStyle
-            width: '210mm',                           // A4
-            maxWidth: 'none',
-            boxShadow: 'none',
-            border: 'none',
-            background: '#ffffff',
-            color: '#000000',
-            fontFamily: "'Cambria', Georgia, serif",
-            fontSize: '11pt',
-            lineHeight: '1.5',
-            overflow: 'visible',
-            height: 'auto',
-            display: 'block',
-            boxSizing: 'border-box'
-        });
-
-        // ─── Inject CSS page-break ────────────────────────────
-        const breakStyle = document.createElement('style');
-        breakStyle.textContent = `
-            table {
-                page-break-inside: auto;
-                border-collapse: collapse;
-            }
-            tr {
-                page-break-inside: avoid;
-                page-break-after: auto;
-            }
-            thead {
-                page-break-after: avoid;
-            }
-            h1, h2, h3, h4, h5, h6 {
-                page-break-after: avoid;
-                page-break-before: auto;
-            }
-            h1 + p, h2 + p, h3 + p, h4 + p {
-                page-break-before: avoid;
-            }
-        `;
-        clone.appendChild(breakStyle);
-
-        // ─── LANGKAH 4: Container virtual ─────────────────────
-        console.log('🔄 Membuat container virtual...');
+        
+        // Setup container tersembunyi untuk clone
         const container = document.createElement('div');
-
-        Object.assign(container.style, {
-            position: 'fixed',
-            top: '-10000px',
-            left: '0',
-            width: '794px',                           // A4 @ 96dpi — layout tetap di sini
-            minHeight: 'auto',
-            zIndex: '-9999',
-            background: '#ffffff',
-            margin: '0',
-            padding: '0'
-        });
-
+        container.style.position = 'absolute';
+        container.style.top = '-9999px';
+        container.style.left = '0';
+        // Paksa lebar tetap agar hasil PDF konsisten (seperti A4)
+        container.style.width = `${PDF_CONFIG.A4_WIDTH_PX}px`;
+        container.style.zIndex = '-9999';
+        container.style.background = '#ffffff';
+        
+        // Reset style clone agar sesuai kertas
+        clone.style.margin = '0';
+        clone.style.padding = '20px'; // Sedikit padding internal
+        clone.style.width = '100%';
+        clone.style.maxWidth = 'none';
+        clone.style.height = 'auto';
+        clone.style.overflow = 'visible';
+        clone.style.boxShadow = 'none';
+        
         container.appendChild(clone);
         document.body.appendChild(container);
 
-        await new Promise(r => setTimeout(r, 600));
+        // Tunggu sebentar agar DOM merender layout clone
+        await new Promise(r => setTimeout(r, 500));
 
-        // ─── Deteksi safe break points ────────────────────────
-        const safeBreakPoints = detectSafeBreakPoints(clone, container);
-        console.log(`✓ Ditemukan ${safeBreakPoints.length} titik potong aman`);
+        // 3. SMART PAGINATION LOGIC (Sesuai Referensi)
+        console.log('🔄 Applying Smart Page Breaks...');
+        
+        const addSmartPageBreaks = (element: HTMLElement) => {
+             const children = Array.from(element.children) as HTMLElement[];
+             let currentHeight = 0;
+             
+             // Tinggi efektif per halaman (dikurangi sedikit margin aman untuk footer/header)
+             // Buffer 40px dari referensi
+             const PAGE_BREAK_THRESHOLD = PDF_CONFIG.A4_HEIGHT_PX - 40; 
+             
+             children.forEach((child) => {
+                 // Hitung tinggi elemen termasuk margin
+                 const style = window.getComputedStyle(child);
+                 const marginTop = parseInt(style.marginTop) || 0;
+                 const marginBottom = parseInt(style.marginBottom) || 0;
+                 const childHeight = child.offsetHeight + marginTop + marginBottom;
+                 
+                 // Cek posisi elemen saat ini
+                 const elementBottom = currentHeight + childHeight;
+                 
+                 // Cek apakah elemen ini menabrak batas halaman
+                 // Rumus: (Posisi Bawah % Tinggi Halaman) < (Tinggi Elemen) 
+                 // Artinya: Elemen mulai di halaman X tapi berakhir di halaman X+1
+                 
+                 const pageNumberStart = Math.floor(currentHeight / PAGE_BREAK_THRESHOLD);
+                 const pageNumberEnd = Math.floor(elementBottom / PAGE_BREAK_THRESHOLD);
+                 
+                 if (pageNumberEnd > pageNumberStart) {
+                     // Elemen ini menyeberang halaman! -> Pindahkan ke halaman berikutnya
+                     console.log(`✂️ Breaking page for element:`, child.tagName, child.innerText.substring(0, 20));
+                     
+                     const spaceNeeded = (PAGE_BREAK_THRESHOLD * pageNumberEnd) - currentHeight;
+                     
+                     // Tambahkan margin top 'palsu' untuk mendorong elemen ke halaman baru
+                     const existingMarginTop = parseInt(child.style.marginTop || '0');
+                     
+                     // +40px buffer agar tidak terlalu mepet atas
+                     child.style.marginTop = `${existingMarginTop + spaceNeeded + 40}px`; 
+                     
+                     // Update currentHeight dengan tambahan margin tadi
+                     currentHeight += spaceNeeded + 40 + childHeight;
+                 } else {
+                     currentHeight += childHeight;
+                 }
+                 
+                 // Rekursif opsional (jika container besar)
+                 // if (child.children.length > 0) addSmartPageBreaks(child);
+             });
+        };
 
-        // ─── LANGKAH 5: Render ke canvas ──────────────────────
-        console.log('🔄 Merender ke canvas...');
+        // Jalankan Smart Pagination pada clone
+        addSmartPageBreaks(clone);
 
+        // 4. RENDER KE CANVAS (High Quality)
+        console.log('🔄 Rendering to canvas...');
         const canvas = await html2canvas(clone, {
-            scale: 2,                                 // Scale 2 cukup untuk ketajaman
-            useCORS: true,
+            scale: PDF_CONFIG.SCALE, // Kunci agar tidak buram!
+            useCORS: true, 
             logging: false,
-            windowWidth: 794,                         // Tetap 794 — sesuai container layout
-            backgroundColor: '#ffffff',
-            allowTaint: true
+            windowWidth: PDF_CONFIG.A4_WIDTH_PX,
+            backgroundColor: '#ffffff'
         });
 
-        console.log(`✓ Canvas: ${canvas.width}x${canvas.height}px`);
-
-        // ─── LANGKAH 6: Buat PDF ──────────────────────────────
-        console.log('🔄 Membuat PDF...');
+        // 5. GENERATE PDF DENGAN SLICING (Tetap menggunakan slicing robust yang sudah ada)
+        // Kita menggunakan hasil canvas dari Smart Pagination, di mana sudah ada "gap" putih
+        // yang dibuat oleh margin-top. Slicing akan memotong tepat di gap tersebut.
+        
         const { jsPDF } = (window as any).jspdf;
-
         const pdf = new jsPDF({
             orientation: 'portrait',
             unit: 'mm',
-            format: 'a4'
-            // ← compress DIHAPUS — compress: true degradasi gambar
+            format: 'a4',
+            compress: true
         });
 
         const pageWidth = 210;
-        const pageHeight = 297;
-        const marginTop = 10;        // Untuk halaman 2+
+        const pageHeight = 297; 
+        const marginTop = 10;
         const marginBottom = 10;
+        const availableHeight = pageHeight - marginTop - marginBottom;
 
         const canvasWidth = canvas.width;
         const canvasHeight = canvas.height;
-
         const mmPerPixel = pageWidth / canvasWidth;
+        const pageHeightInPx = availableHeight / mmPerPixel;
 
-        // Tinggi halaman tersedia untuk halaman normal (2+)
-        const normalAvailableHeight = pageHeight - marginTop - marginBottom;
-        const normalPageHeightInPx = normalAvailableHeight / mmPerPixel;
-
-        // Tinggi halaman tersedia untuk halaman 1 (marginTop = 0)
-        const firstPageAvailableHeight = pageHeight - 0 - marginBottom;
-        const firstPageHeightInPx = firstPageAvailableHeight / mmPerPixel;
-
-        console.log(`Canvas: ${canvasWidth}x${canvasHeight}px`);
-        console.log(`Page height: halaman1=${firstPageHeightInPx.toFixed(0)}px, normal=${normalPageHeightInPx.toFixed(0)}px`);
-
-        // ─── Slicing ──────────────────────────────────────────
         let currentYInPx = 0;
         let pageCount = 0;
 
         while (currentYInPx < canvasHeight) {
-            console.log(`📄 Halaman ${pageCount + 1} (Y dari ${currentYInPx.toFixed(0)}px)...`);
+            if (pageCount > 0) pdf.addPage();
 
-            if (pageCount > 0) {
-                pdf.addPage();
-            }
+            const remainingHeightInPx = canvasHeight - currentYInPx;
+            const sliceHeightInPx = Math.min(pageHeightInPx, remainingHeightInPx);
 
-            // Halaman 1: marginTop = 0, halaman 2+: marginTop = 10mm
-            const isFirstPage = pageCount === 0;
-            const currentMarginTop = isFirstPage ? 0 : marginTop;
-            const currentPageHeightInPx = isFirstPage ? firstPageHeightInPx : normalPageHeightInPx;
-
-            // Titik potong ideal
-            const idealCutY = currentYInPx + currentPageHeightInPx;
-
-            let actualCutY: number;
-
-            if (idealCutY >= canvasHeight) {
-                actualCutY = canvasHeight;
-            } else {
-                actualCutY = findNearestSafeBreak(
-                    safeBreakPoints,
-                    idealCutY,
-                    currentYInPx,
-                    currentPageHeightInPx
-                );
-                console.log(`  → Ideal: ${idealCutY.toFixed(0)}px, Aktual: ${actualCutY.toFixed(0)}px`);
-            }
-
-            const sliceHeightInPx = actualCutY - currentYInPx;
-
-            // Buat slice canvas
             const pageCanvas = document.createElement('canvas');
             pageCanvas.width = canvasWidth;
             pageCanvas.height = sliceHeightInPx;
 
             const ctx = pageCanvas.getContext('2d');
-            if (!ctx) throw new Error('Tidak bisa mendapatkan konteks canvas');
+            if (!ctx) throw new Error('Could not get canvas context');
 
+            // Draw portion of the source canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvasWidth, sliceHeightInPx);
             ctx.drawImage(
                 canvas,
                 0, currentYInPx,
@@ -318,164 +268,51 @@ const handleDownloadPdf = async () => {
                 canvasWidth, sliceHeightInPx
             );
 
-            // ← JPEG quality 1.0: mendekati lossless, file size wajar
-            const pageImageData = pageCanvas.toDataURL('image/jpeg', 1.0);
-
-            // Tambahkan ke PDF
+            const pageImageData = pageCanvas.toDataURL('image/jpeg', 0.95);
             const imgHeightInMm = sliceHeightInPx * mmPerPixel;
-            pdf.addImage(
-                pageImageData,
-                'JPEG',
-                0,
-                currentMarginTop,                     // 0 untuk halaman 1
-                pageWidth,
-                imgHeightInMm
-            );
-
-            // Nomor halaman
+            
+            pdf.addImage(pageImageData, 'JPEG', 0, marginTop, pageWidth, imgHeightInMm);
+            
+            // Footer Page Number
             pdf.setFontSize(8);
-            pdf.setTextColor(180, 180, 180);
-            pdf.text(
-                `${pageCount + 1}`,
-                pageWidth / 2,
-                pageHeight - 5,
-                { align: 'center' }
-            );
+            pdf.setTextColor(150, 150, 150);
+            pdf.text(`${pageCount + 1}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
 
-            currentYInPx = actualCutY;
+            currentYInPx += sliceHeightInPx;
             pageCount++;
-
-            console.log(`✓ Halaman ${pageCount} ditambahkan (tinggi: ${imgHeightInMm.toFixed(2)}mm)`);
         }
 
-        // ─── LANGKAH 7: Simpan ────────────────────────────────
+        // 6. SAVE FILE
         const filename = `Modul Ajar - ${inputData.topic}.pdf`;
         pdf.save(filename);
-        console.log(`✓ PDF disimpan: ${filename}`);
 
+        // Cleanup
         if (container.parentNode) {
             document.body.removeChild(container);
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`✓ Selesai: ${duration}s, ${pageCount} halaman`);
-
         if (typeof Swal !== 'undefined') {
             Swal.fire({
                 icon: 'success',
-                title: 'Berhasil! ✨',
-                html: `
-                    <p style="margin: 10px 0;">PDF berhasil dibuat</p>
-                    <small>
-                        <strong>${pageCount}</strong> halaman |
-                        <strong>${duration}</strong>s
-                    </small>
-                `,
-                timer: 3000
-            });
-        }
-
-    } catch (error: any) {
-        console.error('❌ Kesalahan Ekspor PDF:', error);
-
-        if (typeof Swal !== 'undefined') {
-            Swal.fire({
-                icon: 'info',
-                title: 'Mengalihkan ke Mode Cetak',
-                text: 'Sistem menggunakan mode cetak browser sebagai alternatif.',
-                timer: 2000,
+                title: 'PDF Berhasil Dibuat',
+                html: `<small>Smart Pagination aktif. <br/>Total ${pageCount} halaman dalam ${duration} detik.</small>`,
+                timer: 3000,
                 showConfirmButton: false
             });
         }
 
-        const id = Date.now().toString();
-        localStorage.setItem(
-            `print_data_${id}`,
-            JSON.stringify({ data: data, inputData: inputData })
-        );
-
-        setTimeout(() => {
-            window.open(`/print/${id}`, '_blank');
-        }, 1000);
-
+    } catch (error: any) {
+        console.error('❌ PDF Export Error:', error);
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({ icon: 'error', title: 'Gagal Export PDF', text: 'Mengalihkan ke mode cetak browser...' });
+        }
+        // Fallback ke window.print
+        setTimeout(() => window.print(), 1000);
     } finally {
         setIsDownloadingPdf(false);
-        console.log('🏁 Ekspor PDF selesai');
     }
 };
-
-
-// ============================================================
-// HELPER: Deteksi titik potong yang aman
-// ============================================================
-function detectSafeBreakPoints(
-    clone: HTMLElement,
-    container: HTMLElement
-): number[] {
-    const breakPoints: number[] = [];
-    const containerRect = container.getBoundingClientRect();
-
-    const elements = clone.querySelectorAll(
-        'table, tr, h1, h2, h3, h4, h5, h6, p, .section-block, [class*="mb-"], [class*="mt-"]'
-    );
-
-    elements.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        const elTopY = rect.top - containerRect.top;
-
-        if (el.tagName === 'TABLE') {
-            const rows = el.querySelectorAll('tr');
-            rows.forEach((row) => {
-                const rowRect = row.getBoundingClientRect();
-                const rowTopRelative = rowRect.top - containerRect.top;
-                if (rowTopRelative > 0) {
-                    breakPoints.push(rowTopRelative);
-                }
-            });
-        }
-
-        if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P'].includes(el.tagName)) {
-            if (elTopY > 0) {
-                breakPoints.push(elTopY);
-            }
-        }
-    });
-
-    return [...new Set(breakPoints)].sort((a, b) => a - b);
-}
-
-
-// ============================================================
-// HELPER: Cari titik potong aman terdekat
-// ============================================================
-function findNearestSafeBreak(
-    breakPoints: number[],
-    idealCutY: number,
-    currentY: number,
-    pageHeightInPx: number
-): number {
-    const tolerance = pageHeightInPx * 0.15;
-    const minY = idealCutY - tolerance;
-
-    let bestBreak = -1;
-
-    for (let i = breakPoints.length - 1; i >= 0; i--) {
-        if (breakPoints[i] <= idealCutY && breakPoints[i] >= minY && breakPoints[i] > currentY) {
-            bestBreak = breakPoints[i];
-            break;
-        }
-    }
-
-    if (bestBreak === -1) {
-        console.warn(`⚠️ Tidak ada safe break di sekitar ${idealCutY.toFixed(0)}px`);
-        return idealCutY;
-    }
-
-    return bestBreak;
-    }
-
-
-  
 
   const getMinutesPerJP = (grade: string): string => {
     if (/Kelas (I|II|III|IV|V|VI)\b/.test(grade)) return "35 Menit";

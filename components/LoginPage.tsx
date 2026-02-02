@@ -25,12 +25,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
       if (error) setIsLoggingIn(false);
   }, [error]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
-    onLogin(email, password);
-    // Timeout safety untuk mereset button jika tidak ada respon lama (network hang)
-    setTimeout(() => setIsLoggingIn(false), 8000);
+    
+    try {
+      // Tunggu proses login selesai (sukses/gagal)
+      await onLogin(email, password);
+    } catch (err) {
+      console.error("Login process error:", err);
+    } finally {
+      // Reset loading state hanya setelah proses benar-benar selesai
+      setIsLoggingIn(false);
+    }
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
@@ -227,7 +234,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                                   required
                                   value={forgotData.name}
                                   onChange={e => setForgotData({...forgotData, name: e.target.value})}
-                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 transition"
                               />
                           </div>
                           <div>
@@ -237,7 +244,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                                   required
                                   value={forgotData.email}
                                   onChange={e => setForgotData({...forgotData, email: e.target.value})}
-                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 transition"
                               />
                           </div>
                           <button 
