@@ -4,6 +4,7 @@ import { ArrowLeft, MessageCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { AppSettings, User } from '../types';
 import { saveUser } from '../services/storageService';
 import { swal } from '../services/notificationService';
+import { supabase } from '../lib/supabaseClient';
 
 interface RegisterPageProps {
   onBack: () => void;
@@ -54,29 +55,32 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onBack, settings }) => {
               lastLogin: ''
           };
           
-          // 1. Save to Supabase
+          // 1. Save to Supabase (This might trigger auto-login)
           await saveUser(userPayload);
 
-          // 2. Prepare WhatsApp URL (Format: wa.me)
-          const targetNumber = settings.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, '') : '62839829282'; // Default fallback number
+          // 2. FORCE SIGNOUT to ensure user doesn't enter dashboard as 'pending'
+          await supabase.auth.signOut();
+
+          // 3. Prepare WhatsApp URL (Format: wa.me)
+          const targetNumber = settings.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, '') : '6285191537712'; 
           const message = `Halo Admin Pakar Modul Ajar, saya sudah mendaftar.\n\nNama: ${formData.name}\nEmail: ${formData.email}\nUsername: ${formData.username}\n\nMohon verifikasi akun saya agar bisa login. Terima kasih.`;
           const waUrl = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
           
-          // 3. Show Success & Redirect
-          // REMOVED TIMER: User must click "OK/Kirim WA" to proceed, fixing the redirect timing issue.
+          // 4. Show Success & Redirect
           swal.fire({
               title: 'Pendaftaran Berhasil!',
-              text: 'Klik tombol di bawah untuk verifikasi ke Admin via WhatsApp.',
+              text: 'Akun Anda belum aktif. Klik tombol di bawah untuk verifikasi ke Admin via WhatsApp agar akun diaktifkan.',
               icon: 'success',
-              confirmButtonText: 'Kirim ke WA & Login',
+              confirmButtonText: 'Hubungi Admin & Login',
               confirmButtonColor: '#25D366',
               showCancelButton: false,
               allowOutsideClick: false,
           }).then((result: any) => {
               if (result.isConfirmed) {
-                  // Action saat alert dikonfirmasi user
+                  // Buka WhatsApp di tab baru
                   window.open(waUrl, '_blank');
-                  onBack(); // Redirect ke Halaman Login
+                  // Kembali ke halaman Login di tab ini
+                  onBack(); 
               }
           });
 

@@ -24,7 +24,7 @@ const getEnv = (key: string, fallback: string) => {
 
 const DEFAULT_SETTINGS: AppSettings = {
     promoLink: 'https://instagram.com/muh.alimka',
-    whatsappNumber: '6282335454864',
+    whatsappNumber: '6285191537712', // UPDATED NUMBER
     socialMediaLink: 'https://instagram.com/muh.alimka'
 };
 
@@ -142,8 +142,16 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
         // 4. Validasi Status (Client-Side Check)
         if (profile) {
             if (profile.role !== 'admin') {
-                if (profile.status === 'pending') throw new Error("ACCOUNT_PENDING");
-                if (profile.status === 'inactive') throw new Error("ACCOUNT_INACTIVE");
+                if (profile.status === 'pending') {
+                    // STRICT: Force logout if pending so AuthContext doesn't pick it up
+                    await supabase.auth.signOut();
+                    throw new Error("ACCOUNT_PENDING");
+                }
+                if (profile.status === 'inactive') {
+                    // STRICT: Force logout if inactive
+                    await supabase.auth.signOut();
+                    throw new Error("ACCOUNT_INACTIVE");
+                }
             }
             
             // Map result
