@@ -90,12 +90,33 @@ const convertTableObjectToMarkdown = (tableObj: { headers: string[], rows: strin
     return `${headerRow}\n${separatorRow}\n${dataRows}`;
 };
 
+// --- STRICT LINE BREAK ENGINE ---
+const enforceStrictLineBreaks = (text: string): string => {
+    if (!text) return "";
+    let res = text;
+
+    // 1. Strict List Spacing (Bullet points and Numbering)
+    // Ensure that bullets/numbers not at the start of a line get a newline
+    res = res.replace(/([^\n])\s+([-•]|\d+\.)\s+/g, '$1\n$2 ');
+
+    // 2. Strict Table Spacing
+    // Case A: Separating header from separator line (e.g., | H |---|)
+    res = res.replace(/(\|\s*)(\|[ :\-]+)/g, '$1\n$2');
+    // Case B: Separating rows (e.g., | Val 1 || Val 2 |)
+    res = res.replace(/(\|\s*)(\|)/g, '$1\n$2');
+
+    return res;
+};
+
 // Fungsi 2: Fix Markdown Table Format (Logic Baru: Block Processor)
 const fixMarkdownTableFormat = (text: string): string => {
   // OPTIMASI: Skip jika tidak ada karakter pipa (|)
   if (!text.includes('|')) return text;
 
-  const lines = text.split('\n');
+  // Apply Strict Formatting first to handle single-line tables from AI
+  const strictText = enforceStrictLineBreaks(text);
+
+  const lines = strictText.split('\n');
   const resultLines: string[] = [];
   
   let i = 0;

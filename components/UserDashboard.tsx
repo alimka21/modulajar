@@ -233,19 +233,33 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                 <h1 className="text-2xl font-bold text-slate-800">Halo, {user.name} 👋</h1>
                 <p className="text-slate-500 text-sm mt-1">Kelola identitas modul dan konfigurasi AI Anda di sini.</p>
             </div>
-            <div className="flex flex-col items-end gap-2">
-                <button 
-                    onClick={onGoToGenerator}
-                    disabled={!isFormFilled || !isIdentitySaved}
-                    className={`flex items-center gap-2 font-bold py-3 px-8 rounded-xl shadow-lg transition-all transform ${
-                        isFormFilled && isIdentitySaved
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-xl hover:-translate-y-1' 
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    }`}
-                >
-                    <span>Mulai Buat Modul</span>
-                    <ArrowRight size={20} />
-                </button>
+            
+            <div className="flex flex-col items-end gap-3">
+                <div className="flex flex-wrap justify-end gap-3">
+                    <a 
+                        href="https://docs.google.com/document/d/15p4P6AGsxtK9p910aeazZElcvTWRP24z1SoXYtTpUg0/edit?usp=sharing"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 font-bold py-3 px-6 rounded-xl border-2 border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:border-indigo-200 transition-all shadow-sm"
+                    >
+                        <BookOpen size={20} />
+                        <span>Panduan Aplikasi</span>
+                    </a>
+
+                    <button 
+                        onClick={onGoToGenerator}
+                        disabled={!isFormFilled || !isIdentitySaved}
+                        className={`flex items-center gap-2 font-bold py-3 px-8 rounded-xl shadow-lg transition-all transform ${
+                            isFormFilled && isIdentitySaved
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-xl hover:-translate-y-1' 
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        }`}
+                    >
+                        <span>Mulai Buat Modul</span>
+                        <ArrowRight size={20} />
+                    </button>
+                </div>
+
                 {(!isFormFilled || !isIdentitySaved) && (
                     <span className="text-[11px] text-red-600 font-bold flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-full border border-red-100 animate-pulse">
                         <AlertCircle size={14} /> {isFormFilled ? "Klik Simpan Identitas untuk membuka akses" : "Lengkapi identitas untuk membuka akses"}

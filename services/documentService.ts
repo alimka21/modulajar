@@ -47,6 +47,24 @@ const cleanText = (text: any): string => {
   return str.replace(/💡/g, "").replace(/^>\s*/, "").replace(/\*\*/g, "").replace(/#/g, "").trim();
 };
 
+// --- STRICT FORMATTING ENGINE ---
+const enforceStrictFormatting = (text: string): string => {
+    if (!text) return "";
+    let res = text;
+
+    // 1. Strict List Spacing (Bullet points and Numbering)
+    // Force newline before bullets (-) or numbers (1.) if they are preceded by non-newline characters
+    // Example: "Item 1 - Item 2" -> "Item 1\n- Item 2"
+    res = res.replace(/([^\n])\s+([-•]|\d+\.)\s+/g, '$1\n$2 ');
+
+    // 2. Strict Table Spacing
+    // Case A: Separating header from separator line (e.g., | H |---|)
+    res = res.replace(/(\|\s*)(\|[ :\-]+)/g, '$1\n$2');
+    // Case B: Separating rows (e.g., | Val 1 || Val 2 |) -> Force break between pipes
+    res = res.replace(/(\|\s*)(\|)/g, '$1\n$2');
+
+    return res;
+};
 
 const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] => {
     // Basic Markdown Table Parser
@@ -54,7 +72,10 @@ const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] =>
         return createTableFromMarkdown(text);
     }
 
-    const lines = cleanText(text).split('\n');
+    // APPLY STRICT FORMATTING BEFORE SPLITTING
+    const formattedText = enforceStrictFormatting(cleanText(text));
+    
+    const lines = formattedText.split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
         if (!trimmed) return null;
@@ -88,7 +109,10 @@ const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] =>
 // Simple Markdown Table to Docx Table Converter
 const createTableFromMarkdown = (mdTable: string): any[] => {
     try {
-        const lines = mdTable.split('\n').filter(l => l.trim().length > 0);
+        // APPLY STRICT FORMATTING TO TABLE SOURCE TOO
+        const formattedTable = enforceStrictFormatting(mdTable);
+        
+        const lines = formattedTable.split('\n').filter(l => l.trim().length > 0);
         const validRows = lines.filter(l => l.includes('|') && !l.includes('---')); // Exclude separator lines
         
         if (validRows.length < 1) return [new Paragraph(mdTable)]; // Fallback
