@@ -291,7 +291,7 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        const MAX_HISTORY = 3;
+        const MAX_HISTORY = 5; // Updated to 5 per request
         const { data: currentHistory } = await supabase
             .from('generation_history')
             .select('id')

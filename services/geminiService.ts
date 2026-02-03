@@ -5,12 +5,13 @@ import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, Question
 /**
  * Model fallback strategy:
  * Sistem akan mencoba model urut dari atas ke bawah.
- * Menggunakan model Gemini 3 Series dan 2.0 Flash sesuai pedoman.
+ * Menggunakan model Gemini 3 Series dan 2.5 Series sesuai pedoman.
  */
 const MODEL_PRIORITY = [
   'gemini-3-flash-preview', 
   'gemini-3-pro-preview',   
-  'gemini-2.0-flash-exp'    
+  'gemini-2.5-pro-preview',
+  'gemini-2.5-flash-preview'
 ];
 
 const cleanApiKey = (key: string | null | undefined): string => {

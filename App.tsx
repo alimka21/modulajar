@@ -266,7 +266,7 @@ const AppContent: React.FC = () => {
         const data = await generateMaterials(generatedPlan);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
-        if (user) incrementGenerationCount(user.id);
+        // REMOVED: incrementGenerationCount to avoid double counting on same module
         toast.fire({ icon: 'success', title: 'Materi Ajar Selesai!' });
     } catch (e: any) {
         closeLoading();
@@ -284,7 +284,7 @@ const AppContent: React.FC = () => {
         const data = await generateLKPD(generatedPlan);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
-        if (user) incrementGenerationCount(user.id);
+        // REMOVED: incrementGenerationCount to avoid double counting on same module
         toast.fire({ icon: 'success', title: 'Lembar Kerja Selesai!' });
     } catch (e: any) {
         closeLoading();
@@ -319,7 +319,7 @@ const AppContent: React.FC = () => {
         const data = await generateQuestionBank(generatedPlan, config);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: data }) : null);
-        if (user) incrementGenerationCount(user.id);
+        // REMOVED: incrementGenerationCount to avoid double counting on same module
         toast.fire({ icon: 'success', title: 'Bank Soal Selesai!' });
     } catch (e: any) {
         closeLoading();

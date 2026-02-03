@@ -124,7 +124,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">Email / Username</label>
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">Email</label>
                         <div className="relative group">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                 <Mail className="text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
