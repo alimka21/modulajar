@@ -69,20 +69,19 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
     // UPDATED: Gunakan 'gemini-2.5-flash' untuk tes koneksi.
-    // Alasan: Lebih ringan, stabil, dan kompatibilitas tier lebih luas daripada Gemini 3.
-    // Gemini 3 hanya dipakai saat generate konten berat.
     const modelToTest = 'gemini-2.5-flash';
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
-        // Gunakan timeout pendek untuk validasi
+        // Timeout 15 detik
         const TIMEOUT_MS = 15000;
         
+        // FIX: Gunakan simple string prompt untuk memastikan respon text selalu ada.
+        // Jangan gunakan struktur object {parts: [...]} untuk tes sederhana.
         const fetchPromise = ai.models.generateContent({
             model: modelToTest, 
-            contents: { parts: [{ text: "Tes koneksi server." }] },
-            config: { maxOutputTokens: 10 }
+            contents: "Say Hello", 
         });
 
         const timeoutPromise = new Promise((_, reject) => 
@@ -91,26 +90,41 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 
         const response: any = await Promise.race([fetchPromise, timeoutPromise]);
         
+        // Debugging di console browser (F12)
+        console.log("[Validation Response]", response);
+
         if (response && response.text) {
              return { success: true, message: `✅ Koneksi Berhasil! (Model: ${modelToTest})` };
         }
         
-        return { success: false, message: "❌ Tidak ada respon dari server AI." };
+        // Analisa detail jika gagal mendapatkan text
+        if (response?.candidates?.length === 0) {
+             return { success: false, message: "❌ Server merespon tapi jawaban kosong (Safety Filter/Blocked)." };
+        }
+        
+        return { success: false, message: "❌ Tidak ada respon teks dari server AI." };
 
     } catch (error: any) {
+        console.error("[Validation Error]", error);
         const errorMsg = (error.message || String(error)).toLowerCase();
         
         if (errorMsg.includes("failed to fetch") || errorMsg.includes("network error") || errorMsg.includes("typeerror")) {
             return { success: false, message: "❌ Gagal Terhubung (Network Error). Periksa internet/DNS Anda." };
         }
-        if (errorMsg.includes("400") || errorMsg.includes("invalid_argument")) {
-             return { success: false, message: "❌ API Key Salah atau Format Tidak Valid." };
+        if (errorMsg.includes("400") || errorMsg.includes("invalid_argument") || errorMsg.includes("invalid api key")) {
+             return { success: false, message: "❌ API Key Salah / Format Tidak Valid." };
+        }
+        if (errorMsg.includes("403") || errorMsg.includes("permission_denied")) {
+             return { success: false, message: "❌ API Key Ditolak (403). Cek batasan IP/Project di Google Console." };
         }
         if (errorMsg.includes("401") || errorMsg.includes("unauthenticated")) {
              return { success: false, message: "❌ API Key Tidak Dikenal (401)." };
         }
         if (errorMsg.includes("404") || errorMsg.includes("not_found")) {
-             return { success: false, message: `❌ Model AI Tidak Ditemukan (404). Cek ketersediaan ${modelToTest}.` };
+             return { success: false, message: `❌ Model AI Tidak Ditemukan (404).` };
+        }
+        if (errorMsg.includes("429") || errorMsg.includes("quota")) {
+             return { success: false, message: "❌ Kuota API Key Habis (429)." };
         }
         
         return { success: false, message: `❌ Error: ${errorMsg.substring(0, 100)}...` };
