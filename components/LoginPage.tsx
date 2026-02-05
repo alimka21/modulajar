@@ -69,7 +69,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToRegister, settings
                 PAKAR MODUL AJAR <br/> <span className="text-blue-200">AI GENERATOR</span>
             </h1>
             <p className="text-blue-100 text-lg font-medium leading-relaxed mb-8">
-                Platform cerdas penyusun Modul Ajar Berbasis Pembelajaran Mendalam. Hemat waktu dan hasil presisi
+                Platform cerdas penyusun Modul Ajar Berbasis Pembelajaran Mendalam. Hemat waktu dan hasil presisi, terintegrasi semua komponen
             </p>
             
             {/* DEVELOPER INFO - SINGLE LINE - LEFT SIDE */}
