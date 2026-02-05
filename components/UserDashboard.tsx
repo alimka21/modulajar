@@ -38,13 +38,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       // Ambil key dari user (DB) atau session, lakukan sanitasi basic
       const currentKey = (user.apiKey || sessionStorage.getItem('custom_api_key') || '').trim();
       setApiKey(currentKey);
+      
+      // FIX: Ensure sync to sessionStorage so other services can see it immediately
       if (currentKey && currentKey.length > 10) {
+          sessionStorage.setItem('custom_api_key', currentKey);
           setKeyStatus('VALID');
           setIsKeyValidated(true);
           setIsEditingKey(false);
       } else {
+          sessionStorage.removeItem('custom_api_key');
           setIsEditingKey(true);
       }
+      
       setIdentityData(schoolIdentity);
       loadHistoryData();
       

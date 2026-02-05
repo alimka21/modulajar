@@ -238,7 +238,8 @@ const AppContent: React.FC = () => {
     setIsLoading(true);
     showLoading('Menyusun RPM', 'AI sedang menganalisis kurikulum dan menyusun langkah pembelajaran...');
     try {
-      const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
+      // FIX: Pass user.apiKey explicitly
+      const rppResult = await generateRPP(schoolIdentity, lessonIdentity, user?.apiKey);
       closeLoading();
       setGeneratedPlan(rppResult);
       if (user) incrementGenerationCount(user.id);
@@ -263,7 +264,8 @@ const AppContent: React.FC = () => {
     setIsGeneratingMaterials(true);
     showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
     try {
-        const data = await generateMaterials(generatedPlan);
+        // FIX: Pass user.apiKey explicitly
+        const data = await generateMaterials(generatedPlan, user?.apiKey);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, materials: data }) : null);
         // REMOVED: incrementGenerationCount to avoid double counting on same module
@@ -281,7 +283,8 @@ const AppContent: React.FC = () => {
     setIsGeneratingLKPD(true);
     showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
     try {
-        const data = await generateLKPD(generatedPlan);
+        // FIX: Pass user.apiKey explicitly
+        const data = await generateLKPD(generatedPlan, user?.apiKey);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, lkpd: data }) : null);
         // REMOVED: incrementGenerationCount to avoid double counting on same module
@@ -299,7 +302,8 @@ const AppContent: React.FC = () => {
     setIsGeneratingAssessment(true);
     showLoading('Menyusun Asesmen...', 'Sinkronisasi instrumen evaluasi...');
     try {
-        const data = await generateAssessment(generatedPlan);
+        // FIX: Pass user.apiKey explicitly
+        const data = await generateAssessment(generatedPlan, user?.apiKey);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, assessment: data }) : null);
         toast.fire({ icon: 'success', title: 'Asesmen Selesai!' });
@@ -316,7 +320,8 @@ const AppContent: React.FC = () => {
     setIsGeneratingQuestionBank(true);
     showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
     try {
-        const data = await generateQuestionBank(generatedPlan, config);
+        // FIX: Pass user.apiKey explicitly
+        const data = await generateQuestionBank(generatedPlan, config, user?.apiKey);
         closeLoading();
         setGeneratedPlan(prev => prev ? ({ ...prev, questionBank: data }) : null);
         // REMOVED: incrementGenerationCount to avoid double counting on same module

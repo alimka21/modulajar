@@ -5,13 +5,14 @@ import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, Question
 /**
  * Model fallback strategy:
  * Sistem akan mencoba model urut dari atas ke bawah.
- * Menggunakan model Gemini 3 Series dan 2.5 Series sesuai pedoman.
+ * Update (Feb 2026): Menggunakan versi stabil Gemini 3 dan 2.5.
+ * Versi "-preview" dan seri 2.0/1.5 telah deprecated/removed.
  */
 const MODEL_PRIORITY = [
-  'gemini-3-flash-preview', 
-  'gemini-3-pro-preview',   
-  'gemini-2.5-pro-preview',
-  'gemini-2.5-flash-preview'
+  'gemini-3-flash',
+  'gemini-3-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro'
 ];
 
 const cleanApiKey = (key: string | null | undefined): string => {
@@ -25,19 +26,30 @@ const getSystemApiKey = (): string => {
   return cleanApiKey(key);
 };
 
-const getClientInfo = () => {
-  // 1. Cek Custom Key dari User (Session Storage)
+// MODIFIED: Accepts optional providedApiKey (Highest Priority)
+const getClientInfo = (providedApiKey?: string) => {
+  // 1. Cek API Key yang dikirim langsung via Parameter (Paling Aman & Konsisten)
+  let directKey = cleanApiKey(providedApiKey);
+  if (directKey && directKey.length > 10) {
+      return {
+          client: new GoogleGenAI({ apiKey: directKey }),
+          apiKeySource: 'direct_param',
+          apiKey: directKey
+      };
+  }
+
+  // 2. Cek Custom Key dari User (Session Storage - Fallback Legacy)
   let userApiKey = cleanApiKey(sessionStorage.getItem('custom_api_key'));
   
   if (userApiKey && userApiKey.length > 10) {
     return { 
       client: new GoogleGenAI({ apiKey: userApiKey }), 
-      apiKeySource: 'custom',
+      apiKeySource: 'custom_session',
       apiKey: userApiKey
     };
   }
 
-  // 2. Fallback ke System Key (Vercel Env)
+  // 3. Fallback ke System Key (Vercel Env)
   const systemKey = getSystemApiKey();
   
   if (!systemKey || systemKey.length < 10) {
@@ -47,7 +59,7 @@ const getClientInfo = () => {
   
   return { 
     client: new GoogleGenAI({ apiKey: systemKey }), 
-    apiKeySource: 'default',
+    apiKeySource: 'default_system',
     apiKey: systemKey
   };
 };
@@ -56,9 +68,13 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
+    // UPDATED: Gunakan 'gemini-2.5-flash' untuk tes koneksi.
+    // Alasan: Lebih ringan, stabil, dan kompatibilitas tier lebih luas daripada Gemini 3.
+    // Gemini 3 hanya dipakai saat generate konten berat.
+    const modelToTest = 'gemini-2.5-flash';
+
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        const modelToTest = 'gemini-3-flash-preview';
 
         // Gunakan timeout pendek untuk validasi
         const TIMEOUT_MS = 15000;
@@ -92,6 +108,9 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
         }
         if (errorMsg.includes("401") || errorMsg.includes("unauthenticated")) {
              return { success: false, message: "❌ API Key Tidak Dikenal (401)." };
+        }
+        if (errorMsg.includes("404") || errorMsg.includes("not_found")) {
+             return { success: false, message: `❌ Model AI Tidak Ditemukan (404). Cek ketersediaan ${modelToTest}.` };
         }
         
         return { success: false, message: `❌ Error: ${errorMsg.substring(0, 100)}...` };
@@ -177,6 +196,7 @@ const generateWithRetry = async (
   prompt: string, 
   schema: Schema, 
   systemInstruction: string = DEEP_LEARNING_INSTRUCTION,
+  apiKey?: string // Added apiKey parameter
 ): Promise<any> => {
   let clientInfo: any;
   let lastError: any = null;
@@ -184,7 +204,8 @@ const generateWithRetry = async (
   for (let i = 0; i < MODEL_PRIORITY.length; i++) {
     const currentModel = MODEL_PRIORITY[i];
     try {
-      clientInfo = getClientInfo(); 
+      // Pass apiKey to getClientInfo
+      clientInfo = getClientInfo(apiKey); 
       const { client } = clientInfo;
       console.log(`[Generate] Trying model: ${currentModel}`);
 
@@ -250,16 +271,14 @@ const generateWithRetry = async (
       throw new Error("Gagal terhubung ke server AI (Network Error). Periksa koneksi internet Anda.");
   }
   
-  throw lastError || new Error("Gagal generate konten. Server AI sibuk atau API Key bermasalah.");
+  throw lastError || new Error("Gagal generate konten. Server AI sibuk atau model tidak tersedia.");
 };
 
-// --- WRAPPER FUNCTIONS ---
+// --- WRAPPER FUNCTIONS (UPDATED TO ACCEPT apiKey) ---
 
-export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity): Promise<GeneratedLessonPlan> => {
+export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity, apiKey?: string): Promise<GeneratedLessonPlan> => {
   const meetingNum = parseInt((lessonData.meetingCount || '1').split(' ')[0]) || 1;
   const complexity = getComplexityInstruction(lessonData.grade);
-  
-  // NOTE: timeAllocation dikirim ke AI, tapi nanti di-overwrite agar sesuai input user persis
   
   const prompt = `
     Susun MODUL AJAR (RPM) Deep Learning.
@@ -280,9 +299,8 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     Wajib JSON Valid.
   `;
   
-  const aiResult = await generateWithRetry(prompt, RPP_SCHEMA);
+  const aiResult = await generateWithRetry(prompt, RPP_SCHEMA, undefined, apiKey);
   
-  // FIX ISSUE 1: Paksa timeAllocation sesuai input user, jangan biarkan AI menghitung ulang (misal 2 JP jadi 4 JP)
   if (aiResult.identitySection) {
       aiResult.identitySection.timeAllocation = lessonData.timeAllocation;
   }
@@ -300,7 +318,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   };
 };
 
-export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<MaterialsData> => {
+export const generateMaterials = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<MaterialsData> => {
     const complexity = getComplexityInstruction(rppData.identitySection.grade);
     
     const prompt = `Buat Materi Ajar: ${rppData.identitySection.topic}. 
@@ -315,13 +333,12 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<M
     3. Tabel Visual: WAJIB format TABLE OBJECT (headers, rows).
     4. Trivia: Fakta unik.
     Output JSON.`;
-    return await generateWithRetry(prompt, MATERIALS_SCHEMA);
+    return await generateWithRetry(prompt, MATERIALS_SCHEMA, undefined, apiKey);
 };
 
-export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
+export const generateLKPD = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<LKPDData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
-  // FIX 2: Paksa format aktivitas spesifik (Level 1: Soal, Level 2: Tabel, Level 3: Bullet)
   const prompt = `Buat Lembar Kerja Murid (Tanpa kata "LKPD" di judul): ${rppData.identitySection.topic}.
   Mata Pelajaran: ${rppData.identitySection.subject}.
   Tujuan Pembelajaran: ${rppData.design.objectives.join(", ")}.
@@ -334,10 +351,10 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDDa
   4. Tujuan Pembelajaran: Tulis dalam bentuk list poin (bullet points).
   5. Gunakan kata "Murid".
   Output JSON.`;
-  return await generateWithRetry(prompt, LKPD_SCHEMA);
+  return await generateWithRetry(prompt, LKPD_SCHEMA, undefined, apiKey);
 };
 
-export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
+export const generateAssessment = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<DeepLearningAssessment> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
   const prompt = `Buat Asesmen Deep Learning: KKTP, Rubrik, Checklist, Kisi-kisi Sumatif. 
@@ -347,14 +364,13 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<
   ${complexity}
   Output JSON.`;
   
-  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA, ASSESSMENT_INSTRUCTION);
+  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA, ASSESSMENT_INSTRUCTION, apiKey);
 };
 
-export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
+export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig, apiKey?: string): Promise<QuestionBankData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   const grade = rppData.identitySection.grade.toLowerCase();
   
-  // FIX ISSUE 4: HOTS Instruction
   const hotsInstruction = config.level === 'HOTS' 
     ? "STIMULUS WAJIB PANJANG (minimal 2 paragraf), mendalam, berupa studi kasus/data riil, menuntut analisis kompleks (C4-C6). Jangan buat soal ingatan/hapalan."
     : "";
@@ -377,7 +393,7 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
   3. Benar/Salah: Soal berupa pernyataan.
   4. Gunakan kata "Murid".
   Output JSON.`;
-  return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
+  return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA, undefined, apiKey);
 };
 
 // --- SCHEMAS ---
