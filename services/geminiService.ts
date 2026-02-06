@@ -197,6 +197,81 @@ ATURAN STRICT:
 6. OUTPUT: JSON VALID dengan structure yang tepat.
 `;
 
+/**
+ * HEDGED REQUEST STRATEGY (PARALLEL RACING)
+ * Strategy: A starts -> 8s -> B starts. First success wins.
+ */
+const generateWithHedging = async (
+    client: GoogleGenAI, 
+    model: string, 
+    prompt: string, 
+    config: any
+): Promise<any> => {
+    const HEDGE_DELAY_MS = 8000; // 8 Seconds Delay for Backup Request
+
+    return new Promise((resolve, reject) => {
+        let isResolved = false;
+        let activeRequests = 0;
+        let failedRequests = 0;
+        let backupTimer: ReturnType<typeof setTimeout> | null = null;
+        let hasTriggeredBackup = false;
+
+        // Function to execute a single request
+        const triggerRequest = async (label: string) => {
+            activeRequests++;
+            console.log(`[Hedge] Starting ${label} (${model})...`);
+            
+            try {
+                const response = await client.models.generateContent({
+                    model,
+                    contents: prompt,
+                    config
+                });
+
+                // Race Condition Check: If already won, ignore this result
+                if (!isResolved) {
+                    isResolved = true;
+                    if (backupTimer) clearTimeout(backupTimer); // Clear pending backup
+                    console.log(`[Hedge] WINNER: ${label}`);
+                    resolve(response);
+                }
+            } catch (error: any) {
+                console.warn(`[Hedge] FAILED: ${label}`, error.message);
+                failedRequests++;
+                
+                // If Request A fails fast (<8s), trigger backup IMMEDIATELY if not running
+                if (label === 'Request-A' && !isResolved && !hasTriggeredBackup) {
+                    console.log("[Hedge] Request-A failed early. Triggering Backup immediately.");
+                    if (backupTimer) clearTimeout(backupTimer);
+                    hasTriggeredBackup = true;
+                    triggerRequest('Request-B');
+                    return;
+                }
+
+                // If both requests failed, reject the main promise
+                if (failedRequests >= 2) {
+                    // Only reject if we haven't resolved yet
+                    if (!isResolved) reject(error);
+                }
+                
+                // If Request A failed, and B is running, we just wait for B.
+            }
+        };
+
+        // 1. Start Request A Immediately
+        triggerRequest('Request-A');
+
+        // 2. Schedule Request B (Backup)
+        backupTimer = setTimeout(() => {
+            if (!isResolved && !hasTriggeredBackup) {
+                console.log("[Hedge] 8s Timeout passed. Triggering Backup Request-B...");
+                hasTriggeredBackup = true;
+                triggerRequest('Request-B');
+            }
+        }, HEDGE_DELAY_MS);
+    });
+};
+
 const generateWithRetry = async (
   prompt: string, 
   schema: Schema, 
@@ -211,22 +286,20 @@ const generateWithRetry = async (
       // Get client info from TokenManager or Env
       clientInfo = getClientInfo(); 
       const { client } = clientInfo;
-      console.log(`[Generate] Trying model: ${currentModel}`);
-
-      // Timeout 90 detik untuk konten panjang
-      const TIMEOUT_MS = 90000; 
       
-      const fetchPromise = client.models.generateContent({
-        model: currentModel,
-        contents: prompt,
-        config: {
+      const config = {
           responseMimeType: "application/json",
           responseSchema: schema,
           systemInstruction: systemInstruction,
           temperature: 0.7, 
           maxOutputTokens: 8000,
-        }
-      });
+      };
+
+      // Timeout 90 detik total untuk race hedged request
+      const TIMEOUT_MS = 90000; 
+
+      // Execute Hedged Request (Flash A vs Flash B)
+      const fetchPromise = generateWithHedging(client, currentModel, prompt, config);
 
       const response: any = await Promise.race([
           fetchPromise,
@@ -247,7 +320,7 @@ const generateWithRetry = async (
     } catch (error: any) {
       lastError = error;
       const msg = (error.message || String(error)).toLowerCase();
-      console.warn(`[Generate] Failed with ${currentModel}:`, msg);
+      console.warn(`[Generate] Model ${currentModel} exhausted:`, msg);
       
       // Handle Network Error (Failed to fetch) specially
       if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('network request failed')) {
