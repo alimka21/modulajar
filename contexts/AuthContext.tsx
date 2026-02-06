@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { User } from "../types";
 import { mapSessionToUser } from "../services/storageService";
 import { swal } from "../services/notificationService";
+import { tokenManager } from "../services/tokenManager";
 
 // 3 Jam dalam milidetik
 const IDLE_TIMEOUT = 10800000;
@@ -34,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!session) {
       setUser(null);
       sessionStorage.removeItem('custom_api_key');
+      tokenManager.clearKey();
       setLoading(false);
       return;
     }
@@ -44,20 +46,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (mappedUser) {
         setUser(mappedUser);
+        
+        // 1. Set TokenManager (Singleton) for Service access
+        tokenManager.setKey(mappedUser.apiKey || null);
+
+        // 2. Set Session Storage (Legacy/UI Persistence)
         if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
             sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
         } else {
             sessionStorage.removeItem('custom_api_key');
         }
+        
         resetIdleTimer();
       } else {
         // Sesi ada, tapi profil DB tidak ditemukan
         console.warn("User authenticated but no profile found.");
         setUser(null);
+        tokenManager.clearKey();
       }
     } catch (error) {
       console.error("Auth Context Error:", error);
       setUser(null);
+      tokenManager.clearKey();
     } finally {
       setLoading(false);
     }
@@ -78,6 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.auth.signOut();
       setUser(null);
       sessionStorage.removeItem('custom_api_key');
+      tokenManager.clearKey();
       swal.fire({
         icon: 'warning',
         title: 'Sesi Berakhir',
@@ -112,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (event === 'SIGNED_OUT') {
           setUser(null);
           sessionStorage.removeItem('custom_api_key');
+          tokenManager.clearKey();
           setLoading(false);
       }
     });

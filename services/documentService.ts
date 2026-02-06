@@ -32,7 +32,6 @@ const TABLE_BORDERS_FULL = {
 
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  // Use "Murid" (Title Case) instead of "murid" (lowercase) for better aesthetics
   if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'Murid');
   if (typeof val === 'number') return String(val);
   if (Array.isArray(val)) return val.map(safeString).join(", ");
@@ -43,8 +42,15 @@ const safeString = (val: any): string => {
 const cleanText = (text: any): string => {
   const str = safeString(text);
   if (!str) return "";
-  // Remove markdown bold/italic markers but keep content
-  return str.replace(/💡/g, "").replace(/^>\s*/, "").replace(/\*\*/g, "").replace(/#/g, "").trim();
+  // Remove markdown bold/italic/latex markers but keep content
+  // Also handle basic XML escaping implicitly by removing dangerous control chars if any
+  return str
+    .replace(/💡/g, "")
+    .replace(/^>\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/#/g, "")
+    .replace(/\$/g, "") // Remove LaTeX delimiters to prevent confusion
+    .trim();
 };
 
 // --- STRICT FORMATTING ENGINE ---
@@ -52,15 +58,11 @@ const enforceStrictFormatting = (text: string): string => {
     if (!text) return "";
     let res = text;
 
-    // 1. Strict List Spacing (Bullet points and Numbering)
-    // Force newline before bullets (-) or numbers (1.) if they are preceded by non-newline characters
-    // Example: "Item 1 - Item 2" -> "Item 1\n- Item 2"
+    // 1. Strict List Spacing
     res = res.replace(/([^\n])\s+([-•]|\d+\.)\s+/g, '$1\n$2 ');
 
     // 2. Strict Table Spacing
-    // Case A: Separating header from separator line (e.g., | H |---|)
     res = res.replace(/(\|\s*)(\|[ :\-]+)/g, '$1\n$2');
-    // Case B: Separating rows (e.g., | Val 1 || Val 2 |) -> Force break between pipes
     res = res.replace(/(\|\s*)(\|)/g, '$1\n$2');
 
     return res;
@@ -72,29 +74,27 @@ const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] =>
         return createTableFromMarkdown(text);
     }
 
-    // APPLY STRICT FORMATTING BEFORE SPLITTING
     const formattedText = enforceStrictFormatting(cleanText(text));
     
     const lines = formattedText.split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
         if (!trimmed) return null;
-        // Simple bullet handling
+        
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
              return new Paragraph({
                 children: [new TextRun({ text: trimmed.substring(2), font: FONT_FACE, size: SIZE_BODY })],
                 bullet: { level: 0 },
                 spacing: { after: 120, line: LINE_SPACING_BODY },
-                alignment: AlignmentType.BOTH // List items also justified
+                alignment: AlignmentType.BOTH
              });
         }
-        // Numbered list approximation (1. , 2. , etc)
-        // FIX 3: Improved indentation for numbered lists to aligned neatly
+        
         if (/^\d+\./.test(trimmed)) {
              return new Paragraph({
                 children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
                 spacing: { after: 120, line: LINE_SPACING_BODY },
-                indent: { left: 720, hanging: 360 }, // Hanging indent for "1. " (Approx 0.63cm)
+                indent: { left: 720, hanging: 360 }, 
                 alignment: AlignmentType.BOTH
              });
         }
@@ -106,53 +106,91 @@ const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] =>
     }).filter(Boolean);
 };
 
-// Simple Markdown Table to Docx Table Converter
+// --- ROBUST TABLE PARSER (Prevents "Word experienced an error") ---
 const createTableFromMarkdown = (mdTable: string): any[] => {
     try {
-        // APPLY STRICT FORMATTING TO TABLE SOURCE TOO
         const formattedTable = enforceStrictFormatting(mdTable);
-        
         const lines = formattedTable.split('\n').filter(l => l.trim().length > 0);
-        const validRows = lines.filter(l => l.includes('|') && !l.includes('---')); // Exclude separator lines
         
-        if (validRows.length < 1) return [new Paragraph(mdTable)]; // Fallback
+        // Helper to safely split cells, ignoring outer pipes
+        const parseCells = (rowStr: string) => {
+             return rowStr.trim()
+                .replace(/^\|/, '') // Remove leading pipe
+                .replace(/\|$/, '') // Remove trailing pipe
+                .split('|')
+                .map(c => c.trim());
+        };
 
-        const rows = validRows.map((line, rowIndex) => {
-            // Split by pipe, ignore first/last empty elements from leading/trailing pipes
-            const cells = line.split('|').map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+        // 1. Find the Header Row (First valid row)
+        const headerRowIndex = lines.findIndex(l => l.includes('|') && !l.includes('---'));
+        if (headerRowIndex === -1) return [new Paragraph(mdTable)];
+
+        const headerCells = parseCells(lines[headerRowIndex]);
+        const columnCount = headerCells.length; // THIS IS THE SOURCE OF TRUTH
+
+        if (columnCount === 0) return [new Paragraph(mdTable)];
+
+        const rows: TableRow[] = [];
+
+        // 2. Process all rows (Header + Data)
+        lines.forEach((line, idx) => {
+            // Skip Separator Rows
+            if (line.includes('---')) return;
+            // Skip non-table lines
+            if (!line.includes('|')) return;
+
+            let cells = parseCells(line);
+
+            // 3. NORMALIZE COLUMNS (CRITICAL FIX)
+            // Ensure every row has exactly 'columnCount' cells
+            if (cells.length < columnCount) {
+                // Pad missing cells with empty strings
+                const missingCount = columnCount - cells.length;
+                for(let i=0; i<missingCount; i++) cells.push("");
+            } else if (cells.length > columnCount) {
+                // Truncate extra cells
+                cells = cells.slice(0, columnCount);
+            }
+
+            // Create DOCX Row
+            const isHeader = rows.length === 0; // First row added is header
             
-            return new TableRow({
+            const tableRow = new TableRow({
                 children: cells.map(cellText => new TableCell({
                     children: [new Paragraph({ 
-                        children: [new TextRun({ text: cellText, font: FONT_FACE, size: SIZE_BODY, bold: rowIndex === 0 })],
-                        alignment: AlignmentType.LEFT // FIX 1: Table content LEFT aligned
+                        children: [new TextRun({ text: cleanText(cellText), font: FONT_FACE, size: SIZE_BODY, bold: isHeader })],
+                        alignment: isHeader ? AlignmentType.CENTER : AlignmentType.LEFT
                     })],
                     margins: CELL_MARGIN,
-                    shading: rowIndex === 0 ? { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" } : undefined
+                    shading: isHeader ? { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" } : undefined,
+                    width: { size: 100 / columnCount, type: WidthType.PERCENTAGE }, // Distribute width evenly
+                    borders: TABLE_BORDERS_FULL
                 }))
             });
+
+            rows.push(tableRow);
         });
 
         return [new Table({
             rows: rows,
             width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: TABLE_BORDERS_FULL // Explicitly add borders to all generated tables
-        }), new Paragraph("")]; // Add spacer
+            borders: TABLE_BORDERS_FULL 
+        }), new Paragraph("")]; 
+
     } catch (e) {
-        return [new Paragraph(mdTable)];
+        console.error("Table Generation Error:", e);
+        return [new Paragraph(mdTable)]; // Fallback to raw text if fail
     }
 };
 
 export const downloadDocx = async (data: GeneratedLessonPlan, settings: DocumentSettings) => {
-  // HELPERS
   const createText = (text: string, options?: any) => new TextRun({
       text: text, font: FONT_FACE, size: SIZE_BODY, color: "000000", ...options
   });
 
-  // FIX 1: Default Alignment Changed to BOTH (Justify)
   const createPara = (children: any[], options?: any) => new Paragraph({
       children: children,
-      alignment: AlignmentType.BOTH, // Default Justify
+      alignment: AlignmentType.BOTH, 
       spacing: { line: LINE_SPACING_BODY, after: SPACING_AFTER_PARA, ...options?.spacing },
       ...options
   });
@@ -160,7 +198,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   const createHeading = (text: string) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H1 })], { alignment: AlignmentType.CENTER, spacing: { before: 0, after: 240, line: LINE_SPACING_BODY } });
   
   const createSectionTitle = (text: string, pageBreak = false) => createPara([createText(safeString(text).toUpperCase(), { bold: true, size: SIZE_H2 })], { 
-      alignment: AlignmentType.LEFT,  // Section Titles Left
+      alignment: AlignmentType.LEFT,  
       spacing: { before: 240, after: 240, line: LINE_SPACING_BODY }, 
       pageBreakBefore: pageBreak, 
       keepNext: true, 
@@ -168,7 +206,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   });
   
   const createSubSectionTitle = (text: string, hasUnderline = true) => createPara([createText(safeString(text), { bold: true, size: SIZE_H3 })], { 
-      alignment: AlignmentType.LEFT, // Sub Section Left
+      alignment: AlignmentType.LEFT, 
       spacing: { before: 240, after: 80, line: LINE_SPACING_BODY }, 
       keepNext: true, 
       border: hasUnderline ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLOR_ACCENT } } : undefined 
@@ -185,13 +223,11 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   // 1. RPP Content
   const createIdentityTable = (data: GeneratedLessonPlan) => {
-    // Safety fallback
     const approval = data.approval || { authorName: '-' };
     
-    // Helper for table cell paragraphs (Force LEFT alignment)
     const createCellPara = (text: string, bold = false) => new Paragraph({
         children: [createText(text, { bold })],
-        alignment: AlignmentType.LEFT, // FIX 1: Table content LEFT
+        alignment: AlignmentType.LEFT, 
         spacing: { after: 0, line: LINE_SPACING_TABLE }
     });
 
@@ -217,7 +253,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     });
   };
 
-  // Build the dynamic RPP sections - USE ANY[] TO AVOID TYPE ERRORS
   const rppSections: any[] = [
       createHeading("MODUL AJAR"),
       createTopicSubTitle(`TOPIK: ${safeString(data.identitySection.topic)}`),
@@ -284,13 +319,11 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   });
 
 
-  // 1. ASSESSMENT GENERATOR - USE ANY[]
   const createAssessmentSection = (assessment: DeepLearningAssessment | undefined): any[] => {
     if (!assessment) return [];
     
     const elements: any[] = [];
     
-    // Helper specifically for Assessment Tables (Force LEFT)
     const createTablePara = (text: string, bold = false) => new Paragraph({
         children: [createText(text, { bold })],
         alignment: AlignmentType.LEFT 
@@ -324,7 +357,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     
     elements.push(createSubSectionTitle("2. Asesmen Formatif"));
     
-    // Checklist
     if (assessment.formative.checklist.length > 0) {
         elements.push(createPara([createText("A. Checklist Observasi", { bold: true })]));
         const checkRows = assessment.formative.checklist.map((item, idx) => new TableRow({
@@ -350,9 +382,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     elements.push(createPara([createText("B. Tangga Umpan Balik", { bold: true })], { spacing: { before: 240, after: 120 } }));
     
     if (assessment.formative.feedbackGuide) {
-        elements.push(createListItem(`Klarifikasi: ${assessment.formative.feedbackGuide.clarification}`));
-        elements.push(createListItem(`Apresiasi: ${assessment.formative.feedbackGuide.appreciation}`));
-        elements.push(createListItem(`Saran: ${assessment.formative.feedbackGuide.suggestion}`));
+        elements.push(createListItem(`Klarifikasi: ${cleanText(assessment.formative.feedbackGuide.clarification)}`));
+        elements.push(createListItem(`Apresiasi: ${cleanText(assessment.formative.feedbackGuide.appreciation)}`));
+        elements.push(createListItem(`Saran: ${cleanText(assessment.formative.feedbackGuide.suggestion)}`));
     }
     
     elements.push(new Paragraph(""));
@@ -382,7 +414,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     return elements;
   };
 
-  // ADDED: REFLECTION SECTION GENERATOR
   const createReflectionSection = (reflection: any): any[] => {
       if (!reflection) return [];
       const elements: any[] = [];
@@ -398,34 +429,30 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       return elements;
   };
 
-  // ADDED: APPROVAL / SIGNATURE SECTION GENERATOR
   const createApprovalSection = (approval: any): any[] => {
       if (!approval) return [];
       
-      // Invisible table for layout (2 columns)
       const sigTable = new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
           rows: [
               new TableRow({
                   children: [
-                      // Left Cell: Kepala Sekolah
                       new TableCell({
                           children: [
                               createPara([createText("Mengetahui,")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                               createPara([createText("Kepala Sekolah")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
-                              createPara([createText("")], { spacing: { before: 800 } }), // Space for signature
+                              createPara([createText("")], { spacing: { before: 800 } }), 
                               createPara([createText(approval.principalName, { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                               createPara([createText(`NIP. ${approval.principalNip}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                           ],
                           width: { size: 50, type: WidthType.PERCENTAGE },
                           borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
                       }),
-                      // Right Cell: Guru Mapel
                       new TableCell({
                           children: [
                               createPara([createText(`${approval.location}, ${approval.date}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                               createPara([createText("Guru Mata Pelajaran")], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
-                              createPara([createText("")], { spacing: { before: 800 } }), // Space for signature
+                              createPara([createText("")], { spacing: { before: 800 } }), 
                               createPara([createText(approval.authorName, { bold: true, underline: true })], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                               createPara([createText(`NIP. ${approval.authorNip}`)], { alignment: AlignmentType.CENTER, spacing: { line: LINE_SPACING_SIG } }),
                           ],
@@ -450,7 +477,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       elements.push(createSubSectionTitle("Pemantik"));
       elements.push(...createMultilineText(materials.pemantik));
 
-      // FIX 1: Tampilkan Sub Topik di Export
       if (materials.subTopik && materials.subTopik.length > 0) {
           elements.push(createSubSectionTitle("Sub Topik"));
           materials.subTopik.forEach(topic => elements.push(createListItem(topic)));
@@ -464,7 +490,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       
       elements.push(createPara([createText("Visualisasi:", { bold: true })]));
       
-      // Handle Table Visual - Object vs String
       if (typeof materials.konsepInti.tabelVisual === 'object' && materials.konsepInti.tabelVisual !== null && !Array.isArray(materials.konsepInti.tabelVisual)) {
           const tableObj = materials.konsepInti.tabelVisual as any;
           const docTable = new Table({
@@ -489,7 +514,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
               borders: TABLE_BORDERS_FULL
            });
            elements.push(docTable);
-           elements.push(new Paragraph("")); // spacer
+           elements.push(new Paragraph(""));
       } else {
            elements.push(...createMultilineText(String(materials.konsepInti.tabelVisual)));
       }
@@ -508,12 +533,9 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
       elements.push(createPara([createText("Nama: ...................................  Kelas: ...................................")], { spacing: { after: 240 } }));
 
-      // Restore underline for LKPD titles in DOCX
       elements.push(createSubSectionTitle("Tujuan"));
-      // FIX 2: Format Bullet Tujuan Pembelajaran. Split more robustly to handle text blocks.
       const objectivesList = lkpd.objectives.split(/\n|(?=\d+\.\s)/).map(o => o.trim()).filter(o => o.length > 0);
       objectivesList.forEach(obj => {
-          // Remove numbering if present to let createListItem add standard bullet
           const cleanObj = obj.replace(/^\d+[\.\)]\s*/, '').replace(/^- \s*/, ''); 
           elements.push(createListItem(cleanObj));
       });
@@ -521,7 +543,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       elements.push(createSubSectionTitle("Petunjuk"));
       lkpd.instructions.forEach(i => elements.push(createListItem(i)));
 
-      // FIX 3: Better activity rendering (Handle Lists/Numbering) with improved indentation in createMultilineText
       const renderActivityContent = (levelData: any) => {
           let content = "";
           if (typeof levelData === 'object' && levelData !== null) {
@@ -529,7 +550,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           } else {
               content = String(levelData);
           }
-          
           return createMultilineText(content);
       }
 
@@ -553,7 +573,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       const elements: any[] = [];
       elements.push(createSectionTitle("LAMPIRAN 3: BANK SOAL", true));
 
-      // FIX 1: Group questions by type and label them
       const groupedItems: Record<string, any[]> = {};
       qb.items.forEach(item => {
           if (!groupedItems[item.type]) groupedItems[item.type] = [];
@@ -563,7 +582,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       const types = Object.keys(groupedItems);
 
       types.forEach((type, groupIdx) => {
-          // Add Group Header (A. PILIHAN GANDA, etc)
           const headerText = `${String.fromCharCode(65 + groupIdx)}. ${type.toUpperCase()}`;
           elements.push(createPara([createText(headerText, { bold: true })], { 
               spacing: { before: 240, after: 120 },
@@ -575,59 +593,28 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
           items.forEach((item, idx) => {
               const itemNum = idx + 1;
 
-              // HANDLING STIMULUS FOR PG (With Label Structure)
               if (item.stimulus && (item.type === 'Pilihan Ganda' || item.type === 'Pilihan Ganda Kompleks')) {
-                   // 1. Stimulus Header (Aligned with Number)
-                   elements.push(createPara([createText(`${itemNum}. Stimulus:`, { bold: true })], { 
-                       spacing: { after: 120 }, 
-                       alignment: AlignmentType.LEFT
-                   }));
-                   
-                   // 2. Stimulus Content (No Border, Italic)
-                   elements.push(createPara([createText(safeString(item.stimulus), { italics: true })], { 
-                       spacing: { after: 120 },
-                       indent: { left: 425 }, 
-                       alignment: AlignmentType.BOTH
-                   }));
-    
-                   // 3. Question Label
-                   elements.push(createPara([createText("Soal:", { bold: true })], { 
-                       spacing: { after: 120 },
-                       indent: { left: 425 }, 
-                       alignment: AlignmentType.LEFT
-                   }));
-    
-                   // 4. Question Content
-                   elements.push(createPara([createText(item.question)], { 
-                       spacing: { after: 120 },
-                       indent: { left: 425 }, 
-                       alignment: AlignmentType.BOTH 
-                   }));
-    
+                   elements.push(createPara([createText(`${itemNum}. Stimulus:`, { bold: true })], { spacing: { after: 120 }, alignment: AlignmentType.LEFT }));
+                   elements.push(createPara([createText(safeString(item.stimulus), { italics: true })], { spacing: { after: 120 }, indent: { left: 425 }, alignment: AlignmentType.BOTH }));
+                   elements.push(createPara([createText("Soal:", { bold: true })], { spacing: { after: 120 }, indent: { left: 425 }, alignment: AlignmentType.LEFT }));
+                   elements.push(createPara([createText(cleanText(item.question))], { spacing: { after: 120 }, indent: { left: 425 }, alignment: AlignmentType.BOTH }));
               } else {
-                   // Standard Layout for Non-PG or No Stimulus
                    if (item.stimulus && !['Menjodohkan', 'Benar/Salah'].includes(item.type)) {
                        elements.push(createPara([createText(`${itemNum}. Stimulus:`, { bold: true })], { spacing: { after: 60 }, alignment: AlignmentType.LEFT }));
-                       elements.push(createPara([createText(safeString(item.stimulus), { italics: true })], { 
-                           spacing: { after: 120 }, 
-                           indent: { left: 425 },
-                           alignment: AlignmentType.BOTH
-                       }));
-                       elements.push(createPara([createText(item.question)], { spacing: { before: 120 }, indent: { left: 425 }, alignment: AlignmentType.BOTH }));
+                       elements.push(createPara([createText(safeString(item.stimulus), { italics: true })], { spacing: { after: 120 }, indent: { left: 425 }, alignment: AlignmentType.BOTH }));
+                       elements.push(createPara([createText(cleanText(item.question))], { spacing: { before: 120 }, indent: { left: 425 }, alignment: AlignmentType.BOTH }));
                    } else {
-                       // Normal Question
-                       elements.push(createPara([createText(`${itemNum}. ${item.question}`)], { spacing: { before: 120 }, alignment: AlignmentType.BOTH }));
+                       elements.push(createPara([createText(`${itemNum}. ${cleanText(item.question)}`)], { spacing: { before: 120 }, alignment: AlignmentType.BOTH }));
                    }
               }
               
               if (item.options) {
                   item.options.forEach((opt: string, i: number) => {
-                      // Ensure only the content is rendered, the label is added via createText
                       const cleanOpt = cleanText(opt).replace(/^(?:[A-Ea-e0-9]|Option\s*[A-E])[\.\)\-]\s*/i, '').replace(/^\*\*(?:[A-Ea-e0-9]|Option\s*[A-E])[\.\)\-]\*\*\s*/i, '').trim();
                       
                       elements.push(createPara([createText(`${String.fromCharCode(65+i)}. ${cleanOpt}`)], { 
-                          indent: { left: 680, hanging: 360 }, // Hanging indent for "A. "
-                          spacing: { before: 0, after: 0, line: 240 }, // Tight spacing
+                          indent: { left: 680, hanging: 360 }, 
+                          spacing: { before: 0, after: 0, line: 240 }, 
                           alignment: AlignmentType.LEFT
                       }));
                   });
@@ -636,7 +623,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
               if (item.matchingPairs) {
                   const sortedPairs = [...item.matchingPairs].sort((a: any, b: any) => a.right.localeCompare(b.right));
                   
-                  // Helper for matching table (LEFT)
                   const createMatchPara = (text: string, bold = false, underline = false, indent = 0) => new Paragraph({
                       children: [createText(text, { bold, underline })],
                       alignment: AlignmentType.LEFT,
@@ -644,7 +630,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                       spacing: { after: 60, line: LINE_SPACING_BODY }
                   });
     
-                  // Column 1 Content
                   const col1Elements = [
                       createMatchPara("Premis", true, true),
                       ...item.matchingPairs.map((pair: any, i: number) => 
@@ -652,7 +637,6 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                       )
                   ];
     
-                  // Column 2 Content
                   const col2Elements = [
                       createMatchPara("Pilihan Jawaban", true, true),
                       ...sortedPairs.map((pair: any, i: number) => 
@@ -670,23 +654,14 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                               ]
                           })
                       ],
-                      // Invisible borders for layout
-                      borders: {
-                          top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                          bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                          left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                          right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
-                          insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" }
-                      }
+                      borders: { top: { style: BorderStyle.NONE, size: 0, color: "auto" }, bottom: { style: BorderStyle.NONE, size: 0, color: "auto" }, left: { style: BorderStyle.NONE, size: 0, color: "auto" }, right: { style: BorderStyle.NONE, size: 0, color: "auto" }, insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" }, insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" } }
                   });
                   elements.push(table);
-                  elements.push(new Paragraph("")); // Spacer
+                  elements.push(new Paragraph(""));
               }
           });
       });
 
-      // Grouped Answer Keys
       elements.push(createSubSectionTitle("Kunci Jawaban"));
       types.forEach((type, groupIdx) => {
           const headerText = `${String.fromCharCode(65 + groupIdx)}. ${type.toUpperCase()}`;
@@ -707,7 +682,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
                     displayKey = keyParts.join(", ");
                }
     
-               elements.push(createPara([createText(`${itemNum}. ${displayKey}`)]));
+               elements.push(createPara([createText(`${itemNum}. ${cleanText(displayKey)}`)]));
           });
       });
 
@@ -744,8 +719,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
   });
 
   Packer.toBlob(doc).then((blob) => {
-      // Robust handling: FileSaver might be the function itself, or an object with saveAs
       const saveAs = (FileSaver as any).saveAs || FileSaver;
-      saveAs(blob, `Modul Ajar - ${data.identitySection.topic}.docx`);
+      saveAs(blob, `Modul Ajar - ${cleanText(data.identitySection.topic)}.docx`);
   });
 };

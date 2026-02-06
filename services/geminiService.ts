@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
+import { tokenManager } from "./tokenManager";
 
 /**
  * Model fallback strategy:
@@ -26,30 +27,20 @@ const getSystemApiKey = (): string => {
   return cleanApiKey(key);
 };
 
-// MODIFIED: Accepts optional providedApiKey (Highest Priority)
-const getClientInfo = (providedApiKey?: string) => {
-  // 1. Cek API Key yang dikirim langsung via Parameter (Paling Aman & Konsisten)
-  let directKey = cleanApiKey(providedApiKey);
-  if (directKey && directKey.length > 10) {
-      return {
-          client: new GoogleGenAI({ apiKey: directKey }),
-          apiKeySource: 'direct_param',
-          apiKey: directKey
-      };
-  }
-
-  // 2. Cek Custom Key dari User (Session Storage - Fallback Legacy)
-  let userApiKey = cleanApiKey(sessionStorage.getItem('custom_api_key'));
+// MODIFIED: Uses TokenManager instead of params or sessionStorage
+const getClientInfo = () => {
+  // 1. Cek User Key dari Token Manager (InMemory Singleton)
+  const userApiKey = cleanApiKey(tokenManager.getKey());
   
   if (userApiKey && userApiKey.length > 10) {
     return { 
       client: new GoogleGenAI({ apiKey: userApiKey }), 
-      apiKeySource: 'custom_session',
+      apiKeySource: 'custom_token',
       apiKey: userApiKey
     };
   }
 
-  // 3. Fallback ke System Key (Vercel Env)
+  // 2. Fallback ke System Key (Vercel Env)
   const systemKey = getSystemApiKey();
   
   if (!systemKey || systemKey.length < 10) {
@@ -209,8 +200,7 @@ ATURAN STRICT:
 const generateWithRetry = async (
   prompt: string, 
   schema: Schema, 
-  systemInstruction: string = DEEP_LEARNING_INSTRUCTION,
-  apiKey?: string // Added apiKey parameter
+  systemInstruction: string = DEEP_LEARNING_INSTRUCTION
 ): Promise<any> => {
   let clientInfo: any;
   let lastError: any = null;
@@ -218,8 +208,8 @@ const generateWithRetry = async (
   for (let i = 0; i < MODEL_PRIORITY.length; i++) {
     const currentModel = MODEL_PRIORITY[i];
     try {
-      // Pass apiKey to getClientInfo
-      clientInfo = getClientInfo(apiKey); 
+      // Get client info from TokenManager or Env
+      clientInfo = getClientInfo(); 
       const { client } = clientInfo;
       console.log(`[Generate] Trying model: ${currentModel}`);
 
@@ -288,9 +278,9 @@ const generateWithRetry = async (
   throw lastError || new Error("Gagal generate konten. Server AI sibuk atau model tidak tersedia.");
 };
 
-// --- WRAPPER FUNCTIONS (UPDATED TO ACCEPT apiKey) ---
+// --- WRAPPER FUNCTIONS (UPDATED: No apiKey params) ---
 
-export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity, apiKey?: string): Promise<GeneratedLessonPlan> => {
+export const generateRPP = async (schoolData: SchoolIdentity, lessonData: LessonIdentity): Promise<GeneratedLessonPlan> => {
   const meetingNum = parseInt((lessonData.meetingCount || '1').split(' ')[0]) || 1;
   const complexity = getComplexityInstruction(lessonData.grade);
   
@@ -313,7 +303,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
     Wajib JSON Valid.
   `;
   
-  const aiResult = await generateWithRetry(prompt, RPP_SCHEMA, undefined, apiKey);
+  const aiResult = await generateWithRetry(prompt, RPP_SCHEMA);
   
   if (aiResult.identitySection) {
       aiResult.identitySection.timeAllocation = lessonData.timeAllocation;
@@ -332,7 +322,7 @@ export const generateRPP = async (schoolData: SchoolIdentity, lessonData: Lesson
   };
 };
 
-export const generateMaterials = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<MaterialsData> => {
+export const generateMaterials = async (rppData: GeneratedLessonPlan): Promise<MaterialsData> => {
     const complexity = getComplexityInstruction(rppData.identitySection.grade);
     
     const prompt = `Buat Materi Ajar: ${rppData.identitySection.topic}. 
@@ -347,10 +337,10 @@ export const generateMaterials = async (rppData: GeneratedLessonPlan, apiKey?: s
     3. Tabel Visual: WAJIB format TABLE OBJECT (headers, rows).
     4. Trivia: Fakta unik.
     Output JSON.`;
-    return await generateWithRetry(prompt, MATERIALS_SCHEMA, undefined, apiKey);
+    return await generateWithRetry(prompt, MATERIALS_SCHEMA);
 };
 
-export const generateLKPD = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<LKPDData> => {
+export const generateLKPD = async (rppData: GeneratedLessonPlan): Promise<LKPDData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
   const prompt = `Buat Lembar Kerja Murid (Tanpa kata "LKPD" di judul): ${rppData.identitySection.topic}.
@@ -365,10 +355,10 @@ export const generateLKPD = async (rppData: GeneratedLessonPlan, apiKey?: string
   4. Tujuan Pembelajaran: Tulis dalam bentuk list poin (bullet points).
   5. Gunakan kata "Murid".
   Output JSON.`;
-  return await generateWithRetry(prompt, LKPD_SCHEMA, undefined, apiKey);
+  return await generateWithRetry(prompt, LKPD_SCHEMA);
 };
 
-export const generateAssessment = async (rppData: GeneratedLessonPlan, apiKey?: string): Promise<DeepLearningAssessment> => {
+export const generateAssessment = async (rppData: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   
   const prompt = `Buat Asesmen Deep Learning: KKTP, Rubrik, Checklist, Kisi-kisi Sumatif. 
@@ -378,10 +368,10 @@ export const generateAssessment = async (rppData: GeneratedLessonPlan, apiKey?: 
   ${complexity}
   Output JSON.`;
   
-  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA, ASSESSMENT_INSTRUCTION, apiKey);
+  return await generateWithRetry(prompt, ASSESSMENT_SCHEMA, ASSESSMENT_INSTRUCTION);
 };
 
-export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig, apiKey?: string): Promise<QuestionBankData> => {
+export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config: QuestionBankConfig): Promise<QuestionBankData> => {
   const complexity = getComplexityInstruction(rppData.identitySection.grade);
   const grade = rppData.identitySection.grade.toLowerCase();
   
@@ -407,7 +397,7 @@ export const generateQuestionBank = async (rppData: GeneratedLessonPlan, config:
   3. Benar/Salah: Soal berupa pernyataan.
   4. Gunakan kata "Murid".
   Output JSON.`;
-  return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA, undefined, apiKey);
+  return await generateWithRetry(prompt, QUESTION_BANK_SCHEMA);
 };
 
 // --- SCHEMAS ---
