@@ -6,13 +6,12 @@ import { tokenManager } from "./tokenManager";
 /**
  * Model fallback strategy:
  * Sistem akan mencoba model urut dari atas ke bawah.
- * Update (Feb 2026): Menggunakan versi stabil Gemini 3 dan 2.5.
- * Versi "-preview" dan seri 2.0/1.5 telah deprecated/removed.
+ * Update (Feb 2026): Menggunakan versi Preview terbaru dan Flash Latest.
  */
 const MODEL_PRIORITY = [
-  'gemini-3-flash',
-  'gemini-3-pro',
-  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+  'gemini-flash-latest',
   'gemini-2.5-pro'
 ];
 
@@ -59,8 +58,8 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
-    // UPDATED: Gunakan 'gemini-2.5-flash' untuk tes koneksi.
-    const modelToTest = 'gemini-2.5-flash';
+    // UPDATED: Gunakan 'gemini-flash-latest' untuk tes koneksi (Paling ringan & stabil).
+    const modelToTest = 'gemini-flash-latest';
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
