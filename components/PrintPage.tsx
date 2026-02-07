@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import DocumentContent from './DocumentContent';
+import DocumentContent from './document/DocumentContent';
 import { GeneratedLessonPlan, LessonIdentity } from '../types';
 
 declare var MathJax: any;

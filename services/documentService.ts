@@ -70,8 +70,12 @@ const enforceStrictFormatting = (text: string): string => {
 
 const createMultilineText = (text: string, align = AlignmentType.BOTH): any[] => {
     // Basic Markdown Table Parser
-    if (text.includes("|") && text.includes("---")) {
-        return createTableFromMarkdown(text);
+    if (text.includes("|")) {
+        // Simple check to avoid false positives on simple text containing a pipe
+        const pipeCount = (text.match(/\|/g) || []).length;
+        if (pipeCount > 2) { // Allow tables even if separator check fails, relying on pipe structure
+             return createTableFromMarkdown(text);
+        }
     }
 
     const formattedText = enforceStrictFormatting(cleanText(text));
@@ -122,7 +126,12 @@ const createTableFromMarkdown = (mdTable: string): any[] => {
         };
 
         // 1. Find the Header Row (First valid row)
-        const headerRowIndex = lines.findIndex(l => l.includes('|') && !l.includes('---'));
+        // Allow fallback if no separator found, take first pipe row as header
+        let headerRowIndex = lines.findIndex(l => l.includes('|') && !l.includes('---'));
+        if (headerRowIndex === -1 && lines.length > 0) {
+             headerRowIndex = lines.findIndex(l => l.includes('|'));
+        }
+        
         if (headerRowIndex === -1) return [new Paragraph(mdTable)];
 
         const headerCells = parseCells(lines[headerRowIndex]);
@@ -534,33 +543,36 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       elements.push(createPara([createText("Nama: ...................................  Kelas: ...................................")], { spacing: { after: 240 } }));
 
       elements.push(createSubSectionTitle("Tujuan"));
-      const objectivesList = lkpd.objectives.split(/\n|(?=\d+\.\s)/).map(o => o.trim()).filter(o => o.length > 0);
+      // Improved Objectives parsing to remove existing bullets before creating list items
+      const objectivesList = lkpd.objectives
+          .split(/\n/)
+          .map(o => o.trim())
+          .filter(o => o.length > 0)
+          .map(o => o.replace(/^[\d+\.\-\*•]+\s*/, ''));
+
       objectivesList.forEach(obj => {
-          const cleanObj = obj.replace(/^\d+[\.\)]\s*/, '').replace(/^- \s*/, ''); 
-          elements.push(createListItem(cleanObj));
+          elements.push(createListItem(obj));
       });
 
       elements.push(createSubSectionTitle("Petunjuk"));
       lkpd.instructions.forEach(i => elements.push(createListItem(i)));
 
-      const renderActivityContent = (levelData: any) => {
+      const renderActivityContent = (actData: any) => {
           let content = "";
-          if (typeof levelData === 'object' && levelData !== null) {
-              content = levelData.content;
+          if (typeof actData === 'object' && actData !== null) {
+              content = actData.content;
           } else {
-              content = String(levelData);
+              content = String(actData);
           }
           return createMultilineText(content);
       }
 
-      elements.push(createSubSectionTitle("Aktivitas 1 (Dasar)"));
-      elements.push(...renderActivityContent(lkpd.activities.level1));
+      // Updated to match new 2-Activity Structure
+      elements.push(createSubSectionTitle("Aktivitas 1: Pemahaman Konsep"));
+      elements.push(...renderActivityContent(lkpd.activities.activity1));
 
-      elements.push(createSubSectionTitle("Aktivitas 2 (Menengah)"));
-      elements.push(...renderActivityContent(lkpd.activities.level2));
-
-      elements.push(createSubSectionTitle("Aktivitas 3 (Lanjut)"));
-      elements.push(...renderActivityContent(lkpd.activities.level3));
+      elements.push(createSubSectionTitle("Aktivitas 2: Aplikasi & Diskusi"));
+      elements.push(...renderActivityContent(lkpd.activities.activity2));
       
       elements.push(createSubSectionTitle("Refleksi Diri"));
       lkpd.reflection.forEach(r => elements.push(createListItem(r)));

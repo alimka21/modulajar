@@ -69,8 +69,8 @@ export interface DeepLearningAssessment {
 }
 
 export interface LKPDActivity {
+  title: string;
   content: string;
-  activityType: string;
 }
 
 export interface LKPDData {
@@ -79,9 +79,8 @@ export interface LKPDData {
   instructions: string[]; 
   stimulus: string;       
   activities: {
-      level1: string | LKPDActivity;     
-      level2: string | LKPDActivity;     
-      level3: string | LKPDActivity;     
+      activity1: LKPDActivity; // Pemahaman (Tabel Isian)
+      activity2: LKPDActivity; // Aplikasi (Diskusi/Kerja Kelompok)
   };
   reflection: string[];   
 }

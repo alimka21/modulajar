@@ -5,7 +5,7 @@ import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, 
 import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3 } from 'lucide-react';
 import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS } from '../constants';
-import DocumentContent from './DocumentContent';
+import DocumentContent from './document/DocumentContent';
 
 declare var marked: any;
 declare var Swal: any;
@@ -49,7 +49,7 @@ const SUBJECT_OPTIONS = [
     "Ekonomi", "Sosiologi", "Biologi", "Kimia", "Fisika", "Antropologi", "Lainnya"
 ];
 
-const QUESTION_COUNTS = [5, 10, 15, 20];
+const QUESTION_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // UPDATED: Range 1-10
 const QUESTION_LEVELS: QuestionLevel[] = ['LOTS', 'HOTS', 'CAMPURAN'];
 const QUESTION_TYPES: QuestionType[] = ['Pilihan Ganda', 'Pilihan Ganda Kompleks', 'Menjodohkan', 'Benar/Salah', 'Isian Singkat', 'Uraian'];
 
@@ -67,7 +67,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [questionConfig, setQuestionConfig] = useState<QuestionBankConfig>({
-      count: 10,
+      count: 5, // Default changed to 5 (middle of range)
       level: 'CAMPURAN',
       types: ['Pilihan Ganda', 'Uraian']
   });
@@ -330,7 +330,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                             <button onClick={() => setShowQuestionModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
                         </div>
                         <div className="p-6 space-y-6">
-                            <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Jumlah Butir Soal</label><div className="grid grid-cols-4 gap-2">{QUESTION_COUNTS.map(c => <button key={c} onClick={() => setQuestionConfig({...questionConfig, count: c})} className={`py-2 text-sm rounded-xl border font-bold transition ${questionConfig.count === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{c}</button>)}</div></div>
+                            <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Jumlah Butir Soal</label><div className="grid grid-cols-5 gap-2">{QUESTION_COUNTS.map(c => <button key={c} onClick={() => setQuestionConfig({...questionConfig, count: c})} className={`py-2 text-sm rounded-xl border font-bold transition ${questionConfig.count === c ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{c}</button>)}</div></div>
                             <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Level Kognitif</label><div className="grid grid-cols-3 gap-2">{QUESTION_LEVELS.map(l => <button key={l} onClick={() => setQuestionConfig({...questionConfig, level: l})} className={`py-2 text-xs rounded-xl border font-bold transition ${questionConfig.level === l ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{l}</button>)}</div></div>
                             <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Tipe Soal</label><div className="grid grid-cols-2 gap-2">{QUESTION_TYPES.map(t => <button key={t} onClick={() => toggleQuestionType(t)} className={`flex items-center justify-between px-3 py-2 text-xs rounded-xl border transition ${questionConfig.types.includes(t) ? 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}><span>{t}</span>{questionConfig.types.includes(t) && <CheckSquare size={14} />}</button>)}</div></div>
                         </div>

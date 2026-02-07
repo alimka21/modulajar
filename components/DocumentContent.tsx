@@ -14,232 +14,12 @@ interface DocumentContentProps {
 
 /**
  * ============================================
- * TABLE POST-PROCESSING ENGINE (OPTIMIZED v3)
- * High Performance with Early Exits & Safe Regex
+ * UTILITIES
  * ============================================
  */
 
-// Helper: Cek apakah baris ini adalah separator tabel markdown (e.g. |---|---|)
-const isSeparatorRow = (line: string) => {
-    return /^\|\s*[:\-]*-+[:\-]*(\s*\|\s*[:\-]*-+[:\-]*)*\s*\|?$/.test(line);
-};
-
-// Helper: Cek apakah baris ini terlihat seperti baris tabel (e.g. | Data | Data |)
-const isTableLine = (line: string) => {
-    return line.trim().startsWith('|') || (line.includes('|') && line.split('|').length > 2);
-};
-
-// Fungsi 1: Convert Bullet Points ke Tabel (Logic Baru: Linear Builder)
-const convertBulletPointsToTable = (text: string): string => {
-  // Check if text already has table structure
-  if (text.includes('|') && text.includes('---')) return text;
-
-  const lines = text.split('\n');
-  const cleanLines = lines.map(l => l.trim()).filter(l => l.length > 0);
-  
-  // Jika teks pendek, coba ubah list menjadi tabel langsung.
-  if (cleanLines.length > 0) {
-      // Cek apakah ini list?
-      const isList = cleanLines.every(l => /^\d+\.|^[-•·]/.test(l));
-      
-      // Jika ini list atau kita mau paksa jadi tabel
-      if (isList || cleanLines.length >= 2) {
-          const tableString = createTableFromBulletPoints(cleanLines);
-          if (tableString) return tableString;
-      }
-  }
-  
-  return text; // Return original if conversion fails
-};
-
-const createTableFromBulletPoints = (lines: string[]): string | null => {
-    // Heuristic: Cek apakah ada ':' untuk pemisah kolom
-    const cleanLines = lines.map(l => l.replace(/^[\s]*[-•·\d\.]+\s*/, '').trim());
-    if (cleanLines.length === 0) return null;
-
-    const hasColon = cleanLines[0].includes(':');
-    
-    // Header default jika tidak terdeteksi struktur key:value
-    let header = hasColon ? '| Aspek / Kategori | Keterangan |' : '| No | Poin Penting |';
-    let separator = hasColon ? '|---|---|' : '|:-:|---|';
-    
-    const rows = cleanLines.map((content, idx) => {
-        // Sanitasi konten agar tidak merusak markdown table
-        let safeContent = content.replace(/\|/g, '/'); 
-
-        if (hasColon && safeContent.includes(':')) {
-            const parts = safeContent.split(':');
-            const col1 = parts[0].trim();
-            const col2 = parts.slice(1).join(':').trim();
-            return `| ${col1} | ${col2} |`;
-        }
-        return `| ${idx + 1} | ${safeContent} |`;
-    });
-    
-    return [header, separator, ...rows].join('\n');
-};
-
-// Helper to convert Table Object to Markdown String (for Materials Schema v2)
-const convertTableObjectToMarkdown = (tableObj: { headers: string[], rows: string[][] }): string => {
-    if (!tableObj || !tableObj.headers || !tableObj.rows) return "";
-    
-    const headerRow = `| ${tableObj.headers.join(' | ')} |`;
-    const separatorRow = `| ${tableObj.headers.map(() => '---').join(' | ')} |`;
-    const dataRows = tableObj.rows.map(row => `| ${row.join(' | ')} |`).join('\n');
-    
-    return `${headerRow}\n${separatorRow}\n${dataRows}`;
-};
-
-// --- STRICT LINE BREAK ENGINE ---
-const enforceStrictLineBreaks = (text: string): string => {
-    if (!text) return "";
-    let res = text;
-
-    // 1. Strict List Spacing (Bullet points and Numbering)
-    // Ensure that bullets/numbers not at the start of a line get a newline
-    res = res.replace(/([^\n])\s+([-•]|\d+\.)\s+/g, '$1\n$2 ');
-
-    // 2. Strict Table Spacing
-    // Case A: Separating header from separator line (e.g., | H |---|)
-    res = res.replace(/(\|\s*)(\|[ :\-]+)/g, '$1\n$2');
-    // Case B: Separating rows (e.g., | Val 1 || Val 2 |)
-    res = res.replace(/(\|\s*)(\|)/g, '$1\n$2');
-
-    return res;
-};
-
-// Fungsi 2: Fix Markdown Table Format (Logic Baru: Block Processor)
-const fixMarkdownTableFormat = (text: string): string => {
-  // OPTIMASI: Skip jika tidak ada karakter pipa (|)
-  if (!text.includes('|')) return text;
-
-  // Apply Strict Formatting first to handle single-line tables from AI
-  const strictText = enforceStrictLineBreaks(text);
-
-  const lines = strictText.split('\n');
-  const resultLines: string[] = [];
-  
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    
-    // Deteksi awal blok tabel
-    if (isTableLine(line)) {
-        const tableBlock: string[] = [];
-        let j = i;
-        
-        // Ambil semua baris yang terlihat seperti tabel
-        while (j < lines.length && isTableLine(lines[j])) {
-            tableBlock.push(lines[j]);
-            j++;
-        }
-        
-        // Proses blok tabel jika valid
-        if (tableBlock.length >= 1) {
-            const processedTable = processTableBlock(tableBlock);
-            resultLines.push(...processedTable);
-            i = j; // Loncat index
-        } else {
-            resultLines.push(line);
-            i++;
-        }
-    } else {
-        resultLines.push(line);
-        i++;
-    }
-  }
-  
-  return resultLines.join('\n');
-};
-
-const processTableBlock = (tableLines: string[]): string[] => {
-  if (tableLines.length === 0) return tableLines;
-  
-  // 1. Normalize Header
-  let headerRow = normalizeTableRow(tableLines[0]);
-  const headerCols = getColumnCount(headerRow);
-  
-  // Jika cuma 1 baris, kembalikan saja (bukan tabel valid)
-  if (tableLines.length < 2) return [headerRow];
-
-  const processedLines: string[] = [headerRow];
-  let startIndex = 1;
-
-  // 2. Cek Separator
-  let separatorRow = tableLines[1];
-  if (isSeparatorRow(separatorRow)) {
-      processedLines.push(separatorRow); 
-      startIndex = 2;
-  } else {
-      processedLines.push(generateSeparatorRow(headerCols)); 
-      startIndex = 1;
-  }
-  
-  // 3. Process Data Rows
-  for (let k = startIndex; k < tableLines.length; k++) {
-      if (isSeparatorRow(tableLines[k])) continue;
-      const normalized = normalizeTableRow(tableLines[k], headerCols);
-      if (normalized.replace(/\||\s/g, '').length > 0) { 
-          processedLines.push(normalized);
-      }
-  }
-  
-  return processedLines;
-};
-
-const normalizeTableRow = (row: string, expectedCols?: number): string => {
-  let cleanRow = row.trim();
-  if (!cleanRow.startsWith('|')) cleanRow = '| ' + cleanRow;
-  if (!cleanRow.endsWith('|')) cleanRow = cleanRow + ' |';
-  
-  const cells = cleanRow.split('|');
-  const validCells = cells.slice(1, cells.length - 1).map(c => c.trim());
-  
-  // Adjust columns count
-  if (expectedCols) {
-      while (validCells.length < expectedCols) validCells.push('');
-      while (validCells.length > expectedCols) validCells.pop();
-  }
-  
-  return '| ' + validCells.join(' | ') + ' |';
-};
-
-const getColumnCount = (row: string): number => {
-    return row.split('|').length - 2;
-};
-
-const generateSeparatorRow = (colCount: number): string => {
-    return '|' + Array(colCount).fill('---').join('|') + '|';
-};
-
-const ensureProperTableSpacing = (text: string): string => {
-  if (!text.includes('|')) return text;
-  return text.replace(/([^\n\|])\n(\|)/g, '$1\n\n$2');
-};
-
-const normalizeTableFormat = (text: string): string => {
-  if (!text || text.length < 5) return text;
-  
-  const hasPipe = text.includes('|');
-  if (!hasPipe) return text; 
-
-  try {
-      // Pipeline urutan eksekusi:
-      let stage1 = convertBulletPointsToTable(text);
-      let stage2 = fixMarkdownTableFormat(stage1);
-      let stage3 = ensureProperTableSpacing(stage2);
-      return stage3;
-  } catch (e) {
-      console.error("Table processing error:", e);
-      return text; 
-  }
-};
-
-// ============================================
-
 const safeString = (val: any): string => {
   if (val === null || val === undefined) return "";
-  // Use "Murid" (Title Case) instead of "murid" (lowercase) for better aesthetics
   if (typeof val === 'string') return val.replace(/siswa|peserta didik/gi, 'Murid');
   if (typeof val === 'number') return String(val);
   if (Array.isArray(val)) return val.map(safeString).join(", ");
@@ -247,16 +27,12 @@ const safeString = (val: any): string => {
   return String(val);
 };
 
-// UPDATE: Improved cleanup logic based on subject context
+// --- MARKDOWN & LATEX RENDERING ---
+
 const cleanupUnnecessaryLatex = (text: string, isMathSubject: boolean): string => {
-    // 1. Jika BUKAN Matematika/Sains, hapus SEMUA tanda $ (cegah teks biasa dianggap rumus)
     if (!isMathSubject) {
         return text.replace(/\$/g, '');
     }
-
-    // 2. Jika Matematika/Sains, hanya hapus angka sederhana yang tidak perlu LaTeX
-    // Contoh: $10$ -> 10, $50%$ -> 50%, $5.5$ -> 5.5
-    // Tapi biarkan $x^2$, $\frac{1}{2}$ dll.
     let cleaned = text.replace(/\$(\d+(?:[.,]\d+)?\s?%?)\$/g, '$1');
     return cleaned;
 };
@@ -277,8 +53,9 @@ const restoreLatex = (html: string, placeholders: string[]) => {
 const renderMarkdown = (text: string, isMathSubject: boolean) => {
     let stringText = safeString(text);
     stringText = cleanupUnnecessaryLatex(stringText, isMathSubject);
-    stringText = normalizeTableFormat(stringText); 
-
+    // Note: We don't need normalizeTableFormat anymore for sections using TableRenderer
+    // But kept for other sections just in case.
+    
     let { protectedText, placeholders } = protectLatex(stringText);
 
     try {
@@ -287,7 +64,7 @@ const renderMarkdown = (text: string, isMathSubject: boolean) => {
             return { __html: restoreLatex(html, placeholders) };
         }
     } catch (e) {
-        console.warn("Markdown parsing failed, fallback to raw text", e);
+        console.warn("Markdown parsing failed", e);
     }
     
     let formatted = protectedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -311,15 +88,88 @@ const renderInlineMarkdown = (text: string, isMathSubject: boolean) => {
             }
             return { __html: restoreLatex(html, placeholders) };
         }
-    } catch(e) {
-        // Fallback
-    }
+    } catch(e) { }
     
     let formatted = protectedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     return { __html: restoreLatex(formatted, placeholders) };
 };
 
-// FIX 2: Removed 'break-inside-avoid' to allow content to span pages in PDF
+// --- TABLE PARSING UTILS (NEW) ---
+
+// Parse string Markdown Table menjadi Object untuk TableRenderer
+const parseMarkdownTable = (mdText: string): { headers: string[], rows: string[][] } | null => {
+    if (!mdText || !mdText.includes('|')) return null;
+    
+    const lines = mdText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    
+    // Cari baris header (baris pertama yang punya pipe)
+    const headerIndex = lines.findIndex(l => l.startsWith('|') || (l.split('|').length > 2));
+    if (headerIndex === -1) return null;
+
+    const parseRow = (row: string) => {
+        return row.split('|').slice(1, -1).map(c => c.trim());
+    };
+
+    try {
+        const headers = parseRow(lines[headerIndex]);
+        const rows: string[][] = [];
+
+        for (let i = headerIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            // Skip separator line (e.g., |---|---|)
+            if (line.match(/^\|\s*[:\-]+\s*\|/)) continue;
+            // Stop if line doesn't look like table
+            if (!line.includes('|')) break;
+            
+            const cells = parseRow(line);
+            if (cells.length > 0) {
+                // Normalize row length
+                while(cells.length < headers.length) cells.push("");
+                rows.push(cells.slice(0, headers.length));
+            }
+        }
+
+        if (headers.length === 0 || rows.length === 0) return null;
+        return { headers, rows };
+    } catch (e) {
+        return null;
+    }
+};
+
+/**
+ * ============================================
+ * COMPONENTS
+ * ============================================
+ */
+
+// DIRECT JSX TABLE RENDERER (PENGGANTI DANGEROUS HTML)
+const TableRenderer = ({ table, isMathSubject }: { table: { headers: string[], rows: string[][] }, isMathSubject: boolean }) => (
+  <div className="mb-4 overflow-x-auto break-inside-avoid">
+    <table className="w-full border-collapse border border-black text-inherit table-fixed">
+      <thead>
+        <tr className="bg-[#f3f4f6]">
+          {table.headers.map((h, i) => (
+            <th key={i} className="border border-black p-2 text-center font-bold align-middle bg-[#f3f4f6]">
+               <span dangerouslySetInnerHTML={renderInlineMarkdown(h, isMathSubject)} />
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {table.rows.map((row, i) => (
+          <tr key={i}>
+            {row.map((cell, j) => (
+              <td key={j} className="border border-black p-2 align-top text-left">
+                <span dangerouslySetInnerHTML={renderInlineMarkdown(cell, isMathSubject)} />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
 const OpenSection: React.FC<{ title: string; children?: React.ReactNode; className?: string; contentAlign?: string; noBorder?: boolean }> = ({ title, children, className = "", contentAlign = "text-left", noBorder = false }) => (
   <div className={`mb-4 text-black ${className}`}>
       <h3 
@@ -349,7 +199,6 @@ const RubricTable = ({ items, isMathSubject }: { items: any[], isMathSubject: bo
           <tbody>
               {items.map((item, idx) => (
                   <tr key={idx}>
-                      {/* Poin 1: Semua sel dibuat text-left */}
                       <td className="border border-black p-2 text-left font-bold align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.criteria, isMathSubject)} />
                       <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.needsGuidance, isMathSubject)} />
                       <td className="border border-black p-2 text-left align-top break-words text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.basic, isMathSubject)} />
@@ -364,7 +213,6 @@ const RubricTable = ({ items, isMathSubject }: { items: any[], isMathSubject: bo
 
 const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, activeTab }) => {
   
-  // DETERMINE IF SUBJECT REQUIRES MATHJAX
   const isMathSubject = React.useMemo(() => {
     const subject = (inputData.subject || "").toLowerCase();
     const mathKeywords = ['matematika', 'fisika', 'kimia', 'ipa', 'sains', 'ilmu pengetahuan alam', 'kalkulus', 'statistik', 'aljabar', 'geometri', 'numerasi'];
@@ -499,20 +347,15 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       if (!data?.assessment) return null;
       
       const assessment = data.assessment as DeepLearningAssessment;
-      
       const kktp = Array.isArray(assessment.kktp) ? assessment.kktp : [];
-      
       const formative = assessment.formative || {} as any;
       const checklist = Array.isArray(formative.checklist) ? formative.checklist : [];
       const feedback = formative.feedbackGuide || { clarification: '-', appreciation: '-', suggestion: '-' };
-      
       const summative = assessment.summative || {} as any;
       const grid = Array.isArray(summative.grid) ? summative.grid : [];
-      
       const intervention = assessment.intervention || { needsGuidance: '-', basic: '-', proficient: '-', advanced: '-' };
 
       return (
-          // Poin 2: Removed 'assessment-reset' class to allow blue underline on h3
           <div className="text-inherit">
             <OpenSection title="IV. ASESMEN PEMBELAJARAN">
                 
@@ -551,18 +394,9 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                     <p className="font-bold mb-1 text-inherit">B. Tangga Umpan Balik (Feedback Ladder)</p>
                     <div className="pl-4 text-inherit">
                         <ul className="list-disc pl-5 space-y-2">
-                            <li>
-                                <span className="font-bold text-inherit">KLARIFIKASI: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.clarification), isMathSubject)} />
-                            </li>
-                            <li>
-                                <span className="font-bold text-inherit">APRESIASI: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.appreciation), isMathSubject)} />
-                            </li>
-                            <li>
-                                <span className="font-bold text-inherit">SARAN: </span>
-                                <span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.suggestion), isMathSubject)} />
-                            </li>
+                            <li><span className="font-bold text-inherit">KLARIFIKASI: </span><span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.clarification), isMathSubject)} /></li>
+                            <li><span className="font-bold text-inherit">APRESIASI: </span><span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.appreciation), isMathSubject)} /></li>
+                            <li><span className="font-bold text-inherit">SARAN: </span><span className="italic text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(safeString(feedback.suggestion), isMathSubject)} /></li>
                         </ul>
                     </div>
                 </div>
@@ -603,22 +437,10 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td className="border border-black p-2 font-bold align-top text-inherit">Perlu Bimbingan</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance || '-', isMathSubject)} />
-                            </tr>
-                            <tr>
-                                <td className="border border-black p-2 font-bold align-top text-inherit">Cukup</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic || '-', isMathSubject)} />
-                            </tr>
-                            <tr>
-                                <td className="border border-black p-2 font-bold align-top text-inherit">Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient || '-', isMathSubject)} />
-                            </tr>
-                            <tr>
-                                <td className="border border-black p-2 font-bold align-top text-inherit">Sangat Baik</td>
-                                <td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced || '-', isMathSubject)} />
-                            </tr>
+                            <tr><td className="border border-black p-2 font-bold align-top text-inherit">Perlu Bimbingan</td><td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.needsGuidance || '-', isMathSubject)} /></tr>
+                            <tr><td className="border border-black p-2 font-bold align-top text-inherit">Cukup</td><td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.basic || '-', isMathSubject)} /></tr>
+                            <tr><td className="border border-black p-2 font-bold align-top text-inherit">Baik</td><td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.proficient || '-', isMathSubject)} /></tr>
+                            <tr><td className="border border-black p-2 font-bold align-top text-inherit">Sangat Baik</td><td className="border border-black p-2 align-top text-inherit" dangerouslySetInnerHTML={renderMarkdown(intervention.advanced || '-', isMathSubject)} /></tr>
                         </tbody>
                     </table>
                  </div>
@@ -652,13 +474,10 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                 <div className="flex gap-2 text-sm">
                                     <span className="font-bold text-inherit">{idx + 1}.</span>
                                     <div className="flex-1 text-inherit">
-                                        {/* Stimulus: Sembunyikan untuk tipe Menjodohkan dan Benar/Salah */}
                                         {item.stimulus && !['Menjodohkan', 'Benar/Salah'].includes(item.type) && (
                                             <div className="mb-2 italic text-gray-700 text-inherit bg-slate-50 p-3 border-l-4 border-slate-300 text-xs" dangerouslySetInnerHTML={renderMarkdown(item.stimulus, isMathSubject)} />
                                         )}
-                                        
                                         <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question, isMathSubject)} />
-                                        
                                         {(item.type === 'Pilihan Ganda' || item.type === 'Pilihan Ganda Kompleks') && item.options && (
                                             <div className="grid grid-cols-1 gap-y-1 text-inherit mt-1 ml-4 text-xs">
                                                 {(item.options as any[]).map((opt, i) => (
@@ -669,8 +488,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                 ))}
                                             </div>
                                         )}
-                                        
-                                        {/* Perbaikan Matching (Menjodohkan) - Hapus Border */}
                                         {item.type === 'Menjodohkan' && item.matchingPairs && (
                                             <div className="mt-4 ml-4 grid grid-cols-2 gap-8 text-xs">
                                                 <div className="space-y-2">
@@ -693,8 +510,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                                 </div>
                                             </div>
                                         )}
-                                        
-                                        {/* Perbaikan Benar/Salah - Hapus Border, Ganti Format Text */}
                                         {item.type === 'Benar/Salah' && (
                                             <div className="mt-2 ml-4 flex gap-8 text-xs pt-1">
                                                  <span className="font-bold">( ) Benar</span>
@@ -719,14 +534,9 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                             </h4>
                             <ol className="list-decimal pl-6 space-y-1 text-inherit">
                                 {(items as any[]).map((item, idx) => {
-                                    // Generate dynamic key for Matching to match the randomized display
                                     let displayKey = item.answerKey;
-                                    
                                     if (item.type === 'Menjodohkan' && item.matchingPairs) {
-                                        // Re-simulate the randomization (Sort Right Alphabetically)
                                         const sortedRight = [...item.matchingPairs].map((p: any) => p.right).sort((a: string, b: string) => a.localeCompare(b));
-                                        
-                                        // Build Key: "1 - [Letter], 2 - [Letter]"
                                         const keyParts = item.matchingPairs.map((pair: any, i: number) => {
                                             const matchIndex = sortedRight.indexOf(pair.right);
                                             const letter = String.fromCharCode(65 + matchIndex);
@@ -734,7 +544,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                                         });
                                         displayKey = keyParts.join(", ");
                                     }
-
                                     return (
                                         <li key={idx}>
                                             <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(displayKey, isMathSubject)} />
@@ -775,18 +584,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
 
       return (
           <div className="break-inside-avoid mt-8 signature-area">
-              {/* Gunakan table-fixed agar lebar kolom seimbang 50:50, mencegah geser jika nama panjang */}
               <table className="w-full border-none text-center table-fixed" style={{ border: 'none' }}>
                   <tbody>
                       <tr>
-                          {/* 
-                             MODIFIKASI: 
-                             - fontSize: '11pt' (sedikit lebih kecil dari body 12pt)
-                             - lineHeight: '1.2' (lebih rapat)
-                             - break-words (agar jika nama sangat panjang, dia wrap ke bawah rapi)
-                          */}
                           <td className="w-1/2 p-2 align-top border-none" style={{ border: 'none', fontSize: '11pt', lineHeight: '1.2' }}>
-                              <p className="mb-20"> {/* Gunakan margin bottom fixed untuk space TTD */}
+                              <p className="mb-20">
                                   Mengetahui,<br/>
                                   Kepala Sekolah<br/><br/><br/><br/>
                               </p>
@@ -812,18 +614,21 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       if (!data.materials) return null;
       const m = data.materials;
       
-      let visualContent = "";
+      let visualContent = null;
       
+      // LOGIC BARU: Jika objek, pakai TableRenderer. Jika string, cek apakah tabel.
       if (typeof m.konsepInti.tabelVisual === 'object' && m.konsepInti.tabelVisual !== null && !Array.isArray(m.konsepInti.tabelVisual)) {
-          // Handle Object format
-          const tableObj = m.konsepInti.tabelVisual as any;
-          visualContent = convertTableObjectToMarkdown(tableObj);
+          visualContent = <TableRenderer table={m.konsepInti.tabelVisual as any} isMathSubject={isMathSubject} />;
       } else {
-          // Handle String format (legacy)
           const rawText = String(m.konsepInti.tabelVisual);
-          visualContent = (!rawText.includes('|')) 
-              ? convertBulletPointsToTable(rawText) 
-              : rawText;
+          // Coba parse string markdown menjadi objek tabel
+          const parsedTable = parseMarkdownTable(rawText);
+          if (parsedTable) {
+              visualContent = <TableRenderer table={parsedTable} isMathSubject={isMathSubject} />;
+          } else {
+              // Fallback ke rendering biasa
+              visualContent = <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(rawText, isMathSubject)} />;
+          }
       }
       
       return (
@@ -858,7 +663,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 <div className="mb-2 pl-4 text-inherit" dangerouslySetInnerHTML={renderMarkdown(m.konsepInti.contohKonkret, isMathSubject)} />
 
                 <strong className="text-inherit">Visualisasi / Rangkuman Data:</strong>
-                <div className="mb-2 pl-4 text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(visualContent, isMathSubject)} />
+                {visualContent}
             </div>
             
             <div className="mb-4 text-inherit">
@@ -884,41 +689,25 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
       if (!data.lkpd) return null;
       const l = data.lkpd;
 
-      // POIN 3: Helper untuk render Aktivitas (Tabel atau Numbering)
+      // Helper untuk render Aktivitas dengan deteksi Tabel Pintar
       const renderActivity = (activity: any) => {
           let text = "";
-          let activityType = "";
-
-          // Check if activity is object or string
           if (typeof activity === 'object' && activity !== null) {
               text = activity.content || "";
-              activityType = activity.activityType || "";
           } else {
               text = String(activity);
           }
 
           const trimmed = text.trim();
           
-          // Jika sudah tabel, render tabel
-          if (trimmed.includes('|') && trimmed.includes('---')) {
-               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
+          // 1. Coba parse tabel markdown
+          const parsedTable = parseMarkdownTable(trimmed);
+          if (parsedTable) {
+              return <TableRenderer table={parsedTable} isMathSubject={isMathSubject} />;
           }
           
-          // Jika sudah ada bullet/numbering di awal, render biasa
-          if (/^\d+\.|^[-•]/.test(trimmed)) {
-               return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
-          }
-          
-          // Jika teks paragraf biasa, paksa jadi numbering untuk soal (jika banyak baris)
-          const lines = trimmed.split('\n').filter(t => t.trim() !== '');
-          if (lines.length > 1) {
-              const numberedText = lines.map((line, idx) => {
-                   if (/^\d+\./.test(line)) return line;
-                   return `${idx + 1}. ${line}`;
-              }).join('\n');
-              return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(numberedText, isMathSubject)} />;
-          }
-          
+          // 2. Jika bukan tabel, render biasa (termasuk list numbering)
+          // HAPUS LOGIC MANUAL NUMBERING: Biarkan markdown renderer yang bekerja
           return <div className="text-inherit force-table-styles" dangerouslySetInnerHTML={renderMarkdown(trimmed, isMathSubject)} />;
       };
 
@@ -946,16 +735,12 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                   <div className="text-inherit italic" dangerouslySetInnerHTML={renderMarkdown(l.stimulus, isMathSubject)} />
               </OpenSection>
 
-              <OpenSection title="Aktivitas 1 (Level Dasar)">
-                   {renderActivity(l.activities.level1)}
+              <OpenSection title="Aktivitas 1: Pemahaman Konsep">
+                   {renderActivity(l.activities.activity1)}
               </OpenSection>
 
-              <OpenSection title="Aktivitas 2 (Level Menengah)">
-                   {renderActivity(l.activities.level2)}
-              </OpenSection>
-
-              <OpenSection title="Aktivitas 3 (Level Lanjut)">
-                   {renderActivity(l.activities.level3)}
+              <OpenSection title="Aktivitas 2: Aplikasi & Diskusi">
+                   {renderActivity(l.activities.activity2)}
               </OpenSection>
               
               <OpenSection title="Refleksi Diri">
@@ -1001,7 +786,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 text-align: justify;
             }
             
-            /* ADD NEW RULE HERE FOR TABLE CONTENT ALIGNMENT */
             #konten-dokumen table td, #konten-dokumen table td * {
                 text-align: left !important;
             }
@@ -1018,6 +802,21 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 text-align: justify;
                 padding-left: 4px;
             }
+
+            /* FIX: Explicit List Styles for Markdown Content */
+            #konten-dokumen ul {
+                list-style-type: disc !important;
+                padding-left: 1.5rem !important;
+            }
+            #konten-dokumen ol {
+                list-style-type: decimal !important;
+                padding-left: 1.5rem !important;
+            }
+            /* Remove list style inside tables to avoid double bullets */
+            #konten-dokumen table ul, #konten-dokumen table ol {
+                list-style-type: none !important;
+                padding-left: 0 !important;
+            }
             
             #konten-dokumen h1 { 
                 font-size: 24pt !important; 
@@ -1030,7 +829,6 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
             
             #konten-dokumen h2 { font-size: 14pt !important; line-height: 1.2 !important; font-weight: bold !important; text-align: center; margin-bottom: 10pt; margin-top: 0pt; text-transform: uppercase; }
             
-            /* FIX 3: Change Section Header Alignment to LEFT (Previously CENTER) */
             #konten-dokumen h3 { 
                 font-size: 14pt !important; 
                 line-height: 1.2 !important; 
@@ -1040,33 +838,11 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
                 margin-top: 18pt !important; 
                 border-bottom: 2px solid #87CEFA; 
                 display: block; 
-                text-align: left !important; /* CHANGED TO LEFT */
+                text-align: left !important;
                 page-break-after: avoid !important; 
             }
             
             #konten-dokumen h4 { font-size: 12pt !important; text-transform: uppercase; font-weight: bold !important; margin-bottom: 4pt; margin-top: 8pt; page-break-after: avoid !important; }
-            
-            .markdown-content table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-                border: 1px solid #000 !important;
-                margin: 8pt 0;
-            }
-            .markdown-content th {
-                background-color: #f0f0f0 !important;
-                font-weight: bold !important;
-                border: 1px solid #000 !important;
-                padding: 4pt 6pt;
-                text-align: center !important;
-                font-size: 10pt !important;
-            }
-            .markdown-content td {
-                border: 1px solid #000 !important;
-                padding: 4pt 6pt;
-                text-align: left;
-                vertical-align: top;
-                font-size: 10pt !important;
-            }
             
             .identity-table td { border-color: white !important; padding: 1pt 4pt !important; }
             .identity-table { border-color: white !important; margin-bottom: 0 !important; }
