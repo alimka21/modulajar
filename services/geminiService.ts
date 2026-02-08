@@ -2,7 +2,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 import { tokenManager } from "./tokenManager";
-import { supabase } from "../lib/supabaseClient";
 
 /**
  * Model Priority Strategy:
@@ -17,15 +16,15 @@ const MODEL_PRIORITY = [
   'gemini-2.5-flash'
 ];
 
-const CACHE_PREFIX = 'pakar_ai_v4_'; // Naikkan versi cache untuk invalidasi data lama
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam Client Cache TTL
+const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
 
 const cleanApiKey = (key: string | null | undefined): string => {
   if (!key) return "";
   return String(key).trim().replace(/[\r\n"']/g, '');
 };
 
-// --- CLIENT-SIDE CACHE UTILS (L1 CACHE) ---
+// --- CLIENT-SIDE CACHE UTILS ---
 
 const generateHash = async (str: string): Promise<string> => {
     const encoder = new TextEncoder();
@@ -45,8 +44,6 @@ const getLocalCache = (key: string): any | null => {
             localStorage.removeItem(CACHE_PREFIX + key);
             return null;
         }
-        
-        console.log(`[L1 Local] HIT: ${key.substring(0, 8)}...`);
         return data;
     } catch (e) {
         return null;
@@ -55,18 +52,18 @@ const getLocalCache = (key: string): any | null => {
 
 const setLocalCache = (key: string, data: any) => {
     try {
-        if (!data) return; // Jangan simpan data kosong
+        if (!data) return;
         const payload = JSON.stringify({
             data: data,
             expiry: Date.now() + CACHE_TTL_MS
         });
         localStorage.setItem(CACHE_PREFIX + key, payload);
     } catch (e) {
-        console.warn("[L1 Local] Failed to save (Storage Full):", e);
+        console.warn("Cache storage full", e);
     }
 };
 
-// --- RETRY LOGIC (EXPONENTIAL BACKOFF) ---
+// --- RETRY LOGIC ---
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const runWithRetry = async (fn: () => Promise<any>, retries = 3, label = "Operation"): Promise<any> => {
@@ -78,14 +75,12 @@ const runWithRetry = async (fn: () => Promise<any>, retries = 3, label = "Operat
             lastError = error;
             console.warn(`[${label}] Attempt ${i + 1} failed: ${error.message}`);
             
-            // Jangan retry jika error Authentication (403/401) atau Rate Limit serius
-            if (String(error).includes("403") || String(error).includes("API key") || String(error).includes("Unauthorized")) {
-                throw error;
+            if (String(error).includes("403") || String(error).includes("API key")) {
+                throw error; // Jangan retry jika Auth Error
             }
 
             if (i < retries - 1) {
-                const waitTime = 1000 * Math.pow(2, i); // 1s, 2s, 4s
-                await sleep(waitTime);
+                await sleep(1000 * Math.pow(2, i));
             }
         }
     }
@@ -101,154 +96,89 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
         const ai = new GoogleGenAI({ apiKey: apiKey });
         const modelToTest = 'gemini-flash-latest';
         
-        const fetchPromise = ai.models.generateContent({
+        const response = await ai.models.generateContent({
             model: modelToTest, 
-            contents: "Tes koneksi server.", 
+            contents: "Tes koneksi.", 
         });
-
-        const TIMEOUT_MS = 10000;
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Timeout (${TIMEOUT_MS}ms)`)), TIMEOUT_MS)
-        );
-
-        const response: any = await Promise.race([fetchPromise, timeoutPromise]);
 
         if (response && response.text) {
              return { success: true, message: `✅ Koneksi Berhasil!` };
         }
-        return { success: false, message: "❌ Tidak ada respon teks dari server AI." };
+        return { success: false, message: "❌ Tidak ada respon." };
 
     } catch (error: any) {
-        console.error("[Validation Error]", error);
         return { success: false, message: `❌ Gagal: ${error.message || "Key tidak valid"}` };
     }
 };
 
-// --- CORE GENERATION LOGIC ---
+// --- CORE GENERATION LOGIC (DIRECT ONLY) ---
 const tryGenerate = async (systemInstruction: string, userPrompt: string, responseSchema: any): Promise<any> => {
     
-    // 1. Generate Hash Key
+    // 1. Cek Cache
     const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
     const cacheKey = await generateHash(signature);
-
-    // 2. Cek L1 Cache (LocalStorage)
     const localData = getLocalCache(cacheKey);
     if (localData) return localData;
 
-    // 3. Tentukan Mode
-    const userApiKey = cleanApiKey(tokenManager.getKey());
+    // 2. Ambil API Key (Prioritas: User Custom Key -> System Key)
+    let apiKey = cleanApiKey(tokenManager.getKey());
     
-    // ==========================================
-    // JALUR 1: DIRECT MODE (USER KEY)
-    // ==========================================
-    if (userApiKey) {
-        const client = new GoogleGenAI({ apiKey: userApiKey });
-        let lastError = null;
-
-        for (const model of MODEL_PRIORITY) {
-            try {
-                console.log(`[Direct-AI] Attempting ${model}...`);
-                
-                const result = await runWithRetry(async () => {
-                    const response = await client.models.generateContent({
-                        model: model,
-                        contents: userPrompt,
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: responseSchema,
-                            systemInstruction: systemInstruction,
-                            temperature: 0.7,
-                        }
-                    });
-                    
-                    let parsedData;
-                    try {
-                        parsedData = JSON.parse(response.text || "{}");
-                    } catch (e) {
-                        console.warn("JSON Parse Error (Direct)", response.text);
-                        throw new Error("Respon AI tidak valid JSON.");
-                    }
-                    
-                    // Basic Validation: Jika object kosong, anggap gagal
-                    if (Object.keys(parsedData).length === 0) throw new Error("Respon AI kosong.");
-                    
-                    return parsedData;
-                }, 3, `Direct-${model}`);
-
-                setLocalCache(cacheKey, result);
-                return result;
-
-            } catch (error: any) {
-                console.warn(`[Direct-AI] Model ${model} failed.`);
-                lastError = error;
-                if (String(error).includes("403") || String(error).includes("API key")) {
-                    throw new Error("API Key pribadi Anda ditolak oleh Google. Periksa quota atau validitas key.");
-                }
-            }
-        }
-        throw new Error(`Gagal generate (Direct). ${lastError?.message || "Server sibuk."}`);
+    // Fallback ke Environment Variable jika user tidak punya key (untuk development/demo)
+    if (!apiKey) {
+        apiKey = cleanApiKey(process.env.API_KEY);
     }
 
-    // ==========================================
-    // JALUR 2: PROXY MODE (SYSTEM KEY)
-    // ==========================================
-    let proxyError = null;
-    
+    if (!apiKey) {
+        throw new Error("API Key Kosong. Silakan masukkan API Key Google AI Studio Anda di menu Dashboard.");
+    }
+
+    // 3. Direct Call ke Google Gemini
+    const client = new GoogleGenAI({ apiKey: apiKey });
+    let lastError = null;
+
     for (const model of MODEL_PRIORITY) {
         try {
-            console.log(`[Proxy-AI] Requesting via Supabase (${model})...`);
+            console.log(`[Direct-AI] Generating with ${model}...`);
             
             const result = await runWithRetry(async () => {
-                const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-                    body: {
-                        model: model,
-                        prompt: userPrompt,
+                const response = await client.models.generateContent({
+                    model: model,
+                    contents: userPrompt,
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: responseSchema,
                         systemInstruction: systemInstruction,
-                        schema: responseSchema,
-                        config: { temperature: 0.7 }
+                        temperature: 0.7,
                     }
                 });
-
-                if (error) {
-                    console.error("[Proxy-AI] Supabase Error:", error);
-                    throw new Error(error.message || "Gagal menghubungi Proxy Server.");
+                
+                let parsedData;
+                try {
+                    parsedData = JSON.parse(response.text || "{}");
+                } catch (e) {
+                    throw new Error("Format respon AI tidak valid JSON.");
                 }
                 
-                if (data && data.error) {
-                    console.error("[Proxy-AI] Functional Error:", data.error);
-                    throw new Error(data.error);
-                }
+                if (Object.keys(parsedData).length === 0) throw new Error("Respon AI kosong.");
+                return parsedData;
+            }, 2, `Gen-${model}`);
 
-                if (!data) {
-                    throw new Error("Proxy mengembalikan data kosong.");
-                }
-                
-                return data;
-            }, 2, `Proxy-${model}`);
+            // Simpan Cache & Return
+            setLocalCache(cacheKey, result);
+            return result;
 
-            // Validasi hasil
-            if (result && Object.keys(result).length > 0) {
-                setLocalCache(cacheKey, result);
-                return result;
-            } else {
-                throw new Error("Hasil dari Proxy kosong (Invalid JSON).");
-            }
-
-        } catch (err: any) {
-            console.warn(`[Proxy-AI] Model ${model} failed:`, err);
-            proxyError = err;
+        } catch (error: any) {
+            console.warn(`[Direct-AI] Model ${model} failed:`, error.message);
+            lastError = error;
             
-            if (err.message && (err.message.includes("Unauthorized") || err.message.includes("jwt"))) {
-                throw new Error("Sesi login berakhir. Silakan refresh halaman dan login kembali.");
-            }
-            if (err.message && err.message.includes("FunctionsFetchError")) {
-                // Ini biasanya jika Edge Function belum dideploy atau 404
-                throw new Error("Server AI belum siap (Edge Function Missing). Silakan gunakan API Key pribadi untuk sementara.");
+            // Jika error karena kuota habis atau key salah, hentikan loop dan lempar error
+            if (String(error).includes("429") || String(error).includes("403") || String(error).includes("API key")) {
+                throw new Error("Kuota API Key Habis atau Key Tidak Valid. Silakan ganti API Key di Dashboard.");
             }
         }
     }
 
-    throw new Error(`Gagal generate via Server. ${proxyError?.message || "Layanan sedang sibuk."}`);
+    throw new Error(`Gagal Generate: ${lastError?.message || "Server AI sedang sibuk."}`);
 };
 
 // --- HELPER PROMPTING ---
