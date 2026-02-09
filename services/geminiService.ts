@@ -7,14 +7,13 @@ import { supabase } from "../lib/supabaseClient";
 /**
  * Model Priority Strategy:
  * 1. 'gemini-3-flash-preview': Cerdas & Cepat (Primary).
- * 2. 'gemini-flash-latest': Fallback Super Cepat.
- * 3. 'gemini-3-pro-preview': Penalaran Kompleks (Backup).
+ * 2. 'gemini-2.5-flash': Sangat Cepat & Stabil.
+ * 3. 'gemini-flash-latest': Fallback Umum.
  */
 const MODEL_PRIORITY = [
   'gemini-3-flash-preview',
-  'gemini-flash-latest',
-  'gemini-3-pro-preview',
-  'gemini-2.5-flash'
+  'gemini-2.5-flash',
+  'gemini-flash-latest'
 ];
 
 const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
