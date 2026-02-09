@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
 import { tokenManager } from "./tokenManager";
+import { supabase } from "../lib/supabaseClient";
 
 /**
  * Model Priority Strategy:
@@ -16,7 +17,7 @@ const MODEL_PRIORITY = [
   'gemini-2.5-flash'
 ];
 
-const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache
+const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
 
 const cleanApiKey = (key: string | null | undefined): string => {
@@ -63,6 +64,38 @@ const setLocalCache = (key: string, data: any) => {
     }
 };
 
+// --- GLOBAL SUPABASE CACHE UTILS (SYSTEM KEY ONLY) ---
+// Tabel 'global_cache' harus dibuat di Supabase: (hash text PK, response jsonb, created_at timestamp)
+const getGlobalCache = async (hash: string): Promise<any | null> => {
+    try {
+        const { data, error } = await supabase
+            .from('global_cache')
+            .select('response')
+            .eq('hash', hash)
+            .single();
+        
+        if (error || !data) return null;
+        return data.response;
+    } catch (error) {
+        return null; // Fail silent jika tabel tidak ada
+    }
+};
+
+const saveGlobalCache = async (hash: string, response: any) => {
+    try {
+        // Fire and forget, jangan await blocking terlalu lama
+        supabase.from('global_cache').upsert({ 
+            hash: hash, 
+            response: response,
+            created_at: new Date().toISOString()
+        }).then(({ error }) => {
+            if (error) console.warn("Failed to save global cache (Table might be missing)", error.message);
+        });
+    } catch (error) {
+        // Ignore
+    }
+};
+
 // --- RETRY LOGIC ---
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -75,8 +108,9 @@ const runWithRetry = async (fn: () => Promise<any>, retries = 3, label = "Operat
             lastError = error;
             console.warn(`[${label}] Attempt ${i + 1} failed: ${error.message}`);
             
-            if (String(error).includes("403") || String(error).includes("API key")) {
-                throw error; // Jangan retry jika Auth Error
+            // Critical Auth Error: Jangan retry, langsung lempar keluar
+            if (String(error).includes("API key not valid") || String(error).includes("key expired")) {
+                throw error;
             }
 
             if (i < retries - 1) {
@@ -111,36 +145,54 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     }
 };
 
-// --- CORE GENERATION LOGIC (DIRECT ONLY) ---
+// --- CORE GENERATION LOGIC ---
 const tryGenerate = async (systemInstruction: string, userPrompt: string, responseSchema: any): Promise<any> => {
     
-    // 1. Cek Cache
-    const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
-    const cacheKey = await generateHash(signature);
-    const localData = getLocalCache(cacheKey);
-    if (localData) return localData;
-
-    // 2. Ambil API Key (Prioritas: User Custom Key -> System Key)
-    let apiKey = cleanApiKey(tokenManager.getKey());
+    // 0. Identifikasi Key & Mode
+    const userKey = cleanApiKey(tokenManager.getKey());
+    const systemKey = cleanApiKey(process.env.API_KEY);
     
-    // Fallback ke Environment Variable jika user tidak punya key (untuk development/demo)
-    if (!apiKey) {
-        apiKey = cleanApiKey(process.env.API_KEY);
-    }
+    // Jika user punya key sendiri, pakai itu. Jika tidak, pakai system key.
+    const isUserCustomKey = !!userKey; 
+    const apiKey = isUserCustomKey ? userKey : systemKey;
 
     if (!apiKey) {
         throw new Error("API Key Kosong. Silakan masukkan API Key Google AI Studio Anda di menu Dashboard.");
     }
 
-    // 3. Direct Call ke Google Gemini
+    // 1. Generate Hash untuk Cache Key
+    const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
+    const cacheKey = await generateHash(signature);
+
+    // 2. Cek LOCAL Cache (Browser) - Berlaku untuk semua mode (Cepat)
+    const localData = getLocalCache(cacheKey);
+    if (localData) {
+        console.log("[Cache] Hit from Browser LocalStorage");
+        return localData;
+    }
+
+    // 3. Cek GLOBAL Cache (Supabase) - HANYA JIKA MENGGUNAKAN SYSTEM KEY
+    // Alasan: Key user bersifat privat, hasilnya mungkin mengandung data sensitif/spesifik yang tidak boleh dishare.
+    // Key System adalah public/shared resource, jadi kita bisa share hasil generatenya untuk hemat kuota.
+    if (!isUserCustomKey) {
+        const globalData = await getGlobalCache(cacheKey);
+        if (globalData) {
+            console.log("[Cache] Hit from Supabase Global");
+            setLocalCache(cacheKey, globalData); // Simpan ke local juga biar next time lebih cepat
+            return globalData;
+        }
+    }
+
+    // 4. Generate AI (Direct Call)
     const client = new GoogleGenAI({ apiKey: apiKey });
     let lastError = null;
+    let finalResult = null;
 
     for (const model of MODEL_PRIORITY) {
         try {
-            console.log(`[Direct-AI] Generating with ${model}...`);
+            console.log(`[Direct-AI] Generating with ${model} using ${isUserCustomKey ? 'USER' : 'SYSTEM'} Key...`);
             
-            const result = await runWithRetry(async () => {
+            finalResult = await runWithRetry(async () => {
                 const response = await client.models.generateContent({
                     model: model,
                     contents: userPrompt,
@@ -163,22 +215,36 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
                 return parsedData;
             }, 2, `Gen-${model}`);
 
-            // Simpan Cache & Return
-            setLocalCache(cacheKey, result);
-            return result;
+            // Berhasil generate, keluar loop
+            break; 
 
         } catch (error: any) {
             console.warn(`[Direct-AI] Model ${model} failed:`, error.message);
             lastError = error;
             
-            // Jika error karena kuota habis atau key salah, hentikan loop dan lempar error
-            if (String(error).includes("429") || String(error).includes("403") || String(error).includes("API key")) {
-                throw new Error("Kuota API Key Habis atau Key Tidak Valid. Silakan ganti API Key di Dashboard.");
+            const errStr = String(error);
+            if (errStr.includes("API key not valid") || errStr.includes("key expired") || errStr.includes("API_KEY_INVALID")) {
+                throw new Error("API Key Tidak Valid. Silakan periksa atau ganti API Key di Dashboard.");
             }
         }
     }
 
-    throw new Error(`Gagal Generate: ${lastError?.message || "Server AI sedang sibuk."}`);
+    if (!finalResult) {
+        throw new Error(`Gagal Generate (Semua Model Sibuk/Limit): ${lastError?.message || "Silakan coba lagi nanti."}`);
+    }
+
+    // 5. Simpan Cache
+    
+    // A. Simpan ke Local (Browser) - Selalu
+    setLocalCache(cacheKey, finalResult);
+
+    // B. Simpan ke Global (Supabase) - HANYA JIKA SYSTEM KEY
+    if (!isUserCustomKey) {
+        // Async non-blocking save
+        saveGlobalCache(cacheKey, finalResult);
+    }
+
+    return finalResult;
 };
 
 // --- HELPER PROMPTING ---
@@ -233,6 +299,20 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
     7. Kesehatan
     8. Komunikasi
     
+    ATURAN STRICT PRINSIP PEMBELAJARAN (DEEP LEARNING):
+    Untuk field 'introPrinciple', 'corePrinciple', dan 'closingPrinciple', Anda WAJIB mengikuti aturan ini:
+    1. HANYA BOLEH menggunakan kata kunci: "Berkesadaran", "Bermakna", "Mengembirakan".
+    2. Pilih minimal 1 kata, maksimal 2 kata untuk setiap prinsip.
+    3. Jika memilih 2 kata, gabungkan dengan kata "dan".
+    4. DILARANG membuat kalimat deskriptif atau menggunakan kata lain.
+    
+    Contoh Output Valid:
+    - "Berkesadaran"
+    - "Bermakna"
+    - "Mengembirakan"
+    - "Berkesadaran dan Bermakna"
+    - "Bermakna dan Mengembirakan"
+    
     ${complexity}
 
     INSTRUKSI:
@@ -258,7 +338,7 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
               properties: { 
                   meetingNo: { type: Type.INTEGER },
                   intro: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  introPrinciple: { type: Type.STRING },
+                  introPrinciple: { type: Type.STRING, description: "Must be 'Berkesadaran', 'Bermakna', 'Mengembirakan', or a combination of two with 'dan'." },
                   core: { 
                       type: Type.OBJECT, 
                       properties: {
@@ -267,9 +347,9 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
                           merefleksi: { type: Type.ARRAY, items: { type: Type.STRING } }
                       }
                   },
-                  corePrinciple: { type: Type.STRING },
+                  corePrinciple: { type: Type.STRING, description: "Must be 'Berkesadaran', 'Bermakna', 'Mengembirakan', or a combination of two with 'dan'." },
                   closing: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  closingPrinciple: { type: Type.STRING }
+                  closingPrinciple: { type: Type.STRING, description: "Must be 'Berkesadaran', 'Bermakna', 'Mengembirakan', or a combination of two with 'dan'." }
               } 
           } 
       },
