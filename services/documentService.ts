@@ -273,12 +273,12 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       
       createSubSectionTitle("Dimensi Profil Lulusan"),
       createPara([createText("Dimensi yang dikuatkan:", { italics: true })]),
-      ...data.graduateProfile.map(g => createListItem(g)),
+      ...(data.graduateProfile || []).map(g => createListItem(g)),
       
       createSectionTitle("II. KOMPONEN INTI"),
       
       createSubSectionTitle("1. Tujuan Pembelajaran"),
-      ...data.design.objectives.map(o => createListItem(o)),
+      ...(data.design.objectives || []).map(o => createListItem(o)),
       
       createSubSectionTitle("2. Praktik Pedagogis"),
       ...createMultilineText(data.design.pedagogicalPractice),
@@ -301,30 +301,30 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
   rppSections.push(createSectionTitle("III. LANGKAH PEMBELAJARAN", false));
   
-  data.learningExperience.forEach(step => {
+  (data.learningExperience || []).forEach(step => {
       rppSections.push(
           createPara([createText(`PERTEMUAN ${step.meetingNo}`, { bold: true })], { alignment: AlignmentType.CENTER, shading: { fill: COLOR_ACCENT, type: ShadingType.CLEAR, color: "auto" }, spacing: { before: 240, after: 240, line: LINE_SPACING_BODY } })
       );
 
       rppSections.push(createSubSectionTitle("A. Pendahuluan", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.introPrinciple)}`, { italics: true })]));
-      step.intro.forEach(i => rppSections.push(createListItem(i)));
+      (step.intro || []).forEach(i => rppSections.push(createListItem(i)));
 
       rppSections.push(createSubSectionTitle("B. Kegiatan Inti", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.corePrinciple)}`, { italics: true })]));
       
       rppSections.push(createPara([createText("1. Memahami:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
-      step.core.memahami.forEach(i => rppSections.push(createListItem(i, 1)));
+      (step.core?.memahami || []).forEach(i => rppSections.push(createListItem(i, 1)));
       
       rppSections.push(createPara([createText("2. Mengaplikasi:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
-      step.core.mengaplikasi.forEach(i => rppSections.push(createListItem(i, 1)));
+      (step.core?.mengaplikasi || []).forEach(i => rppSections.push(createListItem(i, 1)));
       
       rppSections.push(createPara([createText("3. Merefleksi:", { bold: true })], { spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }}));
-      step.core.merefleksi.forEach(i => rppSections.push(createListItem(i, 1)));
+      (step.core?.merefleksi || []).forEach(i => rppSections.push(createListItem(i, 1)));
 
       rppSections.push(createSubSectionTitle("C. Penutup", false));
       rppSections.push(createPara([createText(`Prinsip: ${safeString(step.closingPrinciple)}`, { italics: true })]));
-      step.closing.forEach(i => rppSections.push(createListItem(i)));
+      (step.closing || []).forEach(i => rppSections.push(createListItem(i)));
   });
 
 
@@ -341,7 +341,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     elements.push(createSectionTitle("IV. ASESMEN PEMBELAJARAN", false));
     elements.push(createSubSectionTitle("1. KKTP (Rubrik Pembelajaran Mendalam)"));
 
-    const kktpRows = assessment.kktp.map(item => new TableRow({
+    const kktpRows = (assessment.kktp || []).map(item => new TableRow({
         children: [
             new TableCell({ children: [createTablePara(safeString(item.criteria))], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
             new TableCell({ children: [createTablePara(safeString(item.needsGuidance))], width: { size: 20, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
@@ -366,7 +366,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     
     elements.push(createSubSectionTitle("2. Asesmen Formatif"));
     
-    if (assessment.formative.checklist.length > 0) {
+    if (assessment.formative && assessment.formative.checklist && assessment.formative.checklist.length > 0) {
         elements.push(createPara([createText("A. Checklist Observasi", { bold: true })]));
         const checkRows = assessment.formative.checklist.map((item, idx) => new TableRow({
             children: [
@@ -390,7 +390,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
     elements.push(createPara([createText("B. Tangga Umpan Balik", { bold: true })], { spacing: { before: 240, after: 120 } }));
     
-    if (assessment.formative.feedbackGuide) {
+    if (assessment.formative && assessment.formative.feedbackGuide) {
         elements.push(createListItem(`Klarifikasi: ${cleanText(assessment.formative.feedbackGuide.clarification)}`));
         elements.push(createListItem(`Apresiasi: ${cleanText(assessment.formative.feedbackGuide.appreciation)}`));
         elements.push(createListItem(`Saran: ${cleanText(assessment.formative.feedbackGuide.suggestion)}`));
@@ -399,7 +399,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
     elements.push(new Paragraph(""));
     
     elements.push(createSubSectionTitle("3. Asesmen Sumatif (Kisi-Kisi)"));
-    if (assessment.summative.grid && assessment.summative.grid.length > 0) {
+    if (assessment.summative && assessment.summative.grid && assessment.summative.grid.length > 0) {
         const gridRows = assessment.summative.grid.map((item, idx) => new TableRow({
             children: [
                 new TableCell({ children: [createTablePara(String(idx + 1))], width: { size: 5, type: WidthType.PERCENTAGE }, margins: CELL_MARGIN, borders: TABLE_BORDERS_FULL }),
@@ -488,14 +488,14 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
       if (materials.subTopik && materials.subTopik.length > 0) {
           elements.push(createSubSectionTitle("Sub Topik"));
-          materials.subTopik.forEach(topic => elements.push(createListItem(topic)));
+          (materials.subTopik || []).forEach(topic => elements.push(createListItem(topic)));
       }
 
       elements.push(createSubSectionTitle("Konsep Inti"));
       elements.push(createPara([createText("Definisi: ", { bold: true }), createText(materials.konsepInti.definisi)]));
       
       elements.push(createPara([createText("Uraian Materi:", { bold: true })]));
-      materials.konsepInti.penjelasanBertahap.forEach(p => elements.push(...createMultilineText(p)));
+      (materials.konsepInti.penjelasanBertahap || []).forEach(p => elements.push(...createMultilineText(p)));
       
       elements.push(createPara([createText("Visualisasi:", { bold: true })]));
       
@@ -529,7 +529,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       }
 
       elements.push(createSubSectionTitle("Glosarium"));
-      materials.glosarium.forEach(g => elements.push(createListItem(`${g.istilah}: ${g.definisi}`)));
+      (materials.glosarium || []).forEach(g => elements.push(createListItem(`${g.istilah}: ${g.definisi}`)));
 
       return elements;
   };
@@ -544,7 +544,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
 
       elements.push(createSubSectionTitle("Tujuan"));
       // Improved Objectives parsing to remove existing bullets before creating list items
-      const objectivesList = lkpd.objectives
+      const objectivesList = (lkpd.objectives || "")
           .split(/\n/)
           .map(o => o.trim())
           .filter(o => o.length > 0)
@@ -555,7 +555,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       });
 
       elements.push(createSubSectionTitle("Petunjuk"));
-      lkpd.instructions.forEach(i => elements.push(createListItem(i)));
+      (lkpd.instructions || []).forEach(i => elements.push(createListItem(i)));
 
       const renderActivityContent = (actData: any) => {
           let content = "";
@@ -568,14 +568,16 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       }
 
       // Updated to match new 2-Activity Structure
-      elements.push(createSubSectionTitle("Aktivitas 1: Pemahaman Konsep"));
-      elements.push(...renderActivityContent(lkpd.activities.activity1));
+      if (lkpd.activities) {
+          elements.push(createSubSectionTitle("Aktivitas 1: Pemahaman Konsep"));
+          elements.push(...renderActivityContent(lkpd.activities.activity1));
 
-      elements.push(createSubSectionTitle("Aktivitas 2: Aplikasi & Diskusi"));
-      elements.push(...renderActivityContent(lkpd.activities.activity2));
+          elements.push(createSubSectionTitle("Aktivitas 2: Aplikasi & Diskusi"));
+          elements.push(...renderActivityContent(lkpd.activities.activity2));
+      }
       
       elements.push(createSubSectionTitle("Refleksi Diri"));
-      lkpd.reflection.forEach(r => elements.push(createListItem(r)));
+      (lkpd.reflection || []).forEach(r => elements.push(createListItem(r)));
 
       return elements;
   };
@@ -586,7 +588,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       elements.push(createSectionTitle("LAMPIRAN 3: BANK SOAL", true));
 
       const groupedItems: Record<string, any[]> = {};
-      qb.items.forEach(item => {
+      (qb.items || []).forEach(item => {
           if (!groupedItems[item.type]) groupedItems[item.type] = [];
           groupedItems[item.type].push(item);
       });
@@ -621,7 +623,7 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
               }
               
               if (item.options) {
-                  item.options.forEach((opt: string, i: number) => {
+                  (item.options || []).forEach((opt: string, i: number) => {
                       const cleanOpt = cleanText(opt).replace(/^(?:[A-Ea-e0-9]|Option\s*[A-E])[\.\)\-]\s*/i, '').replace(/^\*\*(?:[A-Ea-e0-9]|Option\s*[A-E])[\.\)\-]\*\*\s*/i, '').trim();
                       
                       elements.push(createPara([createText(`${String.fromCharCode(65+i)}. ${cleanOpt}`)], { 
