@@ -51,7 +51,7 @@ const LkpdContent: React.FC<LkpdContentProps> = ({ data, isMathSubject }) => {
 
             <OpenSection title="Petunjuk Pengerjaan">
                 <ul className="list-decimal pl-5 text-inherit" style={{ listStylePosition: 'outside', marginLeft: '1rem' }}>
-                    {l.instructions.map((ins, i) => <li key={i} className="pl-2 mb-1" dangerouslySetInnerHTML={renderMarkdown(ins, isMathSubject)} />)}
+                    {(l.instructions || []).map((ins, i) => <li key={i} className="pl-2 mb-1" dangerouslySetInnerHTML={renderMarkdown(ins, isMathSubject)} />)}
                 </ul>
             </OpenSection>
 
@@ -69,7 +69,7 @@ const LkpdContent: React.FC<LkpdContentProps> = ({ data, isMathSubject }) => {
             
             <OpenSection title="Refleksi Diri">
                  <ul className="list-disc pl-6 text-inherit">
-                    {l.reflection.map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r, isMathSubject)} />)}
+                    {(l.reflection || []).map((r, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(r, isMathSubject)} />)}
                  </ul>
             </OpenSection>
         </div>

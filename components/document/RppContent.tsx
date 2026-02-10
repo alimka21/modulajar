@@ -74,45 +74,45 @@ const RppContent: React.FC<RppContentProps> = ({ data, isMathSubject }) => {
             </OpenSection>
 
             <OpenSection title="III. LANGKAH PEMBELAJARAN">
-                {learningExperience.map((step, idx) => (
+                {(learningExperience || []).map((step, idx) => (
                     <div key={idx} className="mb-6 break-inside-avoid text-inherit">
                         <div className="bg-[#87CEFA] p-1.5 text-center font-bold mb-3 text-inherit rounded-sm">
-                            PERTEMUAN {step.meetingNo}
+                            PERTEMUAN {step?.meetingNo || idx + 1}
                         </div>
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit">A. Pendahuluan</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.introPrinciple}</strong></p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step?.introPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
-                                {step.intro.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
+                                {(step?.intro || []).map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit">B. Kegiatan Inti</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.corePrinciple}</strong></p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step?.corePrinciple}</strong></p>
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">1. Memahami</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.memahami.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
+                                {(step?.core?.memahami || []).map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                             
                             <p className="font-bold mt-1 mb-1 text-inherit">2. Mengaplikasi</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.mengaplikasi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
+                                {(step?.core?.mengaplikasi || []).map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
 
                             <p className="font-bold mt-1 mb-1 text-inherit">3. Merefleksi</p>
                             <ul className="list-disc pl-6 mb-1 text-inherit">
-                                {step.core.merefleksi.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
+                                {(step?.core?.merefleksi || []).map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
 
                         <div className="mb-3">
                             <h4 className="font-bold text-inherit">C. Penutup</h4>
-                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step.closingPrinciple}</strong></p>
+                            <p className="italic text-xs text-slate-600 mb-1 text-inherit">Prinsip: <strong>{step?.closingPrinciple}</strong></p>
                             <ul className="list-disc pl-6 text-inherit">
-                                {step.closing.map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
+                                {(step?.closing || []).map((item, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(item, isMathSubject)} />)}
                             </ul>
                         </div>
                     </div>

@@ -4,28 +4,55 @@ import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, Question
 import { tokenManager } from "./tokenManager";
 import { supabase } from "../lib/supabaseClient";
 
-/**
- * Model Priority Strategy:
- * 1. 'gemini-3-flash-preview': Cerdas & Cepat (Primary).
- * 2. 'gemini-2.5-flash': Sangat Cepat & Stabil.
- * 3. 'gemini-flash-latest': Fallback Umum.
- */
-const MODEL_PRIORITY = [
-  'gemini-3-flash-preview',
-  'gemini-2.5-flash',
-  'gemini-flash-latest'
-];
-
 const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
+const REQUEST_TIMEOUT_MS = 25000; // 25 Detik Timeout per request (Hard limit)
+const HEDGE_DELAY_MS = 4000; // 4 Detik delay sebelum menyalakan backup model
 
 const cleanApiKey = (key: string | null | undefined): string => {
   if (!key) return "";
   return String(key).trim().replace(/[\r\n"']/g, '');
 };
 
-// --- CLIENT-SIDE CACHE UTILS ---
+// --- HELPER: TIMEOUT WRAPPER WITH ABORT CONTROLLER ---
+// Menggunakan AbortController agar request benar-benar dibatalkan di level network jika timeout
+const withTimeout = async <T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  errorMsg: string
+): Promise<T> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, ms);
 
+  try {
+    // Pass signal ke fungsi pemanggil
+    return await fn(controller.signal);
+  } catch (error: any) {
+    // Cek apakah error karena abort
+    if (controller.signal.aborted || error.name === 'AbortError') {
+        throw new Error(errorMsg);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+// --- HELPER: JSON CLEANER ---
+const cleanJsonOutput = (text: string): string => {
+    if (!text) return "{}";
+    let cleaned = text.replace(/```json/g, '').replace(/```/g, '');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return cleaned.trim();
+};
+
+// --- CLIENT-SIDE CACHE UTILS ---
 const generateHash = async (str: string): Promise<string> => {
     const encoder = new TextEncoder();
     const data = encoder.encode(str);
@@ -38,7 +65,6 @@ const getLocalCache = (key: string): any | null => {
     try {
         const raw = localStorage.getItem(CACHE_PREFIX + key);
         if (!raw) return null;
-        
         const { data, expiry } = JSON.parse(raw);
         if (Date.now() > expiry) {
             localStorage.removeItem(CACHE_PREFIX + key);
@@ -63,61 +89,121 @@ const setLocalCache = (key: string, data: any) => {
     }
 };
 
-// --- GLOBAL SUPABASE CACHE UTILS (SYSTEM KEY ONLY) ---
-// Tabel 'global_cache' harus dibuat di Supabase: (hash text PK, response jsonb, created_at timestamp)
+// --- GLOBAL SUPABASE CACHE UTILS ---
 const getGlobalCache = async (hash: string): Promise<any | null> => {
     try {
-        const { data, error } = await supabase
-            .from('global_cache')
-            .select('response')
-            .eq('hash', hash)
-            .single();
-        
+        const { data, error } = await supabase.from('global_cache').select('response').eq('hash', hash).single();
         if (error || !data) return null;
         return data.response;
-    } catch (error) {
-        return null; // Fail silent jika tabel tidak ada
-    }
+    } catch (error) { return null; }
 };
 
 const saveGlobalCache = async (hash: string, response: any) => {
     try {
-        // Fire and forget, jangan await blocking terlalu lama
-        supabase.from('global_cache').upsert({ 
-            hash: hash, 
-            response: response,
-            created_at: new Date().toISOString()
-        }).then(({ error }) => {
-            if (error) console.warn("Failed to save global cache (Table might be missing)", error.message);
+        supabase.from('global_cache').upsert({ hash: hash, response: response, created_at: new Date().toISOString() }).then(({ error }) => {
+            if (error) console.warn("Failed to save global cache", error.message);
         });
-    } catch (error) {
-        // Ignore
-    }
+    } catch (error) { /* Ignore */ }
 };
 
-// --- RETRY LOGIC ---
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// --- STRATEGI: HEDGED REQUEST ---
+// Menjalankan Primary Model, jika lambat (>4s), jalankan Backup Model. 
+// Ambil yang tercepat selesai. Cancel yang kalah.
+const executeHedgedStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
+    const PRIMARY_MODEL = 'gemini-3-flash-preview'; // Cerdas
+    const BACKUP_MODEL = 'gemini-2.5-flash';        // Cepat
 
-const runWithRetry = async (fn: () => Promise<any>, retries = 3, label = "Operation"): Promise<any> => {
-    let lastError;
-    for (let i = 0; i < retries; i++) {
+    const acPrimary = new AbortController();
+    const acBackup = new AbortController();
+    
+    // Fungsi pembungkus request dengan AbortController internal + Parsing
+    const makeRequest = async (model: string, controller: AbortController, isBackup = false) => {
+        // Hard timeout per request (agar tidak hanging selamanya)
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        
         try {
-            return await fn();
-        } catch (error: any) {
-            lastError = error;
-            console.warn(`[${label}] Attempt ${i + 1} failed: ${error.message}`);
+            console.log(`[Hedged] ${isBackup ? '>>> Backup' : 'Primary'} ${model} starting...`);
             
-            // Critical Auth Error: Jangan retry, langsung lempar keluar
-            if (String(error).includes("API key not valid") || String(error).includes("key expired")) {
-                throw error;
+            // Fixed: generateContent only accepts one argument (the config object).
+            // Signal handling via SDK is not supported in this version/signature, 
+            // so we rely on the promise race logic to ignore the result of the slower request.
+            const response = await client.models.generateContent({
+                model,
+                ...requestOptions
+            }); 
+            
+            clearTimeout(timeoutId);
+
+            // Manual check if we should discard this result because it was aborted logic-wise
+            if (controller.signal.aborted) {
+                throw new Error("Request aborted");
             }
 
-            if (i < retries - 1) {
-                await sleep(1000 * Math.pow(2, i));
+            const cleanedText = cleanJsonOutput(response.text || "");
+            const parsedData = JSON.parse(cleanedText);
+            if (Object.keys(parsedData).length === 0) throw new Error("Respon kosong.");
+            
+            console.log(`[Hedged] ✅ ${model} WINNER!`);
+            return parsedData;
+        } catch (e: any) {
+            clearTimeout(timeoutId);
+            if (e.name !== 'AbortError' && e.message !== 'Request aborted') {
+                console.warn(`[Hedged] ❌ ${model} failed: ${e.message}`);
             }
+            throw e;
         }
-    }
-    throw lastError;
+    };
+
+    // 1. Mulai Primary
+    const primaryPromise = makeRequest(PRIMARY_MODEL, acPrimary);
+    
+    // 2. Siapkan Backup (Delayed)
+    const backupPromise = new Promise<any>((resolve, reject) => {
+        let started = false;
+        
+        const startBackup = () => {
+            if (started) return;
+            started = true;
+            makeRequest(BACKUP_MODEL, acBackup, true).then(resolve).catch(reject);
+        };
+
+        // Timer: Start backup jika Primary lambat
+        const timer = setTimeout(() => {
+            console.log(`[Hedged] ⏱️ ${HEDGE_DELAY_MS}ms elapsed. Triggering backup...`);
+            startBackup();
+        }, HEDGE_DELAY_MS);
+
+        // Jika Primary gagal duluan (sebelum timer), langsung start backup
+        primaryPromise.catch(() => {
+            clearTimeout(timer);
+            if (!started) {
+                console.log(`[Hedged] ⚠️ Primary failed early. Triggering backup immediately.`);
+                startBackup();
+            }
+        });
+    });
+
+    // 3. Race Logic (Custom implementation of Promise.any basically)
+    return new Promise((resolve, reject) => {
+        let failures = 0;
+        const total = 2;
+
+        primaryPromise.then(res => {
+            acBackup.abort(); // Batalkan backup jika primary menang
+            resolve(res);
+        }).catch((err) => {
+            failures++;
+            if (failures === total) reject(new Error(`Hedged Strategy Failed: ${err.message}`));
+        });
+
+        backupPromise.then(res => {
+            acPrimary.abort(); // Batalkan primary jika backup menang
+            resolve(res);
+        }).catch((err) => {
+            failures++;
+            if (failures === total) reject(new Error(`Hedged Strategy Failed: ${err.message}`));
+        });
+    });
 };
 
 // Validasi API Key User
@@ -129,10 +215,14 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
         const ai = new GoogleGenAI({ apiKey: apiKey });
         const modelToTest = 'gemini-flash-latest';
         
-        const response = await ai.models.generateContent({
-            model: modelToTest, 
-            contents: "Tes koneksi.", 
-        });
+        const response = await withTimeout(
+            (signal) => ai.models.generateContent({
+                model: modelToTest, 
+                contents: "Tes koneksi.", 
+            }),
+            5000,
+            "Koneksi timeout (5s)"
+        );
 
         if (response && response.text) {
              return { success: true, message: `✅ Koneksi Berhasil!` };
@@ -151,7 +241,6 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     const userKey = cleanApiKey(tokenManager.getKey());
     const systemKey = cleanApiKey(process.env.API_KEY);
     
-    // Jika user punya key sendiri, pakai itu. Jika tidak, pakai system key.
     const isUserCustomKey = !!userKey; 
     const apiKey = isUserCustomKey ? userKey : systemKey;
 
@@ -163,68 +252,69 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
     const cacheKey = await generateHash(signature);
 
-    // 2. Cek LOCAL Cache (Browser) - Berlaku untuk semua mode (Cepat)
+    // 2. Cek LOCAL Cache (Browser)
     const localData = getLocalCache(cacheKey);
     if (localData) {
         console.log("[Cache] Hit from Browser LocalStorage");
         return localData;
     }
 
-    // 3. Cek GLOBAL Cache (Supabase) - HANYA JIKA MENGGUNAKAN SYSTEM KEY
-    // Alasan: Key user bersifat privat, hasilnya mungkin mengandung data sensitif/spesifik yang tidak boleh dishare.
-    // Key System adalah public/shared resource, jadi kita bisa share hasil generatenya untuk hemat kuota.
+    // 3. Cek GLOBAL Cache (Supabase) - HANYA SYSTEM KEY
     if (!isUserCustomKey) {
         const globalData = await getGlobalCache(cacheKey);
         if (globalData) {
             console.log("[Cache] Hit from Supabase Global");
-            setLocalCache(cacheKey, globalData); // Simpan ke local juga biar next time lebih cepat
+            setLocalCache(cacheKey, globalData); 
             return globalData;
         }
     }
 
-    // 4. Generate AI (Direct Call)
+    // 4. Generate AI (Hedged Strategy)
     const client = new GoogleGenAI({ apiKey: apiKey });
-    let lastError = null;
+    
+    const requestOptions = {
+        contents: userPrompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+            systemInstruction: systemInstruction,
+            temperature: 0.7,
+        }
+    };
+
     let finalResult = null;
+    let lastError = null;
 
-    for (const model of MODEL_PRIORITY) {
+    // TIER 1: HEDGED REQUEST (Primary + Backup)
+    try {
+        finalResult = await executeHedgedStrategy(client, requestOptions);
+    } catch (e: any) {
+        console.warn("[TryGenerate] Hedged Strategy failed:", e.message);
+        lastError = e;
+        
+        // Critical Auth Check
+        const errStr = String(e);
+        if (errStr.includes("API key not valid") || errStr.includes("key expired")) {
+            throw new Error("API Key Tidak Valid. Silakan periksa atau ganti API Key di Dashboard.");
+        }
+
+        // TIER 2: FALLBACK (Single Request to lightweight model)
+        // Jika kedua model Hedged gagal, kita coba model paling ringan 'gemini-flash-latest'
         try {
-            console.log(`[Direct-AI] Generating with ${model} using ${isUserCustomKey ? 'USER' : 'SYSTEM'} Key...`);
+            console.log("[TryGenerate] ⚠️ Attempting Fallback: gemini-flash-latest");
+            finalResult = await withTimeout(
+                (signal) => client.models.generateContent({
+                    model: 'gemini-flash-latest',
+                    ...requestOptions
+                }),
+                REQUEST_TIMEOUT_MS,
+                "Fallback Model Timeout"
+            ).then(res => JSON.parse(cleanJsonOutput(res.text || "")));
             
-            finalResult = await runWithRetry(async () => {
-                const response = await client.models.generateContent({
-                    model: model,
-                    contents: userPrompt,
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: responseSchema,
-                        systemInstruction: systemInstruction,
-                        temperature: 0.7,
-                    }
-                });
-                
-                let parsedData;
-                try {
-                    parsedData = JSON.parse(response.text || "{}");
-                } catch (e) {
-                    throw new Error("Format respon AI tidak valid JSON.");
-                }
-                
-                if (Object.keys(parsedData).length === 0) throw new Error("Respon AI kosong.");
-                return parsedData;
-            }, 2, `Gen-${model}`);
-
-            // Berhasil generate, keluar loop
-            break; 
-
-        } catch (error: any) {
-            console.warn(`[Direct-AI] Model ${model} failed:`, error.message);
-            lastError = error;
-            
-            const errStr = String(error);
-            if (errStr.includes("API key not valid") || errStr.includes("key expired") || errStr.includes("API_KEY_INVALID")) {
-                throw new Error("API Key Tidak Valid. Silakan periksa atau ganti API Key di Dashboard.");
-            }
+            console.log("[TryGenerate] Fallback Success.");
+        } catch (fallbackErr: any) {
+            console.error("[TryGenerate] Fallback Failed:", fallbackErr.message);
+            lastError = fallbackErr; // Update error to the fallback error
         }
     }
 
@@ -233,13 +323,9 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     }
 
     // 5. Simpan Cache
-    
-    // A. Simpan ke Local (Browser) - Selalu
     setLocalCache(cacheKey, finalResult);
 
-    // B. Simpan ke Global (Supabase) - HANYA JIKA SYSTEM KEY
     if (!isUserCustomKey) {
-        // Async non-blocking save
         saveGlobalCache(cacheKey, finalResult);
     }
 
@@ -260,13 +346,13 @@ const getComplexityInstruction = (grade: string): string => {
 const DEEP_LEARNING_INSTRUCTION = `
 Anda adalah Pakar Kurikulum & Deep Learning.
 Gunakan kata "Murid". Jangan gunakan LaTeX ($..$) untuk teks biasa, hanya untuk rumus kompleks.
-Output wajib JSON valid sesuai Schema.
+Output wajib JSON valid sesuai Schema. Jangan tambahkan markdown block seperti \`\`\`json.
 `;
 
 const ASSESSMENT_INSTRUCTION = `
 Anda adalah Pakar Penilaian & Deep Learning.
 Buat Rubrik KKTP, Asesmen Formatif (Checklist & Feedback), Sumatif, dan Intervensi.
-Output wajib JSON valid.
+Output wajib JSON valid. Jangan tambahkan markdown block.
 `;
 
 // --- EXPORTED FUNCTIONS ---

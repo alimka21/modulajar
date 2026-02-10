@@ -291,14 +291,44 @@ export const incrementGenerationCount = async (userId: string) => {
 
 export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
     try {
-        const MAX_HISTORY = 5; // Updated to 5 per request
+        // 1. CEK DUPLIKASI (Berdasarkan Topik, Kelas, Mapel)
+        // Jika user generate ulang modul yang sama, kita update saja entry yang lama
+        // agar history tidak penuh dengan item yang identik, dan naikkan ke posisi teratas.
+        const { data: existingItem } = await supabase
+            .from('generation_history')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('subject', inputData.subject)
+            .eq('grade', inputData.grade)
+            .eq('topic', inputData.topic)
+            .maybeSingle();
+
+        if (existingItem) {
+            // Update timestamp ke 'now()' agar naik ke urutan pertama (Recent)
+            // Update data konten jika ada perubahan (misal regenerate bagian tertentu)
+            await supabase
+                .from('generation_history')
+                .update({ 
+                    created_at: new Date().toISOString(),
+                    full_data: data,
+                    features: features,
+                    input_data: inputData
+                })
+                .eq('id', existingItem.id);
+                
+            return existingItem.id;
+        }
+
+        // 2. JIKA DATA BARU, CEK LIMIT (Max 5)
+        const MAX_HISTORY = 5; 
         const { data: currentHistory } = await supabase
             .from('generation_history')
             .select('id')
             .eq('user_id', userId)
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true }); // Oldest first
 
         if (currentHistory && currentHistory.length >= MAX_HISTORY) {
+            // Hapus yang terlama untuk memberi ruang
             const itemsToDeleteCount = currentHistory.length - MAX_HISTORY + 1;
             const idsToDelete = currentHistory.slice(0, itemsToDeleteCount).map(item => item.id);
             if (idsToDelete.length > 0) {
@@ -306,6 +336,7 @@ export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inp
             }
         }
 
+        // 3. INSERT DATA BARU
         const { data: result, error } = await supabase.from('generation_history').insert({
                 user_id: userId, 
                 subject: inputData.subject, 

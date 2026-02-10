@@ -43,7 +43,7 @@ const MaterialsContent: React.FC<MaterialsContentProps> = ({ data, isMathSubject
           <div className="mb-4 text-inherit">
               <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Sub Topik</h3>
               <ul className="list-disc pl-6 text-inherit">
-                   {m.subTopik.map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s, isMathSubject)} />)}
+                   {(m.subTopik || []).map((s, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(s, isMathSubject)} />)}
               </ul>
           </div>
 
@@ -55,7 +55,7 @@ const MaterialsContent: React.FC<MaterialsContentProps> = ({ data, isMathSubject
               
               <strong className="text-inherit">Uraian Materi:</strong>
               <ul className="list-disc pl-6 mb-2 text-inherit">
-                   {m.konsepInti.penjelasanBertahap.map((p, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(p, isMathSubject)} />)}
+                   {(m.konsepInti?.penjelasanBertahap || []).map((p, i) => <li key={i} dangerouslySetInnerHTML={renderMarkdown(p, isMathSubject)} />)}
               </ul>
 
               <strong className="text-inherit">Contoh Konkret:</strong>
@@ -73,7 +73,7 @@ const MaterialsContent: React.FC<MaterialsContentProps> = ({ data, isMathSubject
           <div className="mb-4 text-inherit">
               <h3 className="font-bold uppercase mb-2 text-inherit border-b border-black pb-1">Glosarium</h3>
               <ul className="list-disc pl-6 text-inherit">
-                   {m.glosarium.map((g, i) => (
+                   {(m.glosarium || []).map((g, i) => (
                        <li key={i}>
                            <strong className="text-inherit">{g.istilah}:</strong> <span dangerouslySetInnerHTML={renderInlineMarkdown(g.definisi, isMathSubject)} />
                        </li>

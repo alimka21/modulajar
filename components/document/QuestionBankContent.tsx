@@ -11,7 +11,7 @@ interface QuestionBankContentProps {
 const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathSubject }) => {
     if (!data.questionBank) return null;
 
-    const groupedItems = data.questionBank.items.reduce((acc, item) => {
+    const groupedItems = (data.questionBank?.items || []).reduce((acc, item) => {
         if (!acc[item.type]) acc[item.type] = [];
         acc[item.type].push(item);
         return acc;
@@ -39,7 +39,7 @@ const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathS
                                       <div className="mb-2 text-inherit" dangerouslySetInnerHTML={renderMarkdown(item.question, isMathSubject)} />
                                       {(item.type === 'Pilihan Ganda' || item.type === 'Pilihan Ganda Kompleks') && item.options && (
                                           <div className="grid grid-cols-1 gap-y-1 text-inherit mt-1 ml-4 text-xs">
-                                              {(item.options as any[]).map((opt, i) => (
+                                              {(item.options || []).map((opt: string, i: number) => (
                                                   <div key={i} className="flex gap-2 text-inherit">
                                                       <span className="font-bold min-w-[20px] text-inherit">{String.fromCharCode(65 + i)}.</span>
                                                       <span className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(opt, isMathSubject)} />
@@ -51,7 +51,7 @@ const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathS
                                           <div className="mt-4 ml-4 grid grid-cols-2 gap-8 text-xs">
                                               <div className="space-y-2">
                                                   <div className="font-bold border-b border-black pb-1">Premis</div>
-                                                  {(item.matchingPairs as any[]).map((pair, i) => (
+                                                  {(item.matchingPairs || []).map((pair: any, i: number) => (
                                                       <div key={i} className="flex gap-2 items-start py-1">
                                                           <div className="font-bold min-w-[20px]">{i+1}.</div>
                                                           <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.left, isMathSubject)} />
@@ -60,7 +60,7 @@ const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathS
                                               </div>
                                               <div className="space-y-2">
                                                   <div className="font-bold border-b border-black pb-1">Pilihan Jawaban</div>
-                                                  {[...item.matchingPairs].sort((a: any, b: any) => a.right.localeCompare(b.right)).map((pair, i) => (
+                                                  {[...(item.matchingPairs || [])].sort((a: any, b: any) => a.right.localeCompare(b.right)).map((pair: any, i: number) => (
                                                       <div key={i} className="flex gap-2 items-start py-1">
                                                           <div className="font-bold min-w-[20px]">{String.fromCharCode(65+i)}.</div>
                                                           <div className="text-inherit" dangerouslySetInnerHTML={renderInlineMarkdown(pair.right, isMathSubject)} />
@@ -95,8 +95,8 @@ const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathS
                               {(items as any[]).map((item, idx) => {
                                   let displayKey = item.answerKey;
                                   if (item.type === 'Menjodohkan' && item.matchingPairs) {
-                                      const sortedRight = [...item.matchingPairs].map((p: any) => p.right).sort((a: string, b: string) => a.localeCompare(b));
-                                      const keyParts = item.matchingPairs.map((pair: any, i: number) => {
+                                      const sortedRight = [...(item.matchingPairs || [])].map((p: any) => p.right).sort((a: string, b: string) => a.localeCompare(b));
+                                      const keyParts = (item.matchingPairs || []).map((pair: any, i: number) => {
                                           const matchIndex = sortedRight.indexOf(pair.right);
                                           const letter = String.fromCharCode(65 + matchIndex);
                                           return `${i+1} - ${letter}`;
