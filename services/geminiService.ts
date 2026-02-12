@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 
 const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
-const REQUEST_TIMEOUT_MS = 45000; // Naikkan Timeout jadi 45s agar model punya waktu berpikir tanpa trigger error dini
+const REQUEST_TIMEOUT_MS = 45000; // 45 Detik per model
 
 const cleanApiKey = (key: string | null | undefined): string => {
   if (!key) return "";
@@ -103,23 +103,21 @@ const saveGlobalCache = async (hash: string, response: any) => {
 };
 
 // --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota) ---
-// 1. Coba Model Utama (Gemini 3 Flash)
-// 2. Jika Gagal/Timeout/429 -> Coba Model Cadangan (Gemini 2.5 Flash)
-// Tidak menembak bersamaan agar kuota user aman.
+// 1. Model A (Primary) -> gemini-2.5-flash
+// 2. Model B (Backup)  -> gemini-flash-latest
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
-    // Config per model
+    // Config Strategy
     const ATTEMPTS = [
-        { model: 'gemini-3-flash-preview', label: 'Primary (Smart)' },
-        { model: 'gemini-2.5-flash', label: 'Backup (Fast)' },
-        { model: 'gemini-flash-latest', label: 'Fallback (Legacy)' }
+        { model: 'gemini-2.5-flash', label: 'Model A (Primary)' },
+        { model: 'gemini-flash-latest', label: 'Model B (Backup)' }
     ];
 
     let lastError = null;
 
     for (const attempt of ATTEMPTS) {
         try {
-            console.log(`[AI] Mencoba model: ${attempt.label} (${attempt.model})...`);
+            console.log(`[AI] Mencoba ${attempt.label}: ${attempt.model}...`);
             
             // Single Request dengan Timeout
             const response: any = await withTimeout(
@@ -153,12 +151,12 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                 throw new Error("API Key Tidak Valid atau Konfigurasi Salah.");
             }
             
-            // Jika error 429 (Quota), lanjut ke model berikutnya (beda model biasanya beda bucket quota)
-            // Lanjut ke loop berikutnya...
+            // Lanjut ke model berikutnya (Sequential Fallback)
         }
     }
 
-    throw new Error(`Gagal Generate setelah mencoba semua model. Error terakhir: ${lastError?.message || "Server Busy"}`);
+    // Jika Model B juga gagal
+    throw new Error(`Gagal Generate. Server sedang sibuk atau kuota habis. Error terakhir: ${lastError?.message || "Unknown Error"}`);
 };
 
 // Validasi API Key User
@@ -168,7 +166,7 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        const modelToTest = 'gemini-flash-latest'; // Model paling murah untuk tes
+        const modelToTest = 'gemini-flash-latest'; // Gunakan model paling ringan untuk tes koneksi
         
         const response: any = await withTimeout(
             (signal) => ai.models.generateContent({
@@ -217,8 +215,6 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     }
 
     // 3. Cek GLOBAL Cache (Supabase) - HANYA JIKA PAKAI SYSTEM KEY
-    // Jika user pakai key sendiri, kita skip global cache read agar privasi/custom prompt terjaga,
-    // atau aktifkan jika ingin hemat kuota user juga (opsional). Di sini kita disable untuk user key agar fresh.
     if (!isUserCustomKey) {
         const globalData = await getGlobalCache(cacheKey);
         if (globalData) {
@@ -256,8 +252,6 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     // 5. Simpan Cache
     if (finalResult) {
         setLocalCache(cacheKey, finalResult);
-        // Kita simpan ke global cache hanya jika pakai system key, atau user key (opsional - safe to save generic content)
-        // Untuk efisiensi server, kita simpan.
         if (!isUserCustomKey) {
             saveGlobalCache(cacheKey, finalResult);
         }
