@@ -7,6 +7,7 @@ import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
 import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink, XCircle } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
+import { tokenManager } from '../services/tokenManager';
 
 interface UserDashboardProps {
   user: User;
@@ -42,11 +43,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       // FIX: Ensure sync to sessionStorage so other services can see it immediately
       if (currentKey && currentKey.length > 10) {
           sessionStorage.setItem('custom_api_key', currentKey);
+          tokenManager.setKey(currentKey); // Update memory manager directly
           setKeyStatus('VALID');
           setIsKeyValidated(true);
           setIsEditingKey(false);
       } else {
           sessionStorage.removeItem('custom_api_key');
+          tokenManager.setKey(null);
           setIsEditingKey(true);
       }
       
@@ -153,8 +156,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
           // 1. Simpan ke database
           await saveUserApiKey(user.id, cleanKey);
           
-          // 2. Set Session (Optimistic update agar langsung bisa dipakai)
+          // 2. Set Session & Token Manager IMMEDIATELY (Critical for consistency)
           sessionStorage.setItem('custom_api_key', cleanKey);
+          tokenManager.setKey(cleanKey); // <<-- FIX HERE: Force update memory token manager
           
           // 3. Refresh Auth Context (Sync dari DB agar state global update)
           await refreshAuth();
@@ -183,8 +187,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                   // 1. Hapus dari DB
                   await saveUserApiKey(user.id, null);
                   
-                  // 2. Clear Session
+                  // 2. Clear Session & Manager
                   sessionStorage.removeItem('custom_api_key');
+                  tokenManager.setKey(null);
                   
                   // 3. Reset State Lokal
                   setApiKey('');
