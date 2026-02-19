@@ -1,11 +1,9 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, AppSettings } from '../types';
-import { getUsers, saveUser, updateUser, updateUserStatus, deleteUser, getSettings, saveSettings, getAllGenerationStats, updateAdminPassword } from '../services/storageService';
+import { getUsers, saveUser, updateUser, updateUserStatus, deleteUser, getSettings, saveSettings, updateAdminPassword } from '../services/storageService';
 import { swal, toast } from '../services/notificationService';
-import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Mail, Lock, User as UserIcon, ShieldCheck, Loader2, X, ExternalLink, Activity, BarChart3, AtSign, Zap, GraduationCap, TrendingUp, Key, Clock, Circle, Eye, EyeOff } from 'lucide-react';
-
-declare var Chart: any;
+import { LogOut, Users, Settings, LayoutDashboard, Plus, Trash2, Edit2, CheckCircle, XCircle, Search, Activity, Zap, GraduationCap, TrendingUp, Clock, Circle, HelpCircle, Key, Lock, ExternalLink, Loader2, X } from 'lucide-react';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -15,8 +13,6 @@ interface AdminDashboardProps {
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) => {
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'USERS' | 'SETTINGS'>('DASHBOARD');
   const [users, setUsers] = useState<User[]>([]);
-  const [genStats, setGenStats] = useState<string[]>([]); 
-  const [isLoading, setIsLoading] = useState(false);
   const [settings, setAppSettings] = useState<AppSettings>({ promoLink: '', whatsappNumber: '', socialMediaLink: '' });
   
   const [userTab, setUserTab] = useState<'ACTIVE' | 'PENDING'>('ACTIVE');
@@ -33,38 +29,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
 
-  const chartRef = useRef<HTMLCanvasElement>(null);
-  const chartInstance = useRef<any>(null);
-  
-  const genChartRef = useRef<HTMLCanvasElement>(null);
-  const genChartInstance = useRef<any>(null);
-
   useEffect(() => {
       refreshData();
       const interval = setInterval(refreshData, 30000);
       return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-      if (activeTab === 'DASHBOARD' && users.length > 0) {
-          if (chartRef.current) initRegistrationChart();
-          if (genChartRef.current) initGenerationChart();
-      }
-      return () => {
-          if (chartInstance.current) chartInstance.current.destroy();
-          if (genChartInstance.current) genChartInstance.current.destroy();
-      };
-  }, [activeTab, users, genStats]);
-
   const refreshData = async () => {
       try {
-        const [allUsers, allGenStats] = await Promise.all([
-            getUsers(),
-            getAllGenerationStats()
-        ]);
-        
+        const allUsers = await getUsers();
         setUsers(allUsers);
-        setGenStats(allGenStats);
         setAppSettings(getSettings());
       } catch (error) {
           console.error("Failed to refresh data (background)", error);
@@ -94,108 +68,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
       const past = new Date(dateString);
       const diffInMins = Math.floor((now.getTime() - past.getTime()) / (1000 * 60));
       return diffInMins < 15;
-  };
-
-  const initRegistrationChart = () => {
-      if (!chartRef.current) return;
-      const counts: Record<string, number> = {};
-      const today = new Date();
-      for(let i=6; i>=0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          const key = d.toISOString().split('T')[0];
-          counts[key] = 0;
-      }
-      users.forEach(u => {
-          if(u.role !== 'admin' && u.joinedDate) {
-              const dateKey = u.joinedDate.split('T')[0];
-              if (counts[dateKey] !== undefined) counts[dateKey]++;
-          }
-      });
-      const labels = Object.keys(counts).map(k => {
-          const [y, m, d] = k.split('-');
-          return `${d}/${m}`;
-      });
-      const data = Object.values(counts);
-      if (chartInstance.current) chartInstance.current.destroy();
-      const ctx = chartRef.current.getContext('2d');
-      chartInstance.current = new Chart(ctx, {
-          type: 'line',
-          data: {
-              labels: labels,
-              datasets: [{
-                  label: 'Pendaftar Baru',
-                  data: data,
-                  borderColor: '#2563eb',
-                  backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                  tension: 0.4,
-                  fill: true,
-                  pointBackgroundColor: '#2563eb',
-                  pointRadius: 4
-              }]
-          },
-          options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: {
-                  y: { beginAtZero: true, ticks: { stepSize: 1 } },
-                  x: { grid: { display: false } }
-              }
-          }
-      });
-  };
-
-  const initGenerationChart = () => {
-      if (!genChartRef.current) return;
-      const counts: Record<string, number> = {};
-      const today = new Date();
-      for(let i=6; i>=0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          const key = d.toISOString().split('T')[0];
-          counts[key] = 0;
-      }
-      genStats.forEach(timestamp => {
-          if (timestamp) {
-              const dateKey = timestamp.split('T')[0];
-              if (counts[dateKey] !== undefined) counts[dateKey]++;
-          }
-      });
-      const labels = Object.keys(counts).map(k => {
-          const [y, m, d] = k.split('-');
-          return `${d}/${m}`;
-      });
-      const data = Object.values(counts);
-      if (genChartInstance.current) genChartInstance.current.destroy();
-      const ctx = genChartRef.current.getContext('2d');
-      genChartInstance.current = new Chart(ctx, {
-          type: 'bar',
-          data: {
-              labels: labels,
-              datasets: [{
-                  label: 'Generate Harian',
-                  data: data,
-                  backgroundColor: '#9333ea', 
-                  borderRadius: 4,
-                  barThickness: 24
-              }]
-          },
-          options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { 
-                  legend: { display: false },
-                  tooltip: {
-                      callbacks: { label: (context: any) => `Volume: ${context.raw} Modul` }
-                  }
-              },
-              scales: {
-                  y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-                  x: { grid: { display: false } }
-              }
-          }
-      });
   };
 
   const handleUpdateStatus = (user: User, status: 'active' | 'pending') => {
@@ -343,7 +215,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
 
   const activeCount = users.filter(u => u.status === 'active' && u.role !== 'admin').length;
   const pendingCount = users.filter(u => u.status === 'pending').length;
-  const totalGenerations = genStats.length;
+  // UPDATE: Total Generation is sum of user.generationCount
+  const totalGenerations = users.reduce((sum, user) => sum + (user.generationCount || 0), 0);
 
   // REFRESH FILTERED USERS AUTOMATICALLY WHEN USERS STATE CHANGES
   const filteredUsers = users.filter(u => {
@@ -364,7 +237,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
           <div className="flex items-center gap-4">
              <div className="hidden md:flex items-center gap-2 mr-4">
                  <div className="text-right"><div className="text-sm font-bold text-slate-700">Administrator</div><div className="text-[10px] text-green-600 font-medium bg-green-50 px-2 rounded-full inline-block">Online</div></div>
-                 <div className="w-9 h-9 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 border border-slate-200"><ShieldCheck size={18} /></div>
+                 <div className="w-9 h-9 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 border border-slate-200"><Key size={18} /></div>
              </div>
              <button onClick={onLogout} className="flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 font-medium px-4 py-2 rounded-lg transition-colors"><LogOut size={16} /> Keluar</button>
           </div>
@@ -407,7 +280,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                                   <div className="bg-purple-50 p-2 rounded-lg text-purple-600"><Zap size={20} /></div>
                               </div>
                               <div className="text-4xl font-black text-slate-800">{totalGenerations}</div>
-                              <div className="text-xs text-purple-600 font-medium mt-2 flex items-center gap-1"><TrendingUp size={12} /> Seluruh Riwayat</div>
+                              <div className="text-xs text-purple-600 font-medium mt-2 flex items-center gap-1"><TrendingUp size={12} /> Akumulasi User</div>
                           </div>
                           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition">
                               <div className="flex justify-between items-start mb-4">
@@ -416,28 +289,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onGoToApp }) 
                               </div>
                               <div className="text-4xl font-black text-slate-800">{pendingCount}</div>
                               <div className="text-xs text-orange-600 font-medium mt-2">Menunggu Persetujuan</div>
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                                  <TrendingUp size={20} className="text-blue-600" />
-                                  Tren Pendaftar Baru (7 Hari)
-                              </h3>
-                              <div className="h-64 w-full">
-                                  <canvas ref={chartRef}></canvas>
-                              </div>
-                          </div>
-
-                          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                                  <BarChart3 size={20} className="text-purple-600" />
-                                  Volume Generate Harian (7 Hari)
-                              </h3>
-                              <div className="h-64 w-full">
-                                  <canvas ref={genChartRef}></canvas>
-                              </div>
                           </div>
                       </div>
                   </div>
