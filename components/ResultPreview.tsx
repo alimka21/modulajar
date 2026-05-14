@@ -6,6 +6,7 @@ import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Spa
 import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS } from '../constants';
 import DocumentContent from './document/DocumentContent';
+import { swal } from '../services/notificationService';
 
 declare var marked: any;
 declare var Swal: any;
@@ -20,6 +21,8 @@ interface ResultPreviewProps {
   onGenerate: () => void;
   isLoading: boolean;
   onReset: () => void;
+  onRefineData: (target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feedback: string) => void;
+  isRefining: boolean;
   
   onGenerateMaterials: () => void;
   isGeneratingMaterials: boolean;
@@ -70,7 +73,7 @@ const QUESTION_TYPES: QuestionType[] = ['Pilihan Ganda', 'Pilihan Ganda Kompleks
 
 const ResultPreview: React.FC<ResultPreviewProps> = ({ 
     data, inputData, onInputChange, schoolData, onSchoolChange, onGenerate, isLoading,
-    onReset,
+    onReset, onRefineData, isRefining,
     onGenerateMaterials, isGeneratingMaterials,
     onGenerateLKPD, isGeneratingLKPD, onGenerateAssessment, isGeneratingAssessment,
     onGenerateQuestionBank, isGeneratingQuestionBank
@@ -91,6 +94,8 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const [selectedJenjang, setSelectedJenjang] = useState<string>('');
+  const [refineTarget, setRefineTarget] = useState<'RPP' | 'MATERI' | 'LKPD' | 'SOAL'>('RPP');
+  const [refineFeedback, setRefineFeedback] = useState<string>('');
 
   useEffect(() => {
       if (inputData.grade) {
@@ -338,6 +343,71 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                             <div className="bg-amber-50 border border-amber-100 p-3 mt-4 rounded-xl flex items-start gap-2 animate-fade-in">
                                 <AlertCircle size={16} className="text-amber-500 flex-none mt-0.5" />
                                 <p className="text-[10px] text-amber-700 font-bold leading-relaxed uppercase">Mohon lengkapi seluruh kolom bertanda bintang (*)</p>
+                            </div>
+                        )}
+                        
+                        {data && (
+                            <div className="mt-8 pt-6 border-t border-slate-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Sparkles size={16} className="text-purple-600" />
+                                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Koreksi Hasil AI</h4>
+                                </div>
+                                <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">Berikan saran untuk menyempurnakan bagian tertentu dari dokumen.</p>
+                                
+                                <div className="space-y-3">
+                                    <div>
+                                        <select 
+                                            value={refineTarget}
+                                            onChange={(e) => setRefineTarget(e.target.value as any)}
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-purple-500 text-slate-700"
+                                        >
+                                            <option value="RPP">Modul Ajar (RPM + Asesmen)</option>
+                                            <option value="MATERI">Materi Ajar</option>
+                                            <option value="LKPD">Lembar Kerja (LKPD)</option>
+                                            <option value="SOAL">Bank Soal</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <textarea 
+                                            value={refineFeedback}
+                                            onChange={(e) => setRefineFeedback(e.target.value)}
+                                            placeholder="Contoh: Buatkan aktivitas di pendahuluan menjadi lebih interaktif dengan game tebak kata..."
+                                            rows={4}
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-[11px] resize-none bg-white focus:ring-2 focus:ring-purple-500 outline-none"
+                                        />
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            if (!refineFeedback.trim()) {
+                                                swal.fire({ icon: 'warning', title: 'Perhatian', text: 'Saran perbaikan tidak boleh kosong!' });
+                                                return;
+                                            }
+                                            if (refineTarget === 'MATERI' && !data.materials) {
+                                                swal.fire({ icon: 'info', title: 'Belum Tersedia', text: 'Silakan generate Materi Ajar terlebih dahulu sebelum memberikan saran perbaikan.' });
+                                                return;
+                                            }
+                                            if (refineTarget === 'LKPD' && !data.lkpd) {
+                                                swal.fire({ icon: 'info', title: 'Belum Tersedia', text: 'Silakan generate LKPD terlebih dahulu sebelum memberikan saran perbaikan.' });
+                                                return;
+                                            }
+                                            if (refineTarget === 'SOAL' && !data.questionBank) {
+                                                swal.fire({ icon: 'info', title: 'Belum Tersedia', text: 'Silakan generate Bank Soal terlebih dahulu sebelum memberikan saran perbaikan.' });
+                                                return;
+                                            }
+                                            onRefineData(refineTarget, refineFeedback);
+                                            setRefineFeedback('');
+                                        }}
+                                        disabled={isRefining || !refineFeedback.trim()}
+                                        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md ${
+                                            isRefining || !refineFeedback.trim()
+                                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+                                            : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                        }`}
+                                    >
+                                        {isRefining ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} />}
+                                        {isRefining ? "MEMPERBAIKI..." : "GENERATE ULANG"}
+                                    </button>
+                                </div>
                             </div>
                         )}
                       </div>

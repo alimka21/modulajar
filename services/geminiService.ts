@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 
 const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
-const REQUEST_TIMEOUT_MS = 45000; // 45 Detik per model
+const REQUEST_TIMEOUT_MS = 120000; // 120 Detik per model karena instruksi yang sangat panjang
 
 const cleanApiKey = (key: string | null | undefined): string => {
   if (!key) return "";
@@ -37,15 +37,14 @@ const withTimeout = async <T>(
 };
 
 // --- HELPER: JSON CLEANER ---
+import { jsonrepair } from 'jsonrepair';
+
 const cleanJsonOutput = (text: string): string => {
     if (!text) return "{}";
-    let cleaned = text.replace(/```json/g, '').replace(/```/g, '');
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-    return cleaned.trim();
+    // We don't need firstBrace/lastBrace hack if we just rely on jsonrepair.
+    // Replace markdown formatting if any.
+    let cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return cleaned;
 };
 
 // --- CLIENT-SIDE CACHE UTILS ---
@@ -103,12 +102,13 @@ const saveGlobalCache = async (hash: string, response: any) => {
 };
 
 // --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota) ---
-// 1. Model A (Primary) -> gemini-3.1-flash-lite
+// 1. Model A (Primary) -> gemini-3-flash-preview
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
     // Config Strategy
     const ATTEMPTS = [
-        { model: 'gemini-3.1-flash-lite', label: 'Model A (Primary)' }
+        { model: 'gemini-3-flash-preview', label: 'Model A (Primary)' },
+        { model: 'gemini-3.1-flash-lite', label: 'Model B (Secondary)' }
     ];
 
     let lastError = null;
@@ -131,8 +131,21 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
             );
 
             // Parsing
-            const cleanedText = cleanJsonOutput(response.text || "");
-            const parsedData = JSON.parse(cleanedText);
+            let cleanedText = cleanJsonOutput(response.text || "");
+            let parsedData;
+            try {
+                parsedData = JSON.parse(cleanedText);
+            } catch (err: any) {
+                console.warn("[AI] JSON Parse gagal, mencoba jsonrepair...");
+                try {
+                    const repairedText = jsonrepair(cleanedText);
+                    parsedData = JSON.parse(repairedText);
+                    console.log("[AI] jsonrepair berhasil memperbaiki JSON.");
+                } catch (repairErr: any) {
+                    console.error("[AI] jsonrepair juga gagal:", repairErr.message, "Teks awal:", cleanedText.substring(0, 150), "...");
+                    throw new Error("Output AI terpotong atau tidak valid meskipun sudah diperbaiki. Silakan coba klik GENERATE lagi.");
+                }
+            }
             
             if (Object.keys(parsedData).length === 0) throw new Error("Output JSON kosong.");
             
@@ -232,6 +245,7 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
             responseSchema: responseSchema,
             systemInstruction: systemInstruction,
             temperature: 0.7,
+            maxOutputTokens: 8192
         }
     };
 
@@ -328,10 +342,10 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
     ${complexity}
 
     INSTRUKSI:
-    Rincikan langkah pembelajaran (Pendahuluan, Inti, Penutup) untuk SETIAP PERTEMUAN (${lesson.meetingCount}).
-    JABARKAN SETIAP LANGKAH SECARA MIKRO DAN SANGAT PANJANG:
+    Rincikan langkah pembelajaran (Pendahuluan, Inti, Penutup) untuk SETIAP PERTEMUAN (${lesson.meetingCount}). Anda WAJIB membuat TEPAT array sejumlah total pertemuan yang diminta. Jika diminta 2 pertemuan, output 'learningExperience' WAJIB memiliki tepat 2 elemen!
+    JABARKAN SETIAP LANGKAH SECARA MIKRO DAN SANGAT PANJANG (BERLAKU UNTUK SEMUA JENJANG, MULAI DARI PAUD HINGGA SMA/SMK):
     - Jelaskan secara detail instruksi spesifik apa yang diucapkan guru dan bagaimana respons murid.
-    - Deskripsikan interaksi, aktivitas fisik, atau permainan (khususnya untuk PAUD/SD) yang dilakukan.
+    - Deskripsikan interaksi, aktivitas, diskusi, permainan, atau penalaran kognitif yang dilakukan.
     - Setiap poin kegiatan HARUS berupa narasi komprehensif, BUKAN sekadar kalimat singkat.
     - Kegiatan Inti WAJIB mengikuti alur: Memahami -> Mengaplikasi -> Merefleksi.
     - Setiap tahapan dalam kegiatan inti harus dijabarkan dengan narasi yang kaya dan rinci (minimal 3 kalimat panjang per poin kegiatan).
@@ -482,4 +496,100 @@ export const generateQuestionBank = async (data: GeneratedLessonPlan, config: Qu
     }
 
     return result;
+};
+
+export const refineDocument = async (data: GeneratedLessonPlan, target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feedback: string): Promise<any> => {
+    let schema: any;
+    let basePrompt = `Perbaiki dokumen modul ajar ini berdasarkan saran perbaikan dari pengguna.\n\nSaran Perbaikan:\n"${feedback}"\n\n`;
+
+    if (target === 'RPP') {
+        const docData = { identitySection: data.identitySection, initialAssessment: data.initialAssessment, graduateProfile: data.graduateProfile, design: data.design, learningExperience: data.learningExperience, assessment: data.assessment, reflection: data.reflection };
+        basePrompt += `Data Dokumen RPP Saat Ini:\n${JSON.stringify(docData, null, 2)}\n\n`;
+        basePrompt += DEEP_LEARNING_INSTRUCTION + "\nOutput SESUAI SCHEMA RPP. Output WAJIB JSON lengkap.";
+        schema = {
+            type: Type.OBJECT,
+            properties: {
+                identitySection: { type: Type.OBJECT, properties: { schoolName: {type: Type.STRING}, subject: {type: Type.STRING}, grade: {type: Type.STRING}, semester: {type: Type.STRING}, timeAllocation: {type: Type.STRING}, meetingCount: {type: Type.STRING}, topic: {type: Type.STRING} } },
+                initialAssessment: { type: Type.STRING },
+                graduateProfile: { type: Type.ARRAY, items: { type: Type.STRING } },
+                design: { type: Type.OBJECT, properties: { objectives: { type: Type.ARRAY, items: { type: Type.STRING } }, pedagogicalPractice: { type: Type.STRING }, partnership: { type: Type.STRING }, environment: { type: Type.STRING }, digital: { type: Type.STRING } } },
+                learningExperience: { 
+                    type: Type.ARRAY, 
+                    items: { 
+                        type: Type.OBJECT, 
+                        properties: { 
+                            meetingNo: { type: Type.INTEGER },
+                            intro: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            introPrinciple: { type: Type.STRING },
+                            core: { 
+                                type: Type.OBJECT, 
+                                properties: { memahami: { type: Type.ARRAY, items: { type: Type.STRING } }, mengaplikasi: { type: Type.ARRAY, items: { type: Type.STRING } }, merefleksi: { type: Type.ARRAY, items: { type: Type.STRING } } }
+                            },
+                            corePrinciple: { type: Type.STRING },
+                            closing: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            closingPrinciple: { type: Type.STRING }
+                        } 
+                    } 
+                },
+                assessment: { type: Type.OBJECT, properties: { kktp: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { criteria: { type: Type.STRING }, needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } } } }, formative: { type: Type.OBJECT, properties: { checklist: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } } } }, feedbackGuide: { type: Type.OBJECT, properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } } } } }, summative: { type: Type.OBJECT, properties: { grid: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } } } } } }, intervention: { type: Type.OBJECT, properties: { needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } } } }, nullable: true },
+                reflection: { type: Type.OBJECT, properties: { teacher: { type: Type.ARRAY, items: { type: Type.STRING } }, student: { type: Type.ARRAY, items: { type: Type.STRING } } }, nullable: true },
+                approval: { type: Type.OBJECT, properties: { location: { type: Type.STRING }, date: { type: Type.STRING }, authorName: { type: Type.STRING }, authorNip: { type: Type.STRING }, principalName: { type: Type.STRING }, principalNip: { type: Type.STRING } } }
+            },
+            required: ["identitySection", "design", "learningExperience", "graduateProfile"]
+        };
+    } else if (target === 'MATERI') {
+        basePrompt += `Data Dokumen Materi Saat Ini:\n${JSON.stringify(data.materials, null, 2)}\n\n`;
+        basePrompt += "Buat Materi Ajar: Judul, Pemantik, Konsep Inti (Definisi, Uraian, Tabel Visual), Trivia, Glosarium.\nOutput SESUAI SCHEMA MATERI AJAR. Output JSON.";
+        schema = {
+            type: Type.OBJECT,
+            properties: {
+                judul: { type: Type.STRING },
+                pemantik: { type: Type.STRING },
+                subTopik: { type: Type.ARRAY, items: { type: Type.STRING } },
+                konsepInti: { type: Type.OBJECT, properties: { definisi: { type: Type.STRING }, penjelasanBertahap: { type: Type.ARRAY, items: { type: Type.STRING } }, tabelVisual: { type: Type.STRING }, contohKonkret: { type: Type.STRING } } },
+                trivia: { type: Type.STRING },
+                glosarium: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { istilah: { type: Type.STRING }, definisi: { type: Type.STRING } } } }
+            }
+        };
+    } else if (target === 'LKPD') {
+        basePrompt += `Data Dokumen LKPD Saat Ini:\n${JSON.stringify(data.lkpd, null, 2)}\n\n`;
+        basePrompt += "Buat LKPD: Judul, Tujuan, Petunjuk, Stimulus, Aktivitas 1 (Pemahaman), Aktivitas 2 (Aplikasi), Refleksi.\nOutput SESUAI SCHEMA LKPD. Output JSON.";
+        schema = {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                objectives: { type: Type.STRING },
+                instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                stimulus: { type: Type.STRING },
+                activities: { type: Type.OBJECT, properties: { activity1: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING } } }, activity2: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING } } } } },
+                reflection: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
+        };
+    } else if (target === 'SOAL') {
+        basePrompt += `Data Bank Soal Saat Ini:\n${JSON.stringify(data.questionBank, null, 2)}\n\n`;
+        basePrompt += "Buat Bank Soal. Tipe yang diperbolehkan menyesuaikan yang sudah ada atau modifikasi atas saran perbaikan. Output JSON.";
+        schema = {
+            type: Type.OBJECT,
+            properties: {
+                items: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            number: { type: Type.INTEGER },
+                            type: { type: Type.STRING },
+                            stimulus: { type: Type.STRING, nullable: true },
+                            question: { type: Type.STRING },
+                            options: { type: Type.ARRAY, items: { type: Type.STRING }, nullable: true },
+                            matchingPairs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { left: { type: Type.STRING }, right: { type: Type.STRING } } }, nullable: true },
+                            answerKey: { type: Type.STRING }
+                        },
+                        required: ["type", "question", "answerKey"]
+                    }
+                }
+            }
+        };
+    }
+
+    return await tryGenerate(DEEP_LEARNING_INSTRUCTION, basePrompt, schema);
 };

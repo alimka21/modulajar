@@ -15,6 +15,7 @@ const LkpdContent: React.FC<LkpdContentProps> = ({ data, isMathSubject }) => {
 
     // Helper untuk render Aktivitas dengan deteksi Tabel Pintar
     const renderActivity = (activity: any) => {
+        if (!activity) return null;
         let text = "";
         if (typeof activity === 'object' && activity !== null) {
             text = activity.content || "";
@@ -60,11 +61,11 @@ const LkpdContent: React.FC<LkpdContentProps> = ({ data, isMathSubject }) => {
             </OpenSection>
 
             <OpenSection title="Aktivitas 1: Pemahaman Konsep">
-                 {renderActivity(l.activities.activity1)}
+                 {renderActivity(l.activities?.activity1)}
             </OpenSection>
 
             <OpenSection title="Aktivitas 2: Aplikasi & Diskusi">
-                 {renderActivity(l.activities.activity2)}
+                 {renderActivity(l.activities?.activity2)}
             </OpenSection>
             
             <OpenSection title="Refleksi Diri">

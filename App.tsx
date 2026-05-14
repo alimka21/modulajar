@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, QuestionBankConfig, User, AppSettings } from './types';
 import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
-import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials } from './services/geminiService';
+import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials, refineDocument } from './services/geminiService';
 import { initializeStorage, authenticate, getSettings, incrementGenerationCount, saveHistory, updateHistory, saveDraft, getDraft, clearDraft } from './services/storageService';
 import { swal, toast, showLoading, closeLoading } from './services/notificationService';
 import { supabase } from './lib/supabaseClient';
@@ -250,13 +250,53 @@ const AppContent: React.FC = () => {
       }
   }, [generatedPlan, currentHistoryId, user]);
 
+  const [isRefining, setIsRefining] = useState<boolean>(false);
+
+  const handleRefineData = async (target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feedback: string) => {
+      if (!generatedPlan) return;
+      setIsRefining(true);
+      showLoading('Memperbaiki Dokumen...', 'AI sedang menganalisis dan menerapkan saran perbaikan Anda...', true);
+      try {
+          const data = await refineDocument(generatedPlan, target, feedback);
+          closeLoading();
+          
+          setGeneratedPlan(prev => {
+              if (!prev) return prev;
+              const newPlan = { ...prev };
+              if (target === 'RPP') {
+                  // RPP update contains many fields
+                  if (data.identitySection) newPlan.identitySection = data.identitySection;
+                  if (data.initialAssessment) newPlan.initialAssessment = data.initialAssessment;
+                  if (data.graduateProfile) newPlan.graduateProfile = data.graduateProfile;
+                  if (data.design) newPlan.design = data.design;
+                  if (data.learningExperience) newPlan.learningExperience = data.learningExperience;
+                  if (data.assessment) newPlan.assessment = data.assessment;
+                  if (data.reflection) newPlan.reflection = data.reflection;
+              } else if (target === 'MATERI') {
+                  newPlan.materials = data;
+              } else if (target === 'LKPD') {
+                  newPlan.lkpd = data;
+              } else if (target === 'SOAL') {
+                  newPlan.questionBank = data;
+              }
+              return newPlan;
+          });
+          toast.fire({ icon: 'success', title: 'Dokumen Berhasil Diperbaiki!' });
+      } catch (e: any) {
+          closeLoading();
+          swal.fire({ icon: 'error', title: 'Gagal Memperbaiki', text: e.message });
+      } finally {
+          setIsRefining(false);
+      }
+  };
+
   const handleGenerateRPP = async () => {
     if (!schoolIdentity.schoolName || !lessonIdentity.topic || !lessonIdentity.subject) {
         swal.fire({ icon: 'warning', title: 'Data Belum Lengkap', text: 'Pastikan seluruh identitas sudah diisi di Dashboard.' });
         return;
     }
     setIsLoading(true);
-    showLoading('Menyusun RPM', 'AI sedang menganalisis kurikulum dan menyusun langkah pembelajaran...');
+    showLoading('Menyusun RPM', 'AI sedang menganalisis kurikulum dan menyusun langkah pembelajaran...', true);
     try {
       // FIX: Removed explicit apiKey, service uses TokenManager
       const rppResult = await generateRPP(schoolIdentity, lessonIdentity);
@@ -282,7 +322,7 @@ const AppContent: React.FC = () => {
   const handleGenerateMaterials = async () => {
     if (!generatedPlan) return;
     setIsGeneratingMaterials(true);
-    showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...');
+    showLoading('Menyusun Materi Ajar...', 'AI sedang membedah konsep inti...', true);
     try {
         // FIX: Removed explicit apiKey, service uses TokenManager
         const data = await generateMaterials(generatedPlan);
@@ -301,7 +341,7 @@ const AppContent: React.FC = () => {
   const handleGenerateLKPD = async () => {
     if (!generatedPlan) return;
     setIsGeneratingLKPD(true);
-    showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...');
+    showLoading('Menyusun LKPD...', 'Membangun aktivitas murid bertahap...', true);
     try {
         // FIX: Removed explicit apiKey, service uses TokenManager
         const data = await generateLKPD(generatedPlan);
@@ -320,7 +360,7 @@ const AppContent: React.FC = () => {
   const handleGenerateAssessment = async () => {
     if (!generatedPlan) return;
     setIsGeneratingAssessment(true);
-    showLoading('Menyusun Asesmen...', 'Sinkronisasi instrumen evaluasi...');
+    showLoading('Menyusun Asesmen...', 'Sinkronisasi instrumen evaluasi...', true);
     try {
         // FIX: Removed explicit apiKey, service uses TokenManager
         const data = await generateAssessment(generatedPlan);
@@ -338,7 +378,7 @@ const AppContent: React.FC = () => {
   const handleGenerateQuestionBank = async (config: QuestionBankConfig) => {
     if (!generatedPlan) return;
     setIsGeneratingQuestionBank(true);
-    showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`);
+    showLoading('Menyusun Bank Soal...', `AI sedang membuat ${config.count} soal berkualitas...`, true);
     try {
         // FIX: Removed explicit apiKey, service uses TokenManager
         const data = await generateQuestionBank(generatedPlan, config);
@@ -451,6 +491,8 @@ const AppContent: React.FC = () => {
                 onGenerate={handleGenerateRPP} 
                 isLoading={isLoading}
                 onReset={handleReset}
+                onRefineData={handleRefineData}
+                isRefining={isRefining}
                 onGenerateMaterials={handleGenerateMaterials} 
                 isGeneratingMaterials={isGeneratingMaterials}
                 onGenerateLKPD={handleGenerateLKPD} 
