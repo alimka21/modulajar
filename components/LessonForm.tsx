@@ -1,8 +1,8 @@
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LessonIdentity } from '../types';
-import { INITIAL_LESSON_IDENTITY } from '../constants'; // Import constants
-import { ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
+import { INITIAL_LESSON_IDENTITY, PEDAGOGIES } from '../constants'; // Import constants
+import { ArrowLeft, Sparkles, Loader2, Plus, Trash2 } from 'lucide-react';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
 
 interface LessonFormProps {
@@ -14,6 +14,47 @@ interface LessonFormProps {
 }
 
 const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGenerate, isLoading }) => {
+  const [selectedCategory, setSelectedCategory] = useState<string>("Biarkan AI yang Rekomendasikan Praktik Pedagogis");
+
+  useEffect(() => {
+    if (data.pedagogicalPractice) {
+      const foundCategory = PEDAGOGIES.find(p => p.options.includes(data.pedagogicalPractice));
+      if (foundCategory && foundCategory.category !== selectedCategory) {
+        setSelectedCategory(foundCategory.category);
+      }
+    } else {
+        if (selectedCategory !== "Biarkan AI yang Rekomendasikan Praktik Pedagogis") {
+            setSelectedCategory("Biarkan AI yang Rekomendasikan Praktik Pedagogis");
+        }
+    }
+  }, [data.pedagogicalPractice, selectedCategory]);
+
+  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newCategory = e.target.value;
+    setSelectedCategory(newCategory);
+    const categoryOptions = PEDAGOGIES.find(p => p.category === newCategory)?.options || [];
+    if (categoryOptions.length > 0) {
+      onChange({ ...data, pedagogicalPractice: categoryOptions[0] });
+    } else {
+      onChange({ ...data, pedagogicalPractice: "" });
+    }
+  };
+
+  const handleObjectiveChange = (index: number, value: string) => {
+    const newObjectives = [...(data.objectives || [])];
+    newObjectives[index] = value;
+    onChange({ ...data, objectives: newObjectives });
+  };
+
+  const addObjective = () => {
+    onChange({ ...data, objectives: [...(data.objectives || []), ""] });
+  };
+
+  const removeObjective = (index: number) => {
+    const newObjectives = [...(data.objectives || [])];
+    newObjectives.splice(index, 1);
+    onChange({ ...data, objectives: newObjectives });
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -33,7 +74,7 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
   };
 
   // Strictly check lesson data
-  const isLessonComplete = !!(data.subject && data.grade && data.topic && data.objectives);
+  const isLessonComplete = !!(data.subject && data.grade && data.topic && data.objectives?.[0]?.trim());
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 animate-fade-in">
@@ -79,12 +120,39 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
                     name="meetingCount" 
                     value={data.meetingCount} 
                     onChange={handleChange} 
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white mb-3"
                   >
                     <option value="1 Pertemuan">1 Pertemuan</option>
                     <option value="2 Pertemuan">2 Pertemuan</option>
                     <option value="3 Pertemuan">3 Pertemuan</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Praktik Pedagogis</label>
+                  <div className="flex gap-2">
+                    <select
+                      className={`${selectedCategory === "Biarkan AI yang Rekomendasikan Praktik Pedagogis" ? "w-full" : "w-1/2"} px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white`}
+                      value={selectedCategory}
+                      onChange={handleCategoryChange}
+                    >
+                      {PEDAGOGIES.map(p => (
+                        <option key={p.category} value={p.category}>{p.category}</option>
+                      ))}
+                    </select>
+                    {selectedCategory !== "Biarkan AI yang Rekomendasikan Praktik Pedagogis" && (
+                      <select
+                        className="w-1/2 px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-blue-500 bg-white"
+                        name="pedagogicalPractice"
+                        value={data.pedagogicalPractice}
+                        onChange={handleChange}
+                      >
+                        {PEDAGOGIES.find(p => p.category === selectedCategory)?.options.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -96,14 +164,37 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
 
           <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
              <h3 className="font-semibold text-indigo-800 text-sm mb-2">2. Desain Pembelajaran</h3>
-             <div className="space-y-3">
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Tujuan Pembelajaran *</label>
-                  <textarea name="objectives" rows={2} value={data.objectives} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" placeholder="Contoh: Murid mampu menganalisis struktur teks..." />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Praktik Pedagogis (Model/Metode)</label>
-                  <input type="text" name="pedagogicalPractice" value={data.pedagogicalPractice} onChange={handleChange} className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" />
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-medium text-slate-600">Tujuan Pembelajaran *</label>
+                  </div>
+                  <div className="space-y-2">
+                    {(data.objectives || [""]).map((obj, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <textarea 
+                          rows={2} 
+                          value={obj} 
+                          onChange={(e) => handleObjectiveChange(idx, e.target.value)} 
+                          className="w-full px-3 py-2 border border-slate-300 rounded text-sm outline-none focus:border-indigo-500 bg-white" 
+                          placeholder="Contoh: Murid mampu menganalisis struktur teks..." 
+                        />
+                        <button 
+                          onClick={() => removeObjective(idx)}
+                          disabled={(data.objectives || []).length <= 1}
+                          className={`p-2 h-fit mt-1 rounded ${(data.objectives || []).length <= 1 ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    <button 
+                      onClick={addObjective}
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                    >
+                      <Plus size={14} /> Tambah Tujuan Pembelajaran
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Lingkungan Pembelajaran</label>

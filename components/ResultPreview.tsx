@@ -2,9 +2,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { GeneratedLessonPlan, LessonIdentity, SchoolIdentity, DocumentSettings, PaperSize, FontSize, QuestionBankConfig, QuestionType, QuestionLevel, LearningStep, MaterialsData, QuestionItem, DeepLearningAssessment } from '../types';
-import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3 } from 'lucide-react';
+import { FileDown, FileText, CheckSquare, Layers, ChevronDown, ChevronRight, Sparkles, School, Loader2, ClipboardCheck, Settings2, BookOpen, Wand2, BookText, BookKey, X, SlidersHorizontal, AlertCircle, Info, Edit3, Plus, Trash2 } from 'lucide-react';
 import { downloadDocx } from '../services/documentService';
-import { INDONESIAN_MONTHS } from '../constants';
+import { INDONESIAN_MONTHS, PEDAGOGIES } from '../constants';
 import DocumentContent from './document/DocumentContent';
 import { swal } from '../services/notificationService';
 
@@ -96,6 +96,47 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   const [selectedJenjang, setSelectedJenjang] = useState<string>('');
   const [refineTarget, setRefineTarget] = useState<'RPP' | 'MATERI' | 'LKPD' | 'SOAL'>('RPP');
   const [refineFeedback, setRefineFeedback] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>("Biarkan AI yang Rekomendasikan Praktik Pedagogis");
+
+  useEffect(() => {
+    if (inputData.pedagogicalPractice) {
+      const foundCategory = PEDAGOGIES.find(p => p.options.includes(inputData.pedagogicalPractice));
+      if (foundCategory && foundCategory.category !== selectedCategory) {
+        setSelectedCategory(foundCategory.category);
+      }
+    } else {
+        if (selectedCategory !== "Biarkan AI yang Rekomendasikan Praktik Pedagogis") {
+            setSelectedCategory("Biarkan AI yang Rekomendasikan Praktik Pedagogis");
+        }
+    }
+  }, [inputData.pedagogicalPractice, selectedCategory]);
+
+  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newCategory = e.target.value;
+    setSelectedCategory(newCategory);
+    const categoryOptions = PEDAGOGIES.find(p => p.category === newCategory)?.options || [];
+    if (categoryOptions.length > 0) {
+      onInputChange({ ...inputData, pedagogicalPractice: categoryOptions[0] });
+    } else {
+      onInputChange({ ...inputData, pedagogicalPractice: "" });
+    }
+  };
+
+  const handleObjectiveChange = (index: number, value: string) => {
+    const newObjectives = [...(inputData.objectives || [])];
+    newObjectives[index] = value;
+    onInputChange({ ...inputData, objectives: newObjectives });
+  };
+
+  const addObjective = () => {
+    onInputChange({ ...inputData, objectives: [...(inputData.objectives || []), ""] });
+  };
+
+  const removeObjective = (index: number) => {
+    const newObjectives = [...(inputData.objectives || [])];
+    newObjectives.splice(index, 1);
+    onInputChange({ ...inputData, objectives: newObjectives });
+  };
 
   useEffect(() => {
       if (inputData.grade) {
@@ -136,7 +177,11 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
 
   const handleEditorChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     let { name, value } = e.target;
-    let newData = { ...inputData, [name]: value };
+    let finalValue: any = value;
+    if (name === 'objectives') {
+        finalValue = value.split('\n');
+    }
+    let newData = { ...inputData, [name]: finalValue };
     if (name === 'timeAllocation') {
         let jpMatch = value.match(/^(\d+)\s*(JP)?$/i);
         if (jpMatch && inputData.grade) {
@@ -311,8 +356,64 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                           </select>
                       </div>
 
+                      <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Praktik Pedagogis</label>
+                          <div className="flex flex-col gap-2 mt-1.5">
+                              <select
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                value={selectedCategory}
+                                onChange={handleCategoryChange}
+                              >
+                                {PEDAGOGIES.map(p => (
+                                  <option key={p.category} value={p.category}>{p.category}</option>
+                                ))}
+                              </select>
+                              {selectedCategory !== "Biarkan AI yang Rekomendasikan Praktik Pedagogis" && (
+                                <select
+                                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                  name="pedagogicalPractice"
+                                  value={inputData.pedagogicalPractice}
+                                  onChange={handleEditorChange}
+                                >
+                                  {PEDAGOGIES.find(p => p.category === selectedCategory)?.options.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              )}
+                          </div>
+                      </div>
+
                       <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topik / Materi *</label><input name="topic" value={inputData.topic} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" placeholder="Contoh: Energi Terbarukan" /></div>
-                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan Pembelajaran *</label><textarea name="objectives" value={inputData.objectives} onChange={handleEditorChange} rows={4} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Murid mampu menganalisis..." /></div>
+                      
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan Pembelajaran *</label>
+                        <div className="space-y-2 mt-1.5">
+                            {(inputData.objectives || [""]).map((obj, idx) => (
+                                <div key={idx} className="flex gap-2">
+                                <textarea 
+                                    rows={2} 
+                                    value={obj} 
+                                    onChange={(e) => handleObjectiveChange(idx, e.target.value)} 
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-none bg-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                                    placeholder="Murid mampu menganalisis..." 
+                                />
+                                <button 
+                                    onClick={() => removeObjective(idx)}
+                                    disabled={(inputData.objectives || []).length <= 1}
+                                    className={`p-2 h-fit mt-1 rounded ${(inputData.objectives || []).length <= 1 ? 'text-slate-300 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                                </div>
+                            ))}
+                            <button 
+                                onClick={addObjective}
+                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-bold"
+                            >
+                                <Plus size={14} /> Tambah Tujuan
+                            </button>
+                        </div>
+                      </div>
                       
                       <div className="pt-4">
                         <button 

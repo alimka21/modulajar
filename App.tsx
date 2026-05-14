@@ -252,43 +252,83 @@ const AppContent: React.FC = () => {
 
   const [isRefining, setIsRefining] = useState<boolean>(false);
 
-  const handleRefineData = async (target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feedback: string) => {
-      if (!generatedPlan) return;
-      setIsRefining(true);
-      showLoading('Memperbaiki Dokumen...', 'AI sedang menganalisis dan menerapkan saran perbaikan Anda...', true);
-      try {
-          const data = await refineDocument(generatedPlan, target, feedback);
-          closeLoading();
-          
-          setGeneratedPlan(prev => {
-              if (!prev) return prev;
-              const newPlan = { ...prev };
-              if (target === 'RPP') {
-                  // RPP update contains many fields
-                  if (data.identitySection) newPlan.identitySection = data.identitySection;
-                  if (data.initialAssessment) newPlan.initialAssessment = data.initialAssessment;
-                  if (data.graduateProfile) newPlan.graduateProfile = data.graduateProfile;
-                  if (data.design) newPlan.design = data.design;
-                  if (data.learningExperience) newPlan.learningExperience = data.learningExperience;
-                  if (data.assessment) newPlan.assessment = data.assessment;
-                  if (data.reflection) newPlan.reflection = data.reflection;
-              } else if (target === 'MATERI') {
-                  newPlan.materials = data;
-              } else if (target === 'LKPD') {
-                  newPlan.lkpd = data;
-              } else if (target === 'SOAL') {
-                  newPlan.questionBank = data;
-              }
-              return newPlan;
-          });
-          toast.fire({ icon: 'success', title: 'Dokumen Berhasil Diperbaiki!' });
-      } catch (e: any) {
-          closeLoading();
-          swal.fire({ icon: 'error', title: 'Gagal Memperbaiki', text: e.message });
-      } finally {
-          setIsRefining(false);
-      }
-  };
+// ============================================================================
+// PATCH: handleRefineData di App.tsx
+// Ganti HANYA fungsi handleRefineData (sekitar line 255).
+//
+// Perubahan:
+// 1. Untuk RPP: identitySection dan approval diproteksi — selalu pakai data lama
+// 2. Untuk SOAL: post-processing options prefix cleaning (sama seperti generateQuestionBank)
+// 3. Feedback dikosongkan setelah sukses (ini sudah ada di ResultPreview, tapi jaga-jaga)
+// ============================================================================
+
+const handleRefineData = async (target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feedback: string) => {
+    if (!generatedPlan) return;
+    setIsRefining(true);
+    showLoading('Memperbaiki Dokumen...', 'AI sedang menganalisis dan menerapkan saran perbaikan Anda...', true);
+    try {
+        const data = await refineDocument(generatedPlan, target, feedback);
+        closeLoading();
+
+        setGeneratedPlan(prev => {
+            if (!prev) return prev;
+            const newPlan = { ...prev };
+
+            if (target === 'RPP') {
+                // ▼ Update field RPP yang di-refine, tapi PROTEKSI identitySection & approval
+                if (data.initialAssessment) newPlan.initialAssessment = data.initialAssessment;
+                if (data.graduateProfile) newPlan.graduateProfile = data.graduateProfile;
+                if (data.design) newPlan.design = data.design;
+                if (data.learningExperience) newPlan.learningExperience = data.learningExperience;
+                if (data.assessment) newPlan.assessment = data.assessment;
+                if (data.reflection) newPlan.reflection = data.reflection;
+                // identitySection dan approval TIDAK diupdate dari AI
+                // → selalu pakai data asli yang di-set user via form
+
+            } else if (target === 'MATERI') {
+                newPlan.materials = data;
+
+            } else if (target === 'LKPD') {
+                newPlan.lkpd = data;
+
+            } else if (target === 'SOAL') {
+                // ▼ Post-processing soal: bersihkan prefix options (sama seperti di generateQuestionBank)
+                if (data?.items) {
+                    data.items = data.items.map((q: any) => {
+                        if (q.options && Array.isArray(q.options)) {
+                            q.options = q.options.map((opt: string) =>
+                                String(opt).replace(/^[A-Ea-e][\.\)]\s*/g, '').trim()
+                            );
+                        }
+                        if (q.type === 'Benar/Salah') {
+                            const key = String(q.answerKey).toLowerCase().trim();
+                            if (key === 'true' || key === 'benar' || key === 'b') q.answerKey = 'Benar';
+                            else if (key === 'false' || key === 'salah' || key === 's') q.answerKey = 'Salah';
+                        }
+                        if (q.type === 'Pilihan Ganda') {
+                            const key = String(q.answerKey).trim();
+                            if (key.length > 1 && /^[A-Da-d][\.\)]/i.test(key)) {
+                                q.answerKey = key[0].toUpperCase();
+                            }
+                        }
+                        return q;
+                    });
+                }
+                newPlan.questionBank = data;
+            }
+
+            return newPlan;
+        });
+
+        toast.fire({ icon: 'success', title: 'Dokumen Berhasil Diperbaiki!' });
+
+    } catch (e: any) {
+        closeLoading();
+        swal.fire({ icon: 'error', title: 'Gagal Memperbaiki', text: e.message });
+    } finally {
+        setIsRefining(false);
+    }
+};
 
   const handleGenerateRPP = async () => {
     if (!schoolIdentity.schoolName || !lessonIdentity.topic || !lessonIdentity.subject) {

@@ -477,110 +477,278 @@ export const downloadDocx = async (data: GeneratedLessonPlan, settings: Document
       return [new Paragraph(""), new Paragraph(""), sigTable];
   };
   
-  const createMaterialsSection = (materials: MaterialsData | undefined): any[] => {
-      if (!materials) return [];
-      const elements: any[] = [];
-      elements.push(createSectionTitle("LAMPIRAN 1: MATERI AJAR", true));
-      elements.push(createHeading(materials.judul));
+// ============================================================================
+// PATCH: createMaterialsSection di documentService.ts
+// Ganti HANYA fungsi createMaterialsSection (sekitar line 480).
+// Sisanya di documentService BIARKAN SAMA.
+//
+// Perubahan dari versi lama:
+// 1. Tambah render "Contoh Konkret" yang sebelumnya tidak ada → sekarang muncul di Word
+// 2. Tambah render "Trivia" yang sebelumnya tidak ada → sekarang muncul di Word
+// 3. tabelVisual: karena schema baru selalu string, logic disederhanakan
+//    (deteksi tabel markdown lebih robust, tetap ada fallback untuk data lama)
+// 4. Urutan section sekarang sinkron dengan MaterialsContent.tsx
+// ============================================================================
 
-      elements.push(createSubSectionTitle("Pemantik"));
-      elements.push(...createMultilineText(materials.pemantik));
+const createMaterialsSection = (materials: MaterialsData | undefined): any[] => {
+    if (!materials) return [];
+    const elements: any[] = [];
 
-      if (materials.subTopik && materials.subTopik.length > 0) {
-          elements.push(createSubSectionTitle("Sub Topik"));
-          (materials.subTopik || []).forEach(topic => elements.push(createListItem(topic)));
-      }
+    elements.push(createSectionTitle("LAMPIRAN 1: MATERI AJAR", true));
+    elements.push(createHeading(materials.judul));
 
-      elements.push(createSubSectionTitle("Konsep Inti"));
-      elements.push(createPara([createText("Definisi: ", { bold: true }), createText(materials.konsepInti.definisi)]));
-      
-      elements.push(createPara([createText("Uraian Materi:", { bold: true })]));
-      (materials.konsepInti.penjelasanBertahap || []).forEach(p => elements.push(...createMultilineText(p)));
-      
-      elements.push(createPara([createText("Visualisasi:", { bold: true })]));
-      
-      if (typeof materials.konsepInti.tabelVisual === 'object' && materials.konsepInti.tabelVisual !== null && !Array.isArray(materials.konsepInti.tabelVisual)) {
-          const tableObj = materials.konsepInti.tabelVisual as any;
-          const docTable = new Table({
-              width: { size: 100, type: WidthType.PERCENTAGE },
-              rows: [
-                  new TableRow({
-                      children: tableObj.headers.map((h: string) => new TableCell({
-                          children: [new Paragraph({ children: [new TextRun({ text: h, font: FONT_FACE, size: SIZE_BODY, bold: true })], alignment: AlignmentType.CENTER })],
-                          margins: CELL_MARGIN,
-                          shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" },
-                          borders: TABLE_BORDERS_FULL
-                      }))
-                  }),
-                  ...tableObj.rows.map((row: string[]) => new TableRow({
-                      children: row.map((cell: string) => new TableCell({
-                          children: [new Paragraph({ children: [new TextRun({ text: cell, font: FONT_FACE, size: SIZE_BODY })], alignment: AlignmentType.LEFT })],
-                          margins: CELL_MARGIN,
-                          borders: TABLE_BORDERS_FULL
-                      }))
-                  }))
-              ],
-              borders: TABLE_BORDERS_FULL
-           });
-           elements.push(docTable);
-           elements.push(new Paragraph(""));
-      } else {
-           elements.push(...createMultilineText(String(materials.konsepInti.tabelVisual)));
-      }
+    // ▼ PEMANTIK
+    elements.push(createSubSectionTitle("Pemantik"));
+    elements.push(...createMultilineText(materials.pemantik));
 
-      elements.push(createSubSectionTitle("Glosarium"));
-      (materials.glosarium || []).forEach(g => elements.push(createListItem(`${g.istilah}: ${g.definisi}`)));
+    // ▼ SUB TOPIK
+    if (materials.subTopik && materials.subTopik.length > 0) {
+        elements.push(createSubSectionTitle("Sub Topik"));
+        (materials.subTopik || []).forEach(topic => elements.push(createListItem(topic)));
+    }
 
-      return elements;
-  };
+    // ▼ KONSEP INTI
+    elements.push(createSubSectionTitle("Konsep Inti"));
+
+    // Definisi
+    elements.push(createPara([
+        createText("Definisi: ", { bold: true }),
+        createText(safeString(materials.konsepInti?.definisi))
+    ]));
+
+    // Uraian Materi
+    elements.push(createPara([createText("Uraian Materi:", { bold: true })], {
+        spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }
+    }));
+    (materials.konsepInti?.penjelasanBertahap || []).forEach(p => {
+        elements.push(...createMultilineText(p));
+    });
+
+    // ▼ Contoh Konkret — SEBELUMNYA TIDAK ADA, SEKARANG DITAMBAHKAN
+    if (materials.konsepInti?.contohKonkret) {
+        elements.push(createPara([createText("Contoh Konkret:", { bold: true })], {
+            spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }
+        }));
+        elements.push(...createMultilineText(materials.konsepInti.contohKonkret));
+    }
+
+    // ▼ Visualisasi / Tabel
+    elements.push(createPara([createText("Visualisasi / Rangkuman Data:", { bold: true })], {
+        spacing: { before: 120, after: 60, line: LINE_SPACING_BODY }
+    }));
+
+    const tv = materials.konsepInti?.tabelVisual;
+    if (tv) {
+        // Kasus 1: Data lama — objek { headers, rows }
+        if (typeof tv === 'object' && tv !== null && !Array.isArray(tv)) {
+            const tableObj = tv as any;
+            try {
+                const docTable = new Table({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    rows: [
+                        new TableRow({
+                            children: (tableObj.headers || []).map((h: string) => new TableCell({
+                                children: [new Paragraph({
+                                    children: [new TextRun({ text: cleanText(h), font: FONT_FACE, size: SIZE_BODY, bold: true })],
+                                    alignment: AlignmentType.CENTER
+                                })],
+                                margins: CELL_MARGIN,
+                                shading: { fill: "f3f4f6", type: ShadingType.CLEAR, color: "auto" },
+                                borders: TABLE_BORDERS_FULL
+                            }))
+                        }),
+                        ...(tableObj.rows || []).map((row: string[]) => new TableRow({
+                            children: (row || []).map((cell: string) => new TableCell({
+                                children: [new Paragraph({
+                                    children: [new TextRun({ text: cleanText(cell), font: FONT_FACE, size: SIZE_BODY })],
+                                    alignment: AlignmentType.LEFT
+                                })],
+                                margins: CELL_MARGIN,
+                                borders: TABLE_BORDERS_FULL
+                            }))
+                        }))
+                    ],
+                    borders: TABLE_BORDERS_FULL
+                });
+                elements.push(docTable);
+                elements.push(new Paragraph(""));
+            } catch (e) {
+                elements.push(...createMultilineText(JSON.stringify(tv)));
+            }
+        } else {
+            // Kasus 2: String (output baru — selalu markdown table)
+            const tvStr = String(tv).trim();
+            const pipeCount = (tvStr.match(/\|/g) || []).length;
+            const hasSeparator = tvStr.includes('---');
+
+            if (pipeCount > 4 && hasSeparator) {
+                // Render sebagai tabel DOCX via createTableFromMarkdown
+                elements.push(...createTableFromMarkdown(tvStr));
+            } else {
+                // Fallback: render sebagai teks biasa
+                elements.push(...createMultilineText(tvStr));
+            }
+        }
+    }
+
+    // ▼ TRIVIA — SEBELUMNYA TIDAK ADA, SEKARANG DITAMBAHKAN
+    if (materials.trivia) {
+        elements.push(createSubSectionTitle("TAHUKAH KAMU?"));
+        elements.push(...createMultilineText(materials.trivia));
+    }
+
+    // ▼ GLOSARIUM
+    elements.push(createSubSectionTitle("Glosarium"));
+    (materials.glosarium || []).forEach(g => {
+        elements.push(createPara([
+            createText(`${safeString(g.istilah)}: `, { bold: true }),
+            createText(safeString(g.definisi))
+        ], { spacing: { after: SPACING_AFTER_LIST, line: LINE_SPACING_BODY } }));
+    });
+
+    return elements;
+};
+
+// ============================================================================
+// CATATAN: Perubahan di types.ts (opsional tapi direkomendasikan)
+//
+// Setelah patch ini, tabelVisual di schema AI selalu string.
+// Supaya types.ts konsisten, ubah:
+//
+// SEBELUM (types.ts):
+//   tabelVisual: string | { headers: string[]; rows: string[][] };
+//
+// SESUDAH (types.ts):
+//   tabelVisual: string;
+//
+// Ini menghilangkan ambiguitas tipe. Catatan: data lama di cache/Supabase mungkin
+// masih berbentuk objek, jadi pastikan ada fallback di runtime (sudah ada di patch ini).
+// ============================================================================
   
-  const createLKPDSection = (lkpd: LKPDData | undefined): any[] => {
-      if (!lkpd) return [];
-      const elements: any[] = [];
-      elements.push(createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true));
-      elements.push(createHeading(lkpd.title));
 
-      elements.push(createPara([createText("Nama: ...................................  Kelas: ...................................")], { spacing: { after: 240 } }));
+// ============================================================================
+// PATCH: createLKPDSection di documentService.ts
+// Ganti HANYA fungsi createLKPDSection (sekitar line 537).
+// Sisanya di documentService BIARKAN SAMA.
+//
+// Perubahan utama:
+// 1. renderActivityContent lebih robust — sama logikanya dengan LkpdContent.tsx
+// 2. Tabel markdown dari Aktivitas 1 terdeteksi dan di-render sebagai Table DOCX
+// 3. Aktivitas 2 (teks naratif) ter-render rapi dengan numbering yang benar
+// 4. Objectives string multi-baris ter-render sebagai list yang benar
+// ============================================================================
 
-      elements.push(createSubSectionTitle("Tujuan"));
-      // Improved Objectives parsing to remove existing bullets before creating list items
-      const objectivesList = (lkpd.objectives || "")
-          .split(/\n/)
-          .map(o => o.trim())
-          .filter(o => o.length > 0)
-          .map(o => o.replace(/^[\d+\.\-\*•]+\s*/, ''));
+const createLKPDSection = (lkpd: LKPDData | undefined): any[] => {
+    if (!lkpd) return [];
+    const elements: any[] = [];
+    elements.push(createSectionTitle("LAMPIRAN 2: LEMBAR KERJA (LKPD)", true));
+    elements.push(createHeading(lkpd.title));
 
-      objectivesList.forEach(obj => {
-          elements.push(createListItem(obj));
-      });
+    // Identitas murid
+    elements.push(createPara(
+        [createText("Nama: ...................................  Kelas: ...................................")],
+        { spacing: { after: 240 } }
+    ));
 
-      elements.push(createSubSectionTitle("Petunjuk"));
-      (lkpd.instructions || []).forEach(i => elements.push(createListItem(i)));
+    // ▼ TUJUAN: Render objectives string (multi-baris dengan bullet)
+    elements.push(createSubSectionTitle("Tujuan"));
+    const objectiveLines = (lkpd.objectives || "")
+        .split('\n')
+        .map((o: string) => o.trim())
+        .filter((o: string) => o.length > 0)
+        .map((o: string) => o.replace(/^[•\-\*]\s*/, '').replace(/^\d+\.\s*/, ''));
 
-      const renderActivityContent = (actData: any) => {
-          let content = "";
-          if (typeof actData === 'object' && actData !== null) {
-              content = actData.content;
-          } else {
-              content = String(actData);
-          }
-          return createMultilineText(content);
-      }
+    objectiveLines.forEach((obj: string) => {
+        elements.push(createListItem(obj));
+    });
 
-      // Updated to match new 2-Activity Structure
-      if (lkpd.activities) {
-          elements.push(createSubSectionTitle("Aktivitas 1: Pemahaman Konsep"));
-          elements.push(...renderActivityContent(lkpd.activities.activity1));
+    // ▼ PETUNJUK
+    elements.push(createSubSectionTitle("Petunjuk"));
+    (lkpd.instructions || []).forEach((i: string) => elements.push(createListItem(i)));
 
-          elements.push(createSubSectionTitle("Aktivitas 2: Aplikasi & Diskusi"));
-          elements.push(...renderActivityContent(lkpd.activities.activity2));
-      }
-      
-      elements.push(createSubSectionTitle("Refleksi Diri"));
-      (lkpd.reflection || []).forEach(r => elements.push(createListItem(r)));
+    // ▼ STIMULUS
+    elements.push(createSubSectionTitle("Stimulus"));
+    elements.push(...createMultilineText(lkpd.stimulus || ""));
 
-      return elements;
-  };
+    // ▼ RENDER AKTIVITAS: Tabel atau teks naratif — logika sinkron dengan LkpdContent.tsx
+    const renderActivityForDocx = (actData: any, sectionTitle: string) => {
+        elements.push(createSubSectionTitle(sectionTitle));
+
+        let content = "";
+        if (typeof actData === 'object' && actData !== null) {
+            content = actData.content || "";
+        } else {
+            content = String(actData || "");
+        }
+
+        if (!content.trim()) return;
+
+        // Deteksi apakah konten adalah tabel markdown
+        const pipeCount = (content.match(/\|/g) || []).length;
+        const hasSeparatorRow = content.includes('---');
+        const isTable = pipeCount > 4 && hasSeparatorRow;
+
+        if (isTable) {
+            // Render sebagai tabel DOCX
+            const tableElements = createTableFromMarkdown(content);
+            elements.push(...tableElements);
+        } else {
+            // Render sebagai teks multiline (handle numbered list, bullet, paragraf)
+            elements.push(...createMultilineText(content));
+        }
+    };
+
+    // ▼ AKTIVITAS 1
+    const act1Title = lkpd.activities?.activity1?.title || "Aktivitas 1: Pemahaman Konsep";
+    renderActivityForDocx(lkpd.activities?.activity1, act1Title);
+
+    // ▼ AKTIVITAS 2
+    const act2Title = lkpd.activities?.activity2?.title || "Aktivitas 2: Aplikasi & Diskusi";
+    renderActivityForDocx(lkpd.activities?.activity2, act2Title);
+
+    // ▼ REFLEKSI
+    elements.push(createSubSectionTitle("Refleksi Diri"));
+    (lkpd.reflection || []).forEach((r: string) => elements.push(createListItem(r)));
+
+    return elements;
+};
+
+
+// ============================================================================
+// CATATAN TAMBAHAN: Perbaikan kecil di createMultilineText untuk numbered list
+//
+// Di documentService.ts, fungsi createMultilineText (sekitar line 97-103):
+// Saat ini numbered list menggunakan indent manual tapi tidak pakai numbered bullet DOCX.
+// Ini menyebabkan angka ikut terbawa di teks.
+//
+// Ganti blok ini:
+//
+//   if (/^\d+\./.test(trimmed)) {
+//       return new Paragraph({
+//           children: [new TextRun({ text: trimmed, font: FONT_FACE, size: SIZE_BODY })],
+//           ...
+//       });
+//   }
+//
+// Menjadi ini (pisahkan nomor dari teks):
+//
+//   if (/^\d+\./.test(trimmed)) {
+//       const match = trimmed.match(/^(\d+\.)\s*(.*)$/);
+//       const numText = match ? match[1] : "";
+//       const bodyText = match ? match[2] : trimmed;
+//       return new Paragraph({
+//           children: [new TextRun({ text: bodyText, font: FONT_FACE, size: SIZE_BODY })],
+//           numbering: undefined, // Pakai indent manual saja
+//           spacing: { after: 120, line: LINE_SPACING_BODY },
+//           indent: { left: 720, hanging: 360 },
+//           alignment: AlignmentType.BOTH,
+//           // Tambahkan nomor manual via TextRun jika perlu
+//       });
+//   }
+//
+// Atau lebih simple — biarkan teks lengkap dan pakai indent, sudah cukup untuk Word.
+// ============================================================================
+
 
   const createQuestionBankSection = (qb: QuestionBankData | undefined): any[] => {
       if (!qb) return [];

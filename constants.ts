@@ -10,6 +10,50 @@ export const INITIAL_SCHOOL_IDENTITY: SchoolIdentity = {
   date: new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }),
 };
 
+export const PEDAGOGIES = [
+  {
+    category: "Biarkan AI yang Rekomendasikan Praktik Pedagogis",
+    options: []
+  },
+  {
+    category: "Model Pembelajaran",
+    options: [
+      "Problem Based Learning (PBL)",
+      "Project Based Learning (PjBL)",
+      "Inquiry Based Learning",
+      "Discovery Learning",
+      "Problem Solving",
+      "Cooperative Learning (Type Jigsaw/STAD/TGT)",
+      "Design Thinking"
+    ]
+  },
+  {
+    category: "Strategi Pembelajaran",
+    options: [
+      "Strategi Pembelajaran Diferensiasi",
+      "Strategi Inkuiri",
+      "Strategi Ekspositori",
+      "Strategi Berbasis Masalah (SPBM)",
+      "Strategi Afektif",
+      "Strategi Kooperatif"
+    ]
+  },
+  {
+    category: "Metode Pembelajaran",
+    options: [
+      "Diskusi Kelompok",
+      "Simulasi / Role Play",
+      "Eksperimen / Percobaan",
+      "Demonstrasi",
+      "Tanya Jawab Sosokratik",
+      "Resitasi (Penugasan)",
+      "Mind Mapping",
+      "Debat Aktif",
+      "Field Trip (Karya Wisata)"
+    ]
+  }
+];
+
 export const INITIAL_LESSON_IDENTITY: LessonIdentity = {
   subject: '',
   grade: '',
@@ -17,7 +61,7 @@ export const INITIAL_LESSON_IDENTITY: LessonIdentity = {
   timeAllocation: '2 JP x 45 Menit',
   meetingCount: '1 Pertemuan', // Default
   topic: '',
-  objectives: '',
+  objectives: [''],
   initialAssessment: '',
   pedagogicalPractice: '',
   learningEnvironment: '',

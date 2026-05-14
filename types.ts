@@ -16,7 +16,7 @@ export interface LessonIdentity {
   timeAllocation: string;
   meetingCount: string;
   topic: string;
-  objectives: string;
+  objectives: string[];
   initialAssessment: string;
   pedagogicalPractice: string;
   learningEnvironment: string;
