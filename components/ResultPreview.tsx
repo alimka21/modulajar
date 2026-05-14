@@ -34,23 +34,29 @@ interface ResultPreviewProps {
 type TabType = 'SEMUA' | 'RPP_PLUS' | 'MATERI' | 'LKPD' | 'SOAL';
 type SectionType = 'LESSON' | 'SCHOOL_VIEW';
 
-const GRADE_OPTIONS = [
-    "PAUD",
-    "Kelas I Fase A", "Kelas II Fase A",
-    "Kelas III Fase B", "Kelas IV Fase B",
-    "Kelas V Fase C", "Kelas VI Fase C",
-    "Kelas VII Fase D", "Kelas VIII Fase D", "Kelas IX Fase D",
-    "Kelas X Fase E", "Kelas XI Fase F", "Kelas XII Fase F"
-];
+const GRADE_OPTIONS_MAP: Record<string, string[]> = {
+    "PAUD": ["PAUD"],
+    "SD": [
+        "Kelas I Fase A", "Kelas II Fase A",
+        "Kelas III Fase B", "Kelas IV Fase B",
+        "Kelas V Fase C", "Kelas VI Fase C"
+    ],
+    "SMP": [
+        "Kelas VII Fase D", "Kelas VIII Fase D", "Kelas IX Fase D"
+    ],
+    "SMA/SMK": [
+        "Kelas X Fase E", "Kelas XI Fase F", "Kelas XII Fase F"
+    ]
+};
 
-const SUBJECT_OPTIONS = [
-    // PAUD Subjects
+const PAUD_SUBJECTS = [
     "Nilai Agama dan Budi Pekerti",
     "Jati Diri (Emosi, Motorik, Sosialisasi)",
     "Dasar-Dasar Literasi, Matematika, Sains, Teknologi, Rekayasa, dan Seni",
-    "Proyek Penguatan Profil Pelajar Pancasila (P5) - PAUD",
-    
-    // Primary/Secondary Subjects
+    "Proyek Penguatan Profil Pelajar Pancasila (P5) - PAUD"
+];
+
+const STANDARD_SUBJECTS = [
     "Pendidikan Agama dan Budi Pekerti", "Pendidikan Pancasila", "Bahasa Indonesia", "Matematika",
     "Ilmu Pengetahuan Alam dan Sosial (IPAS)", "Ilmu Pengetahuan Alam (IPA)", "Ilmu Pengetahuan Sosial (IPS)",
     "Bahasa Inggris", "Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)", "Informatika",
@@ -83,6 +89,26 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   });
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const [selectedJenjang, setSelectedJenjang] = useState<string>('');
+
+  useEffect(() => {
+      if (inputData.grade) {
+          if (inputData.grade.includes("PAUD")) setSelectedJenjang("PAUD");
+          else if (inputData.grade.includes("Fase A") || inputData.grade.includes("Fase B") || inputData.grade.includes("Fase C")) setSelectedJenjang("SD");
+          else if (inputData.grade.includes("Fase D")) setSelectedJenjang("SMP");
+          else if (inputData.grade.includes("Fase E") || inputData.grade.includes("Fase F")) setSelectedJenjang("SMA/SMK");
+      } else {
+          setSelectedJenjang("");
+      }
+  }, [inputData.grade]);
+
+  const handleJenjangChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const jenjang = e.target.value;
+      setSelectedJenjang(jenjang);
+      // Reset mapel dan kelas ketika jenjang berubah
+      onInputChange({ ...inputData, subject: "", grade: "", timeAllocation: "" });
+  };
 
   const toggleSection = (section: SectionType) => {
     setExpandedSection(expandedSection === section ? 'LESSON' : section);
@@ -263,8 +289,9 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                        <div className="flex items-center gap-2 text-sm font-bold text-slate-800"><BookOpen size={18} className="text-indigo-600" /><span>Detail Pembelajaran</span></div>
                    </div>
                    <div className="p-4 space-y-4 bg-white">
-                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mata Pelajaran *</label><select name="subject" value={inputData.subject} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="">Pilih Mapel...</option>{SUBJECT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
-                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kelas / Fase *</label><select name="grade" value={inputData.grade} onChange={handleGradeChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="">Pilih Kelas...</option>{GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jenjang *</label><select value={selectedJenjang} onChange={handleJenjangChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="">Pilih Jenjang...</option><option value="PAUD">PAUD</option><option value="SD">SD</option><option value="SMP">SMP</option><option value="SMA/SMK">SMA/SMK</option></select></div>
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mata Pelajaran *</label><select name="subject" value={inputData.subject} onChange={handleEditorChange} disabled={!selectedJenjang} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400"><option value="">Pilih Mapel...</option>{(selectedJenjang === 'PAUD' ? PAUD_SUBJECTS : STANDARD_SUBJECTS).map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kelas / Fase *</label><select name="grade" value={inputData.grade} onChange={handleGradeChange} disabled={!selectedJenjang} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-100 disabled:text-slate-400"><option value="">Pilih Kelas...</option>{(GRADE_OPTIONS_MAP[selectedJenjang] || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Semester</label><select name="semester" value={inputData.semester} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"><option value="Ganjil">Ganjil</option><option value="Genap">Genap</option></select></div>
                         <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alokasi Waktu</label><input name="timeAllocation" value={inputData.timeAllocation} onChange={handleEditorChange} className="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" /></div>
