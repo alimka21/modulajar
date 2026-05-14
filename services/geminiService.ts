@@ -103,14 +103,12 @@ const saveGlobalCache = async (hash: string, response: any) => {
 };
 
 // --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota) ---
-// 1. Model A (Primary) -> gemini-2.5-flash
-// 2. Model B (Backup)  -> gemini-flash-latest
+// 1. Model A (Primary) -> gemini-3.1-flash-lite
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
     // Config Strategy
     const ATTEMPTS = [
-        { model: 'gemini-2.5-flash', label: 'Model A (Primary)' },
-        { model: 'gemini-flash-latest', label: 'Model B (Backup)' }
+        { model: 'gemini-3.1-flash-lite', label: 'Model A (Primary)' }
     ];
 
     let lastError = null;
@@ -151,11 +149,11 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                 throw new Error("API Key Tidak Valid atau Konfigurasi Salah.");
             }
             
-            // Lanjut ke model berikutnya (Sequential Fallback)
+            // Loop akan berakhir jika ini satu-satunya model
         }
     }
 
-    // Jika Model B juga gagal
+    // Jika semua model gagal
     throw new Error(`Gagal Generate. Server sedang sibuk atau kuota habis. Error terakhir: ${lastError?.message || "Unknown Error"}`);
 };
 
@@ -166,7 +164,7 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        const modelToTest = 'gemini-flash-latest'; // Gunakan model paling ringan untuk tes koneksi
+        const modelToTest = 'gemini-3.1-flash-lite'; // Gunakan model ringan untuk tes koneksi
         
         const response: any = await withTimeout(
             (signal) => ai.models.generateContent({

@@ -205,6 +205,26 @@ const AppContent: React.FC = () => {
       });
   };
 
+  const handleReset = () => {
+    swal.fire({
+        title: 'Reset Lembar Kerja?',
+        text: "Seluruh data identitas pembelajaran dan hasil generate saat ini akan dihapus dari lembar kerja.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Ya, Reset',
+        cancelButtonText: 'Batal'
+    }).then((result: any) => {
+        if (result.isConfirmed) {
+            setLessonIdentity(INITIAL_LESSON_IDENTITY);
+            setGeneratedPlan(null);
+            setCurrentHistoryId(null);
+            clearDraft();
+            toast.fire({ icon: 'success', title: 'Lembar kerja telah direset.' });
+        }
+    });
+  };
+
   const updateHistoryRecord = async (plan: GeneratedLessonPlan | null) => {
       if (!plan || !user || !currentHistoryId) return;
       const features = { 
@@ -406,6 +426,11 @@ const AppContent: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
+             {user.role === 'admin' && (
+                 <button onClick={() => navigateTo('ADMIN', '/admin')} className="flex items-center gap-2 text-sm text-indigo-600 hover:bg-indigo-50 font-medium px-3 py-2 rounded-lg transition-colors border border-indigo-100">
+                     <Settings size={18} /><span className="hidden md:inline">Panel Admin</span>
+                 </button>
+             )}
              <button onClick={() => navigateTo('USER_DASHBOARD', '/dashboard')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 font-medium transition-colors">
                  <Settings size={18} /><span className="hidden md:inline">Dashboard</span>
              </button>
@@ -425,6 +450,7 @@ const AppContent: React.FC = () => {
                 onSchoolChange={setSchoolIdentity} 
                 onGenerate={handleGenerateRPP} 
                 isLoading={isLoading}
+                onReset={handleReset}
                 onGenerateMaterials={handleGenerateMaterials} 
                 isGeneratingMaterials={isGeneratingMaterials}
                 onGenerateLKPD={handleGenerateLKPD} 

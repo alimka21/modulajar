@@ -19,6 +19,7 @@ interface ResultPreviewProps {
   onSchoolChange: (data: SchoolIdentity) => void;
   onGenerate: () => void;
   isLoading: boolean;
+  onReset: () => void;
   
   onGenerateMaterials: () => void;
   isGeneratingMaterials: boolean;
@@ -55,6 +56,7 @@ const QUESTION_TYPES: QuestionType[] = ['Pilihan Ganda', 'Pilihan Ganda Kompleks
 
 const ResultPreview: React.FC<ResultPreviewProps> = ({ 
     data, inputData, onInputChange, schoolData, onSchoolChange, onGenerate, isLoading,
+    onReset,
     onGenerateMaterials, isGeneratingMaterials,
     onGenerateLKPD, isGeneratingLKPD, onGenerateAssessment, isGeneratingAssessment,
     onGenerateQuestionBank, isGeneratingQuestionBank
@@ -206,7 +208,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                 {/* DOCX BUTTON */}
                 <button onClick={() => data && downloadDocx(data, FIXED_DOC_SETTINGS)} disabled={!data} className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition disabled:opacity-50">
                     <FileDown size={14} />
-                    <span>DOCX</span>
+                    <span>Download DOCX</span>
                 </button>
             </div>
         </div>
@@ -286,6 +288,14 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                         >
                             {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
                             {isLoading ? "PROSES GENERATE..." : "GENERATE MODUL"}
+                        </button>
+
+                        <button 
+                            onClick={onReset}
+                            className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-white text-red-600 border border-red-100 hover:bg-red-50 transition-all uppercase tracking-wide"
+                        >
+                            <X size={14} />
+                            Reset Lembar Kerja
                         </button>
                         
                         {!canGenerate && !isLoading && (
