@@ -302,7 +302,10 @@ ATURAN UTAMA:
      * Pertemuan 1 difokuskan pada fase Membangun Konsep: Di 'memahami', masukkan langkah [Stimulasi] dan [Identifikasi Masalah]. Di 'mengaplikasi', masukkan [Pengumpulan Data].
      * Pertemuan 2 difokuskan pada Validasi dan Generalisasi: Di 'mengaplikasi', masukkan [Pengolahan Data]. Di 'merefleksi', masukkan [Pembuktian] dan [Menarik Kesimpulan].
      * Jabarkan langkah sintaksnya secara eksplisit dalam kalimat naratif di struktur JSON.
-6. PRAKTIK PEDAGOGIS: Pada field "pedagogicalPractice", berikan penjelasan SINGKAT (maksimal 1 paragraf, 3-4 kalimat saja). Sebutkan secara spesifik dan akurat nama praktiknya dan PENGELOMPOKKANNYA (apakah itu "Metode Pembelajaran", "Strategi Pembelajaran", atau "Model Pembelajaran"). Contoh SALAH: "Model pembelajaran yang digunakan adalah Diskusi Kelompok". Contoh BENAR: "Metode Pembelajaran yang digunakan adalah Diskusi Kelompok". Jelaskan APA yang dipilih, MENGAPA dipilih, dan BAGAIMANA hubungannya dengan langkah pembelajaran serta pencapaian Tujuan Pembelajaran.
+6. PRAKTIK PEDAGOGIS: 
+   - JIKA Praktik Pedagogis bernilai "Biarkan AI merekomendasikan...", JANGAN SELALU memilih Discovery Learning! Pilih secara cerdas berdasarkan **Tujuan Pembelajaran** dan **Topik**.
+   - **PERTIMBANGAN KRITIS:** Jika HANYA 1 PERTEMUAN, sangat tidak logis menggunakan "Model Pembelajaran" utuh (PBL, PjBL, Discovery) karena memakan waktu panjang. Gunakanlah "Metode Pembelajaran" atau "Strategi Pembelajaran" (misal: Diskusi Kelompok, Jigsaw, Role-play, Simulasi, dsb). Jika 2 pertemuan atau lebih, barulah "Model Pembelajaran" cocok digunakan.
+   - Pada field "pedagogicalPractice", berikan penjelasan SINGKAT (maksimal 1 paragraf, 3-4 kalimat saja). Sebutkan secara spesifik dan akurat nama praktiknya dan PENGELOMPOKKANNYA (apakah itu "Metode Pembelajaran", "Strategi Pembelajaran", atau "Model Pembelajaran"). Contoh SALAH: "Model pembelajaran yang digunakan adalah Diskusi Kelompok". Contoh BENAR: "Metode Pembelajaran yang digunakan adalah Diskusi Kelompok". Jelaskan APA yang dipilih, MENGAPA dipilih, dan BAGAIMANA hubungannya dengan langkah pembelajaran serta pencapaian Tujuan Pembelajaran.
 
 BERIKUT ADALAH REFERENSI MODEL PEMBELAJARAN DAN SINTAKSNYA:
 ${sintaksModelMD}
@@ -314,11 +317,11 @@ Buat Rubrik KKTP, Asesmen Formatif (Checklist & Feedback), Sumatif, dan Interven
 Output wajib JSON valid sesuai Schema. Jangan tambahkan markdown block atau teks pendamping. Kalimat pada rubrik dan indikator harus operasional dan mudah diukur.
 
 ATURAN KKTP (Kriteria Ketercapaian Tujuan Pembelajaran):
-Anda WAJIB mengisi keempat level pencapaian secara lengkap dan detail:
-1. needsGuidance (Perlu Bimbingan): Deskripsi level terendah
-2. basic (Cukup): Deskripsi level menengah bawah
-3. proficient (Baik): Deskripsi level menengah atas (WAJIB DIISI)
-4. advanced (Sangat Baik): Deskripsi level tertinggi
+Anda WAJIB mengisi keempat level pencapaian secara lengkap dan detail (TIDAK BOLEH ADA YANG KOSONG):
+1. 'needsGuidance' untuk kolom (Perlu Bimbingan): Deskripsi level terendah
+2. 'basic' untuk kolom (Cukup): Deskripsi level menengah bawah
+3. 'proficient' untuk kolom (Baik): Deskripsi level menengah atas (BAGIAN INI SERING TERLEWAT, ANDA WAJIB MENGISINYA DENGAN DESKRIPSI YANG JELAS, TIDAK BOLEH STRING KOSONG)
+4. 'advanced' untuk kolom (Sangat Baik): Deskripsi level tertinggi
 `;
 
 // --- EXPORTED FUNCTIONS ---
@@ -364,6 +367,9 @@ ${lesson.objectives.map(o => `    - ${o}`).join('\n')}
     - "Mengembirakan"
     - "Berkesadaran dan Bermakna"
     - "Bermakna dan Mengembirakan"
+    
+    ATURAN TUJUAN PEMBELAJARAN:
+    Field 'design.objectives' WAJIB didetailkan penjabarannya menjadi menjadi 2-3 tujuan pembelajaran yang terukur dan saling berkesinambungan (JANGAN HANYA 1). Gunakan/kembangkan tujuan dari input user. Ini akan menjadi pondasi untuk Pembuatan Lembar Kerja (LKPD), sehingga penjabarannya harus rinci.
     
     ${complexity}
 
@@ -452,10 +458,10 @@ export const generateAssessment = async (data: GeneratedLessonPlan): Promise<Dee
                     type: Type.OBJECT, 
                     properties: { 
                         criteria: { type: Type.STRING, description: "Kriteria penilaian" }, 
-                        needsGuidance: { type: Type.STRING, description: "Deskripsi untuk level Perlu Bimbingan" }, 
-                        basic: { type: Type.STRING, description: "Deskripsi untuk level Cukup" }, 
-                        proficient: { type: Type.STRING, description: "Deskripsi untuk level Baik. WAJIB ADA DAN DIISI." }, 
-                        advanced: { type: Type.STRING, description: "Deskripsi untuk level Sangat Baik" } 
+                        needsGuidance: { type: Type.STRING, description: "Deskripsi detail untuk level C (Perlu Bimbingan). Jangan kosong." }, 
+                        basic: { type: Type.STRING, description: "Deskripsi detail untuk level B (Cukup). Jangan kosong." }, 
+                        proficient: { type: Type.STRING, description: "Deskripsi detail untuk level A (Baik). WAJIB MENGANDUNG DESKRIPSI (TIDAK BOLEH KOSONG ATAU STRING KOSONG)." }, 
+                        advanced: { type: Type.STRING, description: "Deskripsi detail untuk level A+ (Sangat Baik). Jangan kosong." } 
                     },
                     required: ["criteria", "needsGuidance", "basic", "proficient", "advanced"]
                 } 
@@ -673,8 +679,8 @@ ${objectives}
 
 **"title"** → Judul LKPD yang spesifik dan menarik untuk topik ini.
 
-**"objectives"** → String 2-3 tujuan pembelajaran. Gunakan format:
-"• Tujuan pertama.\n• Tujuan kedua.\n• Tujuan ketiga."
+**"objectives"** → String berisi TUJUAN PEMBELAJARAN. Anda WAJIB PERSIS MENYALIN "Tujuan Pembelajaran" yang ada di bagian KONTEKS di atas, jangan diubah kata-katanya. Ubah formatnya menjadi bullet string seperti ini:
+"• [Tujuan 1 yang disalin]\n• [Tujuan 2 yang disalin]\n• [Tujuan 3 yang disalin]"
 
 **"instructions"** → Array 4-5 petunjuk pengerjaan. Singkat dan berurutan.
 Contoh: ["Baca stimulus dengan seksama.", "Kerjakan Aktivitas 1 secara mandiri.", ...]
@@ -1111,7 +1117,7 @@ ${JSON.stringify(docData, null, 2)}
                         }
                     }
                 },
-                assessment: { type: Type.OBJECT, properties: { kktp: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { criteria: { type: Type.STRING }, needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } } } }, formative: { type: Type.OBJECT, properties: { checklist: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } } } }, feedbackGuide: { type: Type.OBJECT, properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } } } } }, summative: { type: Type.OBJECT, properties: { grid: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } } } } } }, intervention: { type: Type.OBJECT, properties: { needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } } } }, nullable: true },
+                assessment: { type: Type.OBJECT, properties: { kktp: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { criteria: { type: Type.STRING }, needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING, description: "WAJIB MENGANDUNG DESKRIPSI (TIDAK BOLEH STRING KOSONG)." }, advanced: { type: Type.STRING } }, required: ["criteria", "needsGuidance", "basic", "proficient", "advanced"] } }, formative: { type: Type.OBJECT, properties: { checklist: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { aspect: { type: Type.STRING }, indicator: { type: Type.STRING } } } }, feedbackGuide: { type: Type.OBJECT, properties: { clarification: { type: Type.STRING }, appreciation: { type: Type.STRING }, suggestion: { type: Type.STRING } } } } }, summative: { type: Type.OBJECT, properties: { grid: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { indicator: { type: Type.STRING }, level: { type: Type.STRING }, technique: { type: Type.STRING } } } } } }, intervention: { type: Type.OBJECT, properties: { needsGuidance: { type: Type.STRING }, basic: { type: Type.STRING }, proficient: { type: Type.STRING }, advanced: { type: Type.STRING } }, required: ["needsGuidance", "basic", "proficient", "advanced"] } }, nullable: true },
                 reflection: { type: Type.OBJECT, properties: { teacher: { type: Type.ARRAY, items: { type: Type.STRING } }, student: { type: Type.ARRAY, items: { type: Type.STRING } } }, nullable: true },
                 approval: { type: Type.OBJECT, properties: { location: { type: Type.STRING }, date: { type: Type.STRING }, authorName: { type: Type.STRING }, authorNip: { type: Type.STRING }, principalName: { type: Type.STRING }, principalNip: { type: Type.STRING } } }
             },
