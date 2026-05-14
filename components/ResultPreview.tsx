@@ -35,6 +35,7 @@ type TabType = 'SEMUA' | 'RPP_PLUS' | 'MATERI' | 'LKPD' | 'SOAL';
 type SectionType = 'LESSON' | 'SCHOOL_VIEW';
 
 const GRADE_OPTIONS = [
+    "PAUD",
     "Kelas I Fase A", "Kelas II Fase A",
     "Kelas III Fase B", "Kelas IV Fase B",
     "Kelas V Fase C", "Kelas VI Fase C",
@@ -43,6 +44,13 @@ const GRADE_OPTIONS = [
 ];
 
 const SUBJECT_OPTIONS = [
+    // PAUD Subjects
+    "Nilai Agama dan Budi Pekerti",
+    "Jati Diri (Emosi, Motorik, Sosialisasi)",
+    "Dasar-Dasar Literasi, Matematika, Sains, Teknologi, Rekayasa, dan Seni",
+    "Proyek Penguatan Profil Pelajar Pancasila (P5) - PAUD",
+    
+    // Primary/Secondary Subjects
     "Pendidikan Agama dan Budi Pekerti", "Pendidikan Pancasila", "Bahasa Indonesia", "Matematika",
     "Ilmu Pengetahuan Alam dan Sosial (IPAS)", "Ilmu Pengetahuan Alam (IPA)", "Ilmu Pengetahuan Sosial (IPS)",
     "Bahasa Inggris", "Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)", "Informatika",
@@ -88,6 +96,7 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
   };
 
   const getMinutesPerJP = (grade: string): string => {
+    if (/PAUD\b/i.test(grade)) return "30 Menit";
     if (/Kelas (I|II|III|IV|V|VI)\b/.test(grade)) return "35 Menit";
     if (/Kelas (VII|VIII|IX)\b/.test(grade)) return "40 Menit";
     if (/Kelas (X|XI|XII)\b/.test(grade)) return "45 Menit";

@@ -262,6 +262,7 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
 
 const getComplexityInstruction = (grade: string): string => {
     const g = grade.toLowerCase();
+    if (g.includes('paud') || g.includes('usia dini')) return "TINGKAT KOMPLEKSITAS: SANGAT DASAR (PAUD). Penekanan pada bermain sambil belajar, pengenalan emosi, motorik kasar/halus, interaksi sosial, eksplorasi konkret, sangat ramah anak.";
     if (g.includes('fase f') || g.includes('xii') || g.includes('xi')) return "TINGKAT KOMPLEKSITAS: TINGGI (High School / Advanced). Analisis mendalam, HOTS Level C4-C6.";
     if (g.includes('fase e') || g.includes('kelas x')) return "TINGKAT KOMPLEKSITAS: MENENGAH-TINGGI (High School). Pemahaman konsep abstrak.";
     if (g.includes('fase d') || g.includes('smp')) return "TINGKAT KOMPLEKSITAS: MENENGAH (Middle School). Bahasa lugas, eksplorasi konsep.";
@@ -328,7 +329,12 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
 
     INSTRUKSI:
     Rincikan langkah pembelajaran (Pendahuluan, Inti, Penutup) untuk SETIAP PERTEMUAN (${lesson.meetingCount}).
-    Kegiatan Inti WAJIB alur: Memahami -> Mengaplikasi -> Merefleksi.
+    JABARKAN SETIAP LANGKAH SECARA MIKRO DAN SANGAT PANJANG:
+    - Jelaskan secara detail instruksi spesifik apa yang diucapkan guru dan bagaimana respons murid.
+    - Deskripsikan interaksi, aktivitas fisik, atau permainan (khususnya untuk PAUD/SD) yang dilakukan.
+    - Setiap poin kegiatan HARUS berupa narasi komprehensif, BUKAN sekadar kalimat singkat.
+    - Kegiatan Inti WAJIB mengikuti alur: Memahami -> Mengaplikasi -> Merefleksi.
+    - Setiap tahapan dalam kegiatan inti harus dijabarkan dengan narasi yang kaya dan rinci (minimal 3 kalimat panjang per poin kegiatan).
   `;
 
   const schema = {
