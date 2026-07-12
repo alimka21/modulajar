@@ -346,7 +346,7 @@ const handleRefineData = async (target: 'RPP' | 'MATERI' | 'LKPD' | 'SOAL', feed
       if (user) {
           const newId = await saveHistory(user.id, rppResult, lessonIdentity, { 
               rpp: true, assessment: false, materials: false, lkpd: false, questionBank: false 
-          });
+          }, user.role);
           if (newId) setCurrentHistoryId(newId);
       }
       toast.fire({ icon: 'success', title: 'RPM Berhasil! Silakan lanjut susun Asesmen.' });

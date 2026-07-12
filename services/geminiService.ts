@@ -335,6 +335,10 @@ export const generateRPP = async (school: SchoolIdentity, lesson: LessonIdentity
 ${lesson.objectives.map(o => `    - ${o}`).join('\n')}
     Waktu: ${lesson.timeAllocation}, Pertemuan: ${lesson.meetingCount}
     
+    KUNCI UTAMA (MATA PELAJARAN & TOPIK):
+    - Anda WAJIB menyusun seluruh modul ajar ini secara ketat berfokus pada mata pelajaran "${lesson.subject}" dengan topik "${lesson.topic}" untuk kelas "${lesson.grade}".
+    - DILARANG KERAS mencampuradukkan, melenceng, atau menghasilkan konten dari mata pelajaran lain. Jika Mata Pelajaran adalah "Bahasa Indonesia", maka seluruh materi pembelajaran, langkah, diskusi, teks analisis, aktivitas, dan evaluasi harus menggunakan kaidah dan konteks pembelajaran Bahasa Indonesia (seperti analisis struktur teks, tata bahasa, menulis, membaca, menyimak, dll), bukan membahas ilmu sains/sosial murninya meskipun topiknya mirip.
+    
     DETAIL:
     - Praktik Pedagogis (Model/Strategi/Metode): ${lesson.pedagogicalPractice || "Biarkan AI merekomendasikan Praktik Pedagogis yang relevan"}
     - Asesmen Awal: ${lesson.initialAssessment}
@@ -448,7 +452,18 @@ ${lesson.objectives.map(o => `    - ${o}`).join('\n')}
 };
 
 export const generateAssessment = async (data: GeneratedLessonPlan): Promise<DeepLearningAssessment> => {
-    const prompt = `Buat instrumen asesmen lengkap untuk topik: ${data.identitySection.topic} (${data.identitySection.grade}). Komponen: KKTP (4 Level: Perlu Bimbingan, Cukup, Baik, Sangat Baik), Formatif (Checklist & Feedback), Sumatif (Kisi-kisi), Intervensi. PASTIKAN SEMUA LEVEL KKTP DIISI.`;
+    const subject = data.identitySection.subject;
+    const topic = data.identitySection.topic;
+    const grade = data.identitySection.grade;
+    const prompt = `
+Buat instrumen asesmen lengkap untuk mata pelajaran: ${subject}, topik: ${topic}, kelas: ${grade}. 
+Komponen: KKTP (4 Level: Perlu Bimbingan, Cukup, Baik, Sangat Baik), Formatif (Checklist & Feedback), Sumatif (Kisi-kisi), Intervensi. 
+
+ATURAN UTAMA:
+- Seluruh butir kriteria, indikator penilaian, dan tugas asesmen wajib berfokus 100% pada aspek kompetensi mata pelajaran "${subject}" dan topik "${topic}".
+- Jangan pernah beralih atau mencampuradukkan dengan materi dari mata pelajaran lain.
+- PASTIKAN SEMUA LEVEL KKTP DIISI SECARA LENGKAP.
+`;
     const schema = {
         type: Type.OBJECT,
         properties: {
@@ -490,6 +505,7 @@ export const generateAssessment = async (data: GeneratedLessonPlan): Promise<Dee
 // ============================================================================
 
 export const generateMaterials = async (data: GeneratedLessonPlan): Promise<MaterialsData> => {
+    const subject = data.identitySection.subject;
     const topic = data.identitySection.topic;
     const grade = data.identitySection.grade;
     const objectives = (data.design.objectives || []).slice(0, 3).map((o, i) => `${i+1}. ${o}`).join('\n');
@@ -498,10 +514,15 @@ export const generateMaterials = async (data: GeneratedLessonPlan): Promise<Mate
 Buat Materi Ajar yang lengkap, menarik, dan sesuai jenjang untuk keperluan pembelajaran.
 
 ## KONTEKS
+- Mata Pelajaran: ${subject}
 - Topik: ${topic}
 - Kelas / Fase: ${grade}
 - Tujuan Pembelajaran:
 ${objectives}
+
+## MANDAT KHUSUS (JANGKAR KONTEN)
+- Anda wajib membatasi dan menyusun seluruh isi materi, penjelasan, tabel, dan trivia secara ketat 100% di dalam ruang lingkup mata pelajaran "${subject}" dan topik "${topic}". 
+- Jangan pernah melenceng ke mata pelajaran lain! Jika mata pelajarannya adalah Bahasa Indonesia, seluruh materi harus membahas tentang aspek kebahasaan, cara membaca, menulis, menyimak, atau mempresentasikan teks/topik tersebut sesuai kaidah Bahasa Indonesia, bukan membahas sains/sosialnya secara murni.
 
 ## ATURAN PER FIELD (WAJIB DIPATUHI)
 
@@ -657,6 +678,7 @@ ATURAN MUTLAK:
 
 // ▼ GANTI fungsi generateLKPD yang ada dengan versi ini
 export const generateLKPD = async (data: GeneratedLessonPlan): Promise<LKPDData> => {
+    const subject = data.identitySection.subject;
     const topic = data.identitySection.topic;
     const grade = data.identitySection.grade;
     const objectives = (data.design.objectives || [])
@@ -665,13 +687,18 @@ export const generateLKPD = async (data: GeneratedLessonPlan): Promise<LKPDData>
         .join('\n');
 
     const prompt = `
-Buat Lembar Kerja Peserta Didik (LKPD) untuk topik berikut.
+Buat Lembar Kerja Peserta Didik (LKPD) untuk mata pelajaran dan topik berikut.
 
 ## KONTEKS
+- Mata Pelajaran: ${subject}
 - Topik: ${topic}
 - Kelas: ${grade}
 - Tujuan Pembelajaran:
 ${objectives}
+
+## MANDAT KHUSUS
+- Lembar kerja (LKPD) ini harus disusun 100% secara ketat berfokus pada mata pelajaran "${subject}" dengan topik "${topic}".
+- Semua aktivitas, stimulus, petunjuk, tabel pemahaman, dan pertanyaan diskusi wajib menggunakan konteks pembelajaran "${subject}". Dilarang keras beralih atau mencampur dengan mata pelajaran lain!
 
 ---
 
@@ -829,6 +856,7 @@ export const generateQuestionBank = async (
     config: QuestionBankConfig
 ): Promise<QuestionBankData> => {
 
+    const subject = data.identitySection.subject;
     const topic = data.identitySection.topic;
     const grade = data.identitySection.grade;
     const contextSource = data.materials?.subTopik?.length
@@ -854,9 +882,14 @@ export const generateQuestionBank = async (
 Buat ${config.count} soal evaluasi berkualitas tinggi.
 
 ## KONTEKS
+- Mata Pelajaran: ${subject}
 - Topik: ${topic}
 - Kelas: ${grade}
 - ${contextSource}
+
+## MANDAT KHUSUS
+- Seluruh butir soal (${config.count} soal) wajib berfokus 100% pada aspek kompetensi mata pelajaran "${subject}" dan topik "${topic}".
+- Jangan membuat soal yang melenceng ke mata pelajaran lain. Kaidah bahasa, pemahaman teks, dan evaluasi harus mengikuti konteks "${subject}".
 
 ## KONFIGURASI SOAL
 - Jumlah Total: ${config.count} soal

@@ -289,7 +289,7 @@ export const incrementGenerationCount = async (userId: string) => {
     } catch (e) { }
 };
 
-export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any): Promise<string | null> => {
+export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inputData: LessonIdentity, features: any, userRole?: string): Promise<string | null> => {
     try {
         // 1. CEK DUPLIKASI (Berdasarkan Topik, Kelas, Mapel)
         // Jika user generate ulang modul yang sama, kita update saja entry yang lama
@@ -319,20 +319,22 @@ export const saveHistory = async (userId: string, data: GeneratedLessonPlan, inp
             return existingItem.id;
         }
 
-        // 2. JIKA DATA BARU, CEK LIMIT (Max 5)
-        const MAX_HISTORY = 5; 
-        const { data: currentHistory } = await supabase
-            .from('generation_history')
-            .select('id')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: true }); // Oldest first
+        // 2. JIKA DATA BARU, CEK LIMIT (Max 10 untuk non-admin)
+        if (userRole !== 'admin') {
+            const MAX_HISTORY = 10; 
+            const { data: currentHistory } = await supabase
+                .from('generation_history')
+                .select('id')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: true }); // Oldest first
 
-        if (currentHistory && currentHistory.length >= MAX_HISTORY) {
-            // Hapus yang terlama untuk memberi ruang
-            const itemsToDeleteCount = currentHistory.length - MAX_HISTORY + 1;
-            const idsToDelete = currentHistory.slice(0, itemsToDeleteCount).map(item => item.id);
-            if (idsToDelete.length > 0) {
-                 await supabase.from('generation_history').delete().in('id', idsToDelete);
+            if (currentHistory && currentHistory.length >= MAX_HISTORY) {
+                // Hapus yang terlama untuk memberi ruang
+                const itemsToDeleteCount = currentHistory.length - MAX_HISTORY + 1;
+                const idsToDelete = currentHistory.slice(0, itemsToDeleteCount).map(item => item.id);
+                if (idsToDelete.length > 0) {
+                     await supabase.from('generation_history').delete().in('id', idsToDelete);
+                }
             }
         }
 
@@ -359,9 +361,13 @@ export const updateHistory = async (historyId: string, data: GeneratedLessonPlan
     try { await supabase.from('generation_history').update({ full_data: data, features: features }).eq('id', historyId); } catch (err) { }
 };
 
-export const getHistory = async (userId: string): Promise<HistoryItem[]> => {
+export const getHistory = async (userId: string, userRole?: string): Promise<HistoryItem[]> => {
     try {
-        const { data, error } = await supabase.from('generation_history').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+        let query = supabase.from('generation_history').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+        if (userRole !== 'admin') {
+            query = query.limit(10);
+        }
+        const { data, error } = await query;
         if (error) throw error;
         return data as HistoryItem[];
     } catch (err) { return []; }

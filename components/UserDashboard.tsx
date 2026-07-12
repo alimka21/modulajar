@@ -64,7 +64,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
 
   const loadHistoryData = async () => {
       setIsLoadingHistory(true);
-      const data = await getHistory(user.id);
+      const data = await getHistory(user.id, user.role);
       setHistory(data);
       setIsLoadingHistory(false);
   };
@@ -638,7 +638,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between bg-slate-50 gap-2">
                 <div className="flex items-center gap-2"><Clock size={20} className="text-blue-600" /><h2 className="text-lg font-bold text-slate-800">Riwayat Modul Terakhir</h2></div>
-                <div className="flex items-center gap-2 text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full"><Info size={14} />Hanya 5 modul terakhir yang disimpan</div>
+                <div className="flex items-center gap-2 text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full"><Info size={14} />{user?.role === 'admin' ? "Menampilkan riwayat modul admin" : "Hanya 10 modul terakhir yang disimpan"}</div>
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-600">
