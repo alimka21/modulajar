@@ -5,7 +5,7 @@ import { INDONESIAN_MONTHS } from '../constants';
 import { validateApiKey } from '../services/geminiService';
 import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
-import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink, XCircle } from 'lucide-react';
+import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink, XCircle, Sparkles } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
 import { tokenManager } from '../services/tokenManager';
 
@@ -36,20 +36,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [isIdentitySaved, setIsIdentitySaved] = useState(false);
 
   useEffect(() => {
-      // Ambil key dari user (DB) atau session, lakukan sanitasi basic
-      const currentKey = (user.apiKey || sessionStorage.getItem('custom_api_key') || '').trim();
+      // Ambil key dari user (DB), tokenManager, atau storage, lakukan sanitasi basic
+      const currentKey = (user.apiKey || tokenManager.getKey() || sessionStorage.getItem('custom_api_key') || '').trim();
       setApiKey(currentKey);
       
-      // FIX: Ensure sync to sessionStorage so other services can see it immediately
-      if (currentKey && currentKey.length > 10) {
-          sessionStorage.setItem('custom_api_key', currentKey);
-          tokenManager.setKey(currentKey); // Update memory manager directly
+      // FIX: Ensure sync to storage and tokenManager so all services see it immediately
+      if (currentKey && currentKey.length > 5) {
+          tokenManager.setKey(currentKey); // Update memory and persistent manager
           setKeyStatus('VALID');
           setIsKeyValidated(true);
           setIsEditingKey(false);
       } else {
-          sessionStorage.removeItem('custom_api_key');
-          tokenManager.setKey(null);
+          tokenManager.clearKey();
           setIsEditingKey(true);
       }
       
@@ -276,6 +274,38 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                     </span>
                 )}
             </div>
+        </div>
+
+        {/* AJAKAN SISTEM: DOKUMEN ADMINISTRASI PEMBELAJARAN (CP/TP/ATP/PROTA/PROMES) */}
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 rounded-2xl p-6 text-white shadow-md relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 border border-emerald-500/30 animate-fade-in">
+            <div className="relative z-10 space-y-2 max-w-2xl text-left">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm text-xs font-bold text-white tracking-wide uppercase">
+                    <Sparkles size={14} className="text-emerald-200" />
+                    Rekomendasi Administrasi Guru
+                </div>
+                <h2 className="text-xl font-black tracking-tight text-white">
+                    Perlu Menyusun Dokumen Administrasi Pembelajaran Lainnya?
+                </h2>
+                <p className="text-xs md:text-sm text-emerald-50 leading-relaxed font-normal">
+                    Jika Bapak/Ibu Guru membutuhkan dokumen <strong>Capaian Pembelajaran (CP)</strong>, <strong>Tujuan Pembelajaran (TP)</strong>, <strong>Alur Tujuan Pembelajaran (ATP)</strong>, <strong>Program Tahunan (PROTA)</strong>, hingga <strong>Program Semester (PROMES)</strong>, silakan akses generator administrasi pembelajaran terpadu melalui tautan di samping.
+                </p>
+            </div>
+            
+            <div className="relative z-10 flex-none w-full md:w-auto">
+                <a
+                    href="https://cp-tp.vercel.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full md:w-auto inline-flex items-center justify-center gap-3 px-6 py-3.5 bg-white text-emerald-800 hover:bg-emerald-50 font-black rounded-xl text-sm shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 group"
+                >
+                    <span>Buka Generator CP/TP/ATP</span>
+                    <ExternalLink size={16} className="text-emerald-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </a>
+            </div>
+
+            {/* Elemen visual aksen latar belakang */}
+            <div className="absolute -right-8 -top-8 w-44 h-44 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute right-36 -bottom-10 w-44 h-44 bg-emerald-400/20 rounded-full blur-xl pointer-events-none" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

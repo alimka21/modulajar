@@ -7,17 +7,23 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
   
   // Prioritas pengambilan API Key:
-  // 1. process.env.API_KEY (Vercel System Env)
-  // 2. env.API_KEY (Local .env)
-  // 3. env.VITE_API_KEY (Vite standard)
-  const apiKey = process.env.API_KEY || env.API_KEY || env.VITE_API_KEY || '';
+  // 1. process.env.GEMINI_API_KEY / process.env.API_KEY
+  // 2. env.GEMINI_API_KEY / env.API_KEY (Local .env)
+  // 3. env.VITE_GEMINI_API_KEY / env.VITE_API_KEY (Vite standard)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || env.GEMINI_API_KEY || env.API_KEY || env.VITE_GEMINI_API_KEY || env.VITE_API_KEY || '';
 
   return {
+    server: {
+      host: '0.0.0.0',
+      port: 3000,
+      strictPort: true,
+    },
     plugins: [react()],
     define: {
       // Inject API Key ke dalam kode frontend
-      // Jika apiKey kosong, aplikasi tetap build tapi AI akan gagal jika user tidak input key sendiri
       'process.env.API_KEY': JSON.stringify(apiKey),
+      'process.env.GEMINI_API_KEY': JSON.stringify(apiKey),
+      'process.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey),
       
       // Supabase Configuration
       'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL),

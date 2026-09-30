@@ -7,6 +7,7 @@ import { downloadDocx } from '../services/documentService';
 import { INDONESIAN_MONTHS, PEDAGOGIES } from '../constants';
 import DocumentContent from './document/DocumentContent';
 import { swal } from '../services/notificationService';
+import { tokenManager } from '../services/tokenManager';
 
 declare var marked: any;
 declare var Swal: any;
@@ -334,6 +335,33 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                     <div className="mt-2 text-xs font-bold text-slate-800 truncate">{schoolData.schoolName}</div>
                 </div>
 
+                {/* API Key Status Indicator */}
+                <div className={`p-3 rounded-xl border flex items-center justify-between text-xs mb-4 ${
+                    tokenManager.isCustomKeyActive() 
+                    ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' 
+                    : 'bg-amber-50/80 border-amber-200 text-amber-900'
+                }`}>
+                    <div className="flex items-center gap-2">
+                        {tokenManager.isCustomKeyActive() ? (
+                            <>
+                                <span className="flex h-2 w-2 relative">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                                <span className="font-bold text-[11px]">API Key Mandiri Aktif</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                                <span className="font-bold text-[11px]">Server Kuota Bersama</span>
+                            </>
+                        )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                        {tokenManager.isCustomKeyActive() ? 'Google AI Studio' : 'Dapat Terkena Limit'}
+                    </span>
+                </div>
+
                 <div className="border rounded-xl border-slate-200 overflow-hidden shadow-sm">
                    <div className="w-full flex items-center justify-between p-4 bg-white border-b border-slate-100 text-left">
                        <div className="flex items-center gap-2 text-sm font-bold text-slate-800"><BookOpen size={18} className="text-indigo-600" /><span>Detail Pembelajaran</span></div>
@@ -568,7 +596,21 @@ const ResultPreview: React.FC<ResultPreviewProps> = ({
                              </p>
                         </div>
                     ) : (
-                        <div className="animate-fade-in"><DocumentContent data={data} inputData={inputData} activeTab={activeTab} /></div>
+                        <div className="animate-fade-in">
+                            <DocumentContent 
+                                data={data} 
+                                inputData={inputData} 
+                                activeTab={activeTab} 
+                                onGenerateMaterials={onGenerateMaterials}
+                                isGeneratingMaterials={isGeneratingMaterials}
+                                onGenerateLKPD={onGenerateLKPD}
+                                isGeneratingLKPD={isGeneratingLKPD}
+                                onGenerateAssessment={onGenerateAssessment}
+                                isGeneratingAssessment={isGeneratingAssessment}
+                                onOpenQuestionModal={() => setShowQuestionModal(true)}
+                                isGeneratingQuestionBank={isGeneratingQuestionBank}
+                            />
+                        </div>
                     )}
                 </div>
             </div>

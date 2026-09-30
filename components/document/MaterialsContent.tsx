@@ -17,10 +17,38 @@ import { TableRenderer } from './SharedComponents';
 interface MaterialsContentProps {
     data: GeneratedLessonPlan;
     isMathSubject: boolean;
+    onGenerateMaterials?: () => void;
+    isGeneratingMaterials?: boolean;
 }
 
-const MaterialsContent: React.FC<MaterialsContentProps> = ({ data, isMathSubject }) => {
-    if (!data.materials) return null;
+const MaterialsContent: React.FC<MaterialsContentProps> = ({ 
+    data, 
+    isMathSubject,
+    onGenerateMaterials,
+    isGeneratingMaterials
+}) => {
+    if (!data.materials) {
+        return (
+            <div className="text-inherit py-12 px-6 my-6 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/80 text-center font-sans">
+                <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-bold text-xl">
+                    📖
+                </div>
+                <h3 className="text-base font-bold text-slate-800 mb-1">Materi Ajar Belum Disusun</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mb-4 leading-relaxed">
+                    Dokumen Modul Ajar utama sudah tersimpan. Klik tombol di bawah untuk menyusun rangkuman konsep inti, tabel pembanding, contoh kontekstual, dan glosarium secara otomatis.
+                </p>
+                {onGenerateMaterials && (
+                    <button
+                        onClick={onGenerateMaterials}
+                        disabled={isGeneratingMaterials}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50"
+                    >
+                        {isGeneratingMaterials ? "Sedang Menyusun Materi Ajar..." : "✨ Buat Materi Ajar Sekarang"}
+                    </button>
+                )}
+            </div>
+        );
+    }
     const m = data.materials;
 
     // ▼ Render tabelVisual — schema baru selalu string, tapi tetap handle data lama (objek)

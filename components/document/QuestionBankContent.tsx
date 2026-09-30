@@ -16,6 +16,8 @@ import { renderMarkdown, renderInlineMarkdown } from './utils';
 interface QuestionBankContentProps {
     data: GeneratedLessonPlan;
     isMathSubject: boolean;
+    onOpenQuestionModal?: () => void;
+    isGeneratingQuestionBank?: boolean;
 }
 
 // ▼ Bersihkan prefix huruf dari opsi (A., B., A), B), dll)
@@ -54,8 +56,34 @@ const cleanAnswerKey = (item: QuestionItem): string => {
     return key;
 };
 
-const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ data, isMathSubject }) => {
-    if (!data.questionBank) return null;
+const QuestionBankContent: React.FC<QuestionBankContentProps> = ({ 
+    data, 
+    isMathSubject,
+    onOpenQuestionModal,
+    isGeneratingQuestionBank
+}) => {
+    if (!data.questionBank) {
+        return (
+            <div className="text-inherit py-12 px-6 my-6 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/80 text-center font-sans">
+                <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center font-bold text-xl">
+                    🎯
+                </div>
+                <h3 className="text-base font-bold text-slate-800 mb-1">Bank Soal Belum Disusun</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mb-4 leading-relaxed">
+                    Anda dapat menyusun butir soal evaluasi (Pilihan Ganda, PG Kompleks, Menjodohkan, Benar/Salah, Uraian) lengkap dengan stimulus kontekstual dan kunci jawaban.
+                </p>
+                {onOpenQuestionModal && (
+                    <button
+                        onClick={onOpenQuestionModal}
+                        disabled={isGeneratingQuestionBank}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50"
+                    >
+                        {isGeneratingQuestionBank ? "Sedang Menyiapkan..." : "✨ Buat Bank Soal Sekarang"}
+                    </button>
+                )}
+            </div>
+        );
+    }
 
     const groupedItems = (data.questionBank?.items || []).reduce((acc, item) => {
         if (!acc[item.type]) acc[item.type] = [];

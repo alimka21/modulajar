@@ -103,68 +103,180 @@ const saveGlobalCache = async (hash: string, response: any) => {
     } catch (error) { /* Ignore */ }
 };
 
-// --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota) ---
-// 1. Model A (Primary) -> gemini-2.5-flash
+// --- HELPER: CONTENT COMPLETENESS VALIDATION ---
+const validateGeneratedContent = (data: any): { valid: boolean; reason?: string } => {
+    if (!data || typeof data !== 'object') {
+        return { valid: false, reason: "Data bukan objek JSON valid" };
+    }
+
+    // 1. Validasi RPP / Modul Ajar
+    if ('learningExperience' in data) {
+        if (!Array.isArray(data.learningExperience) || data.learningExperience.length === 0) {
+            return { valid: false, reason: "Langkah pembelajaran (learningExperience) kosong" };
+        }
+        const firstMeeting = data.learningExperience[0];
+        if (!firstMeeting || !firstMeeting.core) {
+            return { valid: false, reason: "Kegiatan inti pertemuan 1 kosong" };
+        }
+        const core = firstMeeting.core;
+        const totalCoreSteps = 
+            (Array.isArray(core.memahami) ? core.memahami.length : 0) +
+            (Array.isArray(core.mengaplikasi) ? core.mengaplikasi.length : 0) +
+            (Array.isArray(core.merefleksi) ? core.merefleksi.length : 0);
+        if (totalCoreSteps === 0) {
+            return { valid: false, reason: "Tidak ada langkah kegiatan memahami/mengaplikasi/merefleksi" };
+        }
+        if (data.design && Array.isArray(data.design.objectives) && data.design.objectives.length === 0) {
+            return { valid: false, reason: "Tujuan pembelajaran (objectives) kosong" };
+        }
+    }
+
+    // 2. Validasi Materi Ajar
+    if ('konsepInti' in data && 'judul' in data) {
+        if (!data.judul || typeof data.judul !== 'string' || data.judul.trim().length === 0) {
+            return { valid: false, reason: "Judul materi kosong" };
+        }
+        const ki = data.konsepInti;
+        if (!ki || !Array.isArray(ki.penjelasanBertahap) || ki.penjelasanBertahap.length === 0) {
+            return { valid: false, reason: "Penjelasan bertahap materi ajar kosong" };
+        }
+    }
+
+    // 3. Validasi LKPD
+    if ('activities' in data && 'title' in data) {
+        const act1 = data.activities?.activity1?.content;
+        const act2 = data.activities?.activity2?.content;
+        if (!act1 || String(act1).trim().length < 10) {
+            return { valid: false, reason: "Konten Aktivitas 1 LKPD kosong atau terpotong" };
+        }
+        if (!act2 || String(act2).trim().length < 10) {
+            return { valid: false, reason: "Konten Aktivitas 2 LKPD kosong atau terpotong" };
+        }
+    }
+
+    // 4. Validasi Asesmen
+    if ('kktp' in data) {
+        if (!Array.isArray(data.kktp) || data.kktp.length === 0) {
+            return { valid: false, reason: "Rubrik KKTP asesmen kosong" };
+        }
+    }
+
+    // 5. Validasi Bank Soal
+    if ('items' in data) {
+        if (!Array.isArray(data.items) || data.items.length === 0) {
+            return { valid: false, reason: "Butir soal kosong" };
+        }
+    }
+
+    return { valid: true };
+};
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota & Anti-Kena Limit) ---
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
-    // Config Strategy
+    // Model yang didukung resmi, aktif, dan paling stabil untuk free tier & paid
     const ATTEMPTS = [
-        { model: 'gemini-2.5-flash', label: 'Model A (Primary)' },
-        { model: 'gemini-3-flash-preview', label: 'Model B (Secondary)' }
+        { model: 'gemini-3-flash-preview', label: 'Model A (Utama - Super Cepat & Kuota Responsif)' },
+        { model: 'gemini-3.1-flash-lite', label: 'Model B (Cadangan Cepat - Hemat Kuota)' },
+        { model: 'gemini-3.8-flash', label: 'Model C (Cadangan Standar Produksi)' }
     ];
 
-    let lastError = null;
+    let lastError: any = null;
 
-    for (const attempt of ATTEMPTS) {
-        try {
-            console.log(`[AI] Mencoba ${attempt.label}: ${attempt.model}...`);
-            
-            // Single Request dengan Timeout
-            const response: any = await withTimeout(
-                async (signal) => {
-                    const res = await client.models.generateContent({
-                        model: attempt.model,
-                        ...requestOptions
-                    });
-                    return res;
-                },
-                REQUEST_TIMEOUT_MS,
-                `Timeout pada ${attempt.label}`
-            );
+    for (let i = 0; i < ATTEMPTS.length; i++) {
+        const attempt = ATTEMPTS[i];
+        const isLastAttempt = i === ATTEMPTS.length - 1;
 
-            // Parsing
-            let cleanedText = cleanJsonOutput(response.text || "");
-            let parsedData;
+        // Coba hingga 2 kali per model jika terkena limit kuota/spikes
+        for (let retry = 0; retry < 2; retry++) {
             try {
-                parsedData = JSON.parse(cleanedText);
-            } catch (err: any) {
-                console.warn("[AI] JSON Parse gagal, mencoba jsonrepair...");
-                try {
-                    const repairedText = jsonrepair(cleanedText);
-                    parsedData = JSON.parse(repairedText);
-                    console.log("[AI] jsonrepair berhasil memperbaiki JSON.");
-                } catch (repairErr: any) {
-                    console.error("[AI] jsonrepair juga gagal:", repairErr.message, "Teks awal:", cleanedText.substring(0, 150), "...");
-                    throw new Error("Output AI terpotong atau tidak valid meskipun sudah diperbaiki. Silakan coba klik GENERATE lagi.");
+                console.log(`[AI] Mencoba ${attempt.label}: ${attempt.model} (Percobaan ${retry + 1})...`);
+                
+                const response: any = await withTimeout(
+                    async (signal) => {
+                        const res = await client.models.generateContent({
+                            model: attempt.model,
+                            ...requestOptions
+                        });
+                        return res;
+                    },
+                    REQUEST_TIMEOUT_MS,
+                    `Timeout pada ${attempt.label}`
+                );
+
+                // Parsing
+                const rawText = response.text || "";
+                if (!rawText.trim()) {
+                    throw new Error("Model mengembalikan respon kosong.");
                 }
-            }
-            
-            if (Object.keys(parsedData).length === 0) throw new Error("Output JSON kosong.");
-            
-            console.log(`[AI] ✅ Sukses menggunakan ${attempt.label}`);
-            return parsedData;
 
-        } catch (e: any) {
-            console.warn(`[AI] ⚠️ Gagal pada ${attempt.label}:`, e.message);
-            lastError = e;
+                let cleanedText = cleanJsonOutput(rawText);
+                let parsedData;
+                try {
+                    parsedData = JSON.parse(cleanedText);
+                } catch (err: any) {
+                    console.warn("[AI] JSON Parse gagal, mencoba jsonrepair...");
+                    try {
+                        const repairedText = jsonrepair(cleanedText);
+                        parsedData = JSON.parse(repairedText);
+                        console.log("[AI] jsonrepair berhasil memperbaiki JSON.");
+                    } catch (repairErr: any) {
+                        console.error("[AI] jsonrepair juga gagal:", repairErr.message, "Teks awal:", cleanedText.substring(0, 150), "...");
+                        throw new Error("Output AI terpotong atau tidak valid meskipun sudah diperbaiki. Silakan coba klik GENERATE lagi.");
+                    }
+                }
+                
+                if (!parsedData || Object.keys(parsedData).length === 0) {
+                    throw new Error("Output JSON kosong.");
+                }
 
-            // Jika errornya adalah Auth/API Key Invalid, JANGAN RETRY, langsung throw agar user sadar
-            const errStr = String(e.message || e).toLowerCase();
-            if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("invalid argument")) {
-                throw new Error("API Key Tidak Valid atau Konfigurasi Salah.");
+                // Validasi kelengkapan konten
+                const validation = validateGeneratedContent(parsedData);
+                if (!validation.valid) {
+                    console.warn(`[AI] ⚠️ Validasi konten gagal (${validation.reason}). Mencoba ulang...`);
+                    throw new Error(`Konten tidak lengkap: ${validation.reason}`);
+                }
+                
+                console.log(`[AI] ✅ Sukses menghasilkan konten lengkap menggunakan ${attempt.label}`);
+                return parsedData;
+
+            } catch (e: any) {
+                lastError = e;
+                const errStr = String(e.message || e).toLowerCase();
+                console.warn(`[AI] ⚠️ Gagal pada ${attempt.label} (Percobaan ${retry + 1}):`, e.message);
+
+                // Auth / Invalid API Key: Langsung hentikan loop agar user tahu
+                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("api_key_invalid")) {
+                    throw new Error("API Key Tidak Valid atau belum diaktifkan di Google AI Studio.");
+                }
+
+                // 404 Model Not Found: Jangan retry model yang sama, langsung lanjut model berikutnya
+                if (errStr.includes("404") || errStr.includes("not found")) {
+                    break;
+                }
+
+                // Rate limit (429 / Resource Exhausted) atau 503 (High Demand / Spikes)
+                const isRateLimitOrOverload = 
+                    errStr.includes("429") || 
+                    errStr.includes("resource_exhausted") || 
+                    errStr.includes("quota") || 
+                    errStr.includes("503") || 
+                    errStr.includes("unavailable") ||
+                    errStr.includes("high demand") ||
+                    errStr.includes("konten tidak lengkap");
+
+                if (isRateLimitOrOverload && retry === 0 && !isLastAttempt) {
+                    // Beri jeda backoff 2.0 detik sebelum retry
+                    console.log("[AI] Menunggu 2.0 detik untuk jeda kuota (Exponential Backoff)...");
+                    await sleep(2000);
+                    continue;
+                }
+
+                // Jika bukan retry pertama atau sudah coba 2x, lanjut ke model berikutnya
+                break;
             }
-            
-            // Loop akan berakhir jika ini satu-satunya model
         }
     }
 
@@ -179,21 +291,41 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
-        const modelToTest = 'gemini-3.1-flash-lite'; // Gunakan model ringan untuk tes koneksi
         
-        const response: any = await withTimeout(
-            (signal) => ai.models.generateContent({
-                model: modelToTest, 
-                contents: "Tes koneksi.", 
-            }),
-            10000, // 10s timeout
-            "Koneksi timeout (10s)"
-        );
+        // Coba model responsif pertama
+        const testModels = ['gemini-3-flash-preview', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+        let successMessage = '';
+        let lastErr = '';
 
-        if (response && response.text) {
-             return { success: true, message: `✅ Koneksi Berhasil!` };
+        for (const modelToTest of testModels) {
+            try {
+                const response: any = await withTimeout(
+                    (signal) => ai.models.generateContent({
+                        model: modelToTest, 
+                        contents: "Tes koneksi.", 
+                        config: { thinkingConfig: { thinkingBudget: 0 } as any }
+                    }),
+                    12000,
+                    "Koneksi timeout (12s)"
+                );
+
+                if (response && response.text) {
+                    successMessage = `✅ Koneksi Berhasil! (Model: ${modelToTest})`;
+                    break;
+                }
+            } catch (err: any) {
+                lastErr = err.message || '';
+                // Jika auth gagal total, hentikan
+                if (String(lastErr).toLowerCase().includes("api_key") || String(lastErr).toLowerCase().includes("unauthenticated")) {
+                    return { success: false, message: "❌ API Key tidak valid menurut Google AI Studio." };
+                }
+            }
         }
-        return { success: false, message: "❌ Tidak ada respon." };
+
+        if (successMessage) {
+            return { success: true, message: successMessage };
+        }
+        return { success: false, message: `❌ Gagal: ${lastErr || "Tidak ada respon dari server Google."}` };
 
     } catch (error: any) {
         return { success: false, message: `❌ Gagal: ${error.message || "Key tidak valid"}` };
@@ -204,17 +336,22 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 const tryGenerate = async (systemInstruction: string, userPrompt: string, responseSchema: any): Promise<any> => {
     
     // 0. Identifikasi Key & Mode
-    // Prioritas: Token Manager (Memory) > Process Env
+    // Prioritas: Token Manager (Memory + SessionStorage + LocalStorage) > Process / Vite Env
     const memoryKey = tokenManager.getKey();
     const userKey = cleanApiKey(memoryKey);
-    const systemKey = cleanApiKey(process.env.API_KEY);
+    const systemKey = cleanApiKey(
+      (typeof process !== 'undefined' && (process.env.GEMINI_API_KEY || process.env.API_KEY)) ||
+      ((import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || (import.meta as any).env?.VITE_API_KEY || '')
+    );
     
-    const isUserCustomKey = !!userKey; 
+    const isUserCustomKey = !!(userKey && userKey.length > 5); 
     const apiKey = isUserCustomKey ? userKey : systemKey;
 
     if (!apiKey) {
         throw new Error("API Key Kosong. Silakan masukkan API Key Google AI Studio Anda di menu Dashboard.");
     }
+
+    console.log(`[AI] Mode API Key: ${isUserCustomKey ? '🔑 API KEY MANDIRI (User)' : '🌐 API KEY SERVER BERSAMA'}`);
 
     // 1. Generate Hash untuk Cache Key
     const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
@@ -222,7 +359,7 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
 
     // 2. Cek LOCAL Cache (Browser)
     const localData = getLocalCache(cacheKey);
-    if (localData) {
+    if (localData && validateGeneratedContent(localData).valid) {
         console.log("[Cache] Hit from Browser LocalStorage");
         return localData;
     }
@@ -230,7 +367,7 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     // 3. Cek GLOBAL Cache (Supabase) - HANYA JIKA PAKAI SYSTEM KEY
     if (!isUserCustomKey) {
         const globalData = await getGlobalCache(cacheKey);
-        if (globalData) {
+        if (globalData && validateGeneratedContent(globalData).valid) {
             console.log("[Cache] Hit from Supabase Global");
             setLocalCache(cacheKey, globalData); 
             return globalData;
@@ -246,8 +383,10 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
             responseMimeType: "application/json",
             responseSchema: responseSchema,
             systemInstruction: systemInstruction,
-            temperature: 0.3,
-            maxOutputTokens: 65536
+            temperature: 0.2,
+            thinkingConfig: {
+                thinkingBudget: 0
+            } as any
         }
     };
 
@@ -258,13 +397,20 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     } catch (e: any) {
         // Pretty Print Error untuk User
         let msg = e.message || "Gagal Generate.";
-        if (msg.includes("429")) msg = "Kuota API Key Anda Habis (Limit Google). Silakan tunggu sebentar atau ganti API Key.";
-        if (msg.includes("403")) msg = "API Key tidak memiliki izin (Permission Denied).";
+        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
+            msg = isUserCustomKey
+                ? "Batas kuota frekuensi API Key Mandiri Anda tercapai (Google 429). Mohon tunggu 30-60 detik sebelum mencoba kembali, atau periksa kuota akun Google AI Studio Anda."
+                : "Server sedang mencapai batas kuota bersama (Limit Google 429). Silakan masukkan API Key Mandiri Anda di menu Dashboard untuk akses prioritas tanpa antrean.";
+        } else if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
+            msg = isUserCustomKey
+                ? "API Key Mandiri Anda tidak memiliki izin atau dibatasi. Periksa setelan API Key di console Google AI Studio."
+                : "API Key server tidak memiliki izin (Permission Denied).";
+        }
         throw new Error(msg);
     }
 
-    // 5. Simpan Cache
-    if (finalResult) {
+    // 5. Simpan Cache (Hanya jika konten valid dan lengkap)
+    if (finalResult && validateGeneratedContent(finalResult).valid) {
         setLocalCache(cacheKey, finalResult);
         if (!isUserCustomKey) {
             saveGlobalCache(cacheKey, finalResult);
@@ -390,14 +536,35 @@ ${lesson.objectives.map(o => `    - ${o}`).join('\n')}
   const schema = {
     type: Type.OBJECT,
     properties: {
-      identitySection: { type: Type.OBJECT, properties: { schoolName: {type: Type.STRING}, subject: {type: Type.STRING}, grade: {type: Type.STRING}, semester: {type: Type.STRING}, timeAllocation: {type: Type.STRING}, meetingCount: {type: Type.STRING}, topic: {type: Type.STRING} } },
+      identitySection: { 
+        type: Type.OBJECT, 
+        properties: { 
+          schoolName: {type: Type.STRING}, 
+          subject: {type: Type.STRING}, 
+          grade: {type: Type.STRING}, 
+          semester: {type: Type.STRING}, 
+          timeAllocation: {type: Type.STRING}, 
+          meetingCount: {type: Type.STRING}, 
+          topic: {type: Type.STRING} 
+        } 
+      },
       initialAssessment: { type: Type.STRING },
       graduateProfile: { 
           type: Type.ARRAY, 
           items: { type: Type.STRING },
           description: "Array of strings containing 2 to 4 selected graduate profile dimensions." 
       },
-      design: { type: Type.OBJECT, properties: { objectives: { type: Type.ARRAY, items: { type: Type.STRING } }, pedagogicalPractice: { type: Type.STRING }, partnership: { type: Type.STRING }, environment: { type: Type.STRING }, digital: { type: Type.STRING } } },
+      design: { 
+        type: Type.OBJECT, 
+        properties: { 
+          objectives: { type: Type.ARRAY, items: { type: Type.STRING } }, 
+          pedagogicalPractice: { type: Type.STRING }, 
+          partnership: { type: Type.STRING }, 
+          environment: { type: Type.STRING }, 
+          digital: { type: Type.STRING } 
+        },
+        required: ["objectives", "pedagogicalPractice", "environment"]
+      },
       learningExperience: { 
           type: Type.ARRAY, 
           items: { 
@@ -412,18 +579,27 @@ ${lesson.objectives.map(o => `    - ${o}`).join('\n')}
                           memahami: { type: Type.ARRAY, items: { type: Type.STRING } },
                           mengaplikasi: { type: Type.ARRAY, items: { type: Type.STRING } },
                           merefleksi: { type: Type.ARRAY, items: { type: Type.STRING } }
-                      }
+                      },
+                      required: ["memahami", "mengaplikasi", "merefleksi"]
                   },
                   corePrinciple: { type: Type.STRING, description: "Must be 'Berkesadaran', 'Bermakna', 'Mengembirakan', or a combination of two with 'dan'." },
                   closing: { type: Type.ARRAY, items: { type: Type.STRING } },
                   closingPrinciple: { type: Type.STRING, description: "Must be 'Berkesadaran', 'Bermakna', 'Mengembirakan', or a combination of two with 'dan'." }
-              } 
+              },
+              required: ["meetingNo", "intro", "core", "closing", "introPrinciple", "corePrinciple", "closingPrinciple"]
           } 
       },
-      reflection: { type: Type.OBJECT, properties: { teacher: { type: Type.ARRAY, items: { type: Type.STRING } }, student: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+      reflection: { 
+        type: Type.OBJECT, 
+        properties: { 
+          teacher: { type: Type.ARRAY, items: { type: Type.STRING } }, 
+          student: { type: Type.ARRAY, items: { type: Type.STRING } } 
+        },
+        required: ["teacher", "student"]
+      },
       approval: { type: Type.OBJECT, properties: { location: { type: Type.STRING }, date: { type: Type.STRING }, authorName: { type: Type.STRING }, authorNip: { type: Type.STRING }, principalName: { type: Type.STRING }, principalNip: { type: Type.STRING } } }
     },
-    required: ["identitySection", "design", "learningExperience", "graduateProfile"]
+    required: ["identitySection", "design", "learningExperience", "graduateProfile", "reflection"]
   };
 
   const result = await tryGenerate(DEEP_LEARNING_INSTRUCTION, prompt, schema);

@@ -17,9 +17,29 @@ interface DocumentContentProps {
   data: GeneratedLessonPlan;
   inputData: LessonIdentity;
   activeTab: string; // 'SEMUA' | 'RPP_PLUS' | 'MATERI' | 'LKPD' | 'SOAL'
+  onGenerateMaterials?: () => void;
+  isGeneratingMaterials?: boolean;
+  onGenerateLKPD?: () => void;
+  isGeneratingLKPD?: boolean;
+  onGenerateAssessment?: () => void;
+  isGeneratingAssessment?: boolean;
+  onOpenQuestionModal?: () => void;
+  isGeneratingQuestionBank?: boolean;
 }
 
-const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, activeTab }) => {
+const DocumentContent: React.FC<DocumentContentProps> = ({ 
+  data, 
+  inputData, 
+  activeTab,
+  onGenerateMaterials,
+  isGeneratingMaterials,
+  onGenerateLKPD,
+  isGeneratingLKPD,
+  onGenerateAssessment,
+  isGeneratingAssessment,
+  onOpenQuestionModal,
+  isGeneratingQuestionBank
+}) => {
   
   const isMathSubject = useMemo(() => {
     const subject = (inputData.subject || "").toLowerCase();
@@ -161,22 +181,42 @@ const DocumentContent: React.FC<DocumentContentProps> = ({ data, inputData, acti
         {(activeTab === 'RPP_PLUS' || activeTab === 'SEMUA') && (
             <>
                 <RppContent data={data} isMathSubject={isMathSubject} />
-                <AssessmentContent data={data} isMathSubject={isMathSubject} />
+                <AssessmentContent 
+                    data={data} 
+                    isMathSubject={isMathSubject} 
+                    onGenerateAssessment={onGenerateAssessment}
+                    isGeneratingAssessment={isGeneratingAssessment}
+                />
                 <ReflectionContent />
                 <ApprovalSignature approval={data.approval} />
             </>
         )}
         
         {(activeTab === 'MATERI' || activeTab === 'SEMUA') && (
-            <MaterialsContent data={data} isMathSubject={isMathSubject} />
+            <MaterialsContent 
+                data={data} 
+                isMathSubject={isMathSubject} 
+                onGenerateMaterials={onGenerateMaterials}
+                isGeneratingMaterials={isGeneratingMaterials}
+            />
         )}
         
         {(activeTab === 'LKPD' || activeTab === 'SEMUA') && (
-            <LkpdContent data={data} isMathSubject={isMathSubject} />
+            <LkpdContent 
+                data={data} 
+                isMathSubject={isMathSubject} 
+                onGenerateLKPD={onGenerateLKPD}
+                isGeneratingLKPD={isGeneratingLKPD}
+            />
         )}
 
         {(activeTab === 'SOAL' || activeTab === 'SEMUA') && (
-            <QuestionBankContent data={data} isMathSubject={isMathSubject} />
+            <QuestionBankContent 
+                data={data} 
+                isMathSubject={isMathSubject} 
+                onOpenQuestionModal={onOpenQuestionModal}
+                isGeneratingQuestionBank={isGeneratingQuestionBank}
+            />
         )}
     </div>
   );

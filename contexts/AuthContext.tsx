@@ -47,12 +47,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (mappedUser) {
         setUser(mappedUser);
         
-        // 1. Set TokenManager (Singleton) for Service access
-        tokenManager.setKey(mappedUser.apiKey || null);
+        // 1. Set TokenManager (Singleton) for Service access (preserve local custom key if DB profile has no key yet)
+        const effectiveApiKey = (mappedUser.apiKey && mappedUser.apiKey.length > 5) ? mappedUser.apiKey : tokenManager.getKey();
+        tokenManager.setKey(effectiveApiKey || null);
 
         // 2. Set Session Storage (Legacy/UI Persistence)
-        if (mappedUser.apiKey && mappedUser.apiKey.length > 5) {
-            sessionStorage.setItem('custom_api_key', mappedUser.apiKey);
+        if (effectiveApiKey && effectiveApiKey.length > 5) {
+            sessionStorage.setItem('custom_api_key', effectiveApiKey);
         } else {
             sessionStorage.removeItem('custom_api_key');
         }

@@ -10,9 +10,21 @@ interface RppContentProps {
 }
 
 const RppContent: React.FC<RppContentProps> = ({ data, isMathSubject }) => {
-    if (!data.identitySection || !data.design || !data.learningExperience) return null;
+    if (!data) return null;
 
-    const { identitySection, initialAssessment, graduateProfile, design, learningExperience } = data;
+    const identitySection = data.identitySection || {
+        schoolName: '-',
+        subject: '-',
+        grade: '-',
+        semester: '-',
+        timeAllocation: '-',
+        meetingCount: '-',
+        topic: 'Modul Pembelajaran'
+    };
+    const initialAssessment = data.initialAssessment || "";
+    const graduateProfile = Array.isArray(data.graduateProfile) ? data.graduateProfile : [];
+    const design = data.design || { objectives: [], pedagogicalPractice: '', environment: '', partnership: '', digital: '' };
+    const learningExperience = Array.isArray(data.learningExperience) ? data.learningExperience : [];
     const approval = data.approval || { 
         authorName: '-', authorNip: '-', principalName: '-', principalNip: '-', location: '-', date: '-' 
     };

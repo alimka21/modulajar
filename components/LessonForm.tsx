@@ -4,6 +4,7 @@ import { LessonIdentity } from '../types';
 import { INITIAL_LESSON_IDENTITY, PEDAGOGIES } from '../constants'; // Import constants
 import { ArrowLeft, Sparkles, Loader2, Plus, Trash2 } from 'lucide-react';
 import { GRADUATE_PROFILE_DIMENSIONS } from '../constants';
+import { tokenManager } from '../services/tokenManager';
 
 interface LessonFormProps {
   data: LessonIdentity;
@@ -243,7 +244,36 @@ const LessonForm: React.FC<LessonFormProps> = ({ data, onChange, onBack, onGener
         </div>
       </div>
 
-      <div className="mt-8 flex justify-between">
+      {/* API Key Status Indicator */}
+      <div className={`mt-6 p-3 rounded-xl border flex items-center justify-between text-xs ${
+          tokenManager.isCustomKeyActive() 
+          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' 
+          : 'bg-amber-50/80 border-amber-200 text-amber-900'
+      }`}>
+          <div className="flex items-center gap-2">
+              {tokenManager.isCustomKeyActive() ? (
+                  <>
+                      <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span className="font-bold">🔑 API Key Mandiri Aktif</span>
+                      <span className="text-[11px] text-slate-500 hidden sm:inline">(Google AI Studio Anda)</span>
+                  </>
+              ) : (
+                  <>
+                      <span className="inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                      <span className="font-bold">🌐 Server Kuota Bersama</span>
+                      <span className="text-[11px] text-slate-500 hidden sm:inline">(Dapat terkena limit antrean)</span>
+                  </>
+              )}
+          </div>
+          <span className="text-[10px] text-slate-500">
+              {tokenManager.isCustomKeyActive() ? 'Akses Mandiri Cepat' : 'Atur Key di Dashboard'}
+          </span>
+      </div>
+
+      <div className="mt-4 flex justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-2 text-slate-600 hover:text-slate-800 font-medium px-4 py-2 transition"

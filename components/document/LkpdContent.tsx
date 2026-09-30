@@ -15,10 +15,38 @@ import { OpenSection, TableRenderer } from './SharedComponents';
 interface LkpdContentProps {
     data: GeneratedLessonPlan;
     isMathSubject: boolean;
+    onGenerateLKPD?: () => void;
+    isGeneratingLKPD?: boolean;
 }
 
-const LkpdContent: React.FC<LkpdContentProps> = ({ data, isMathSubject }) => {
-    if (!data.lkpd) return null;
+const LkpdContent: React.FC<LkpdContentProps> = ({ 
+    data, 
+    isMathSubject,
+    onGenerateLKPD,
+    isGeneratingLKPD
+}) => {
+    if (!data.lkpd) {
+        return (
+            <div className="text-inherit py-12 px-6 my-6 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/80 text-center font-sans">
+                <div className="w-12 h-12 mx-auto mb-3 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center font-bold text-xl">
+                    📝
+                </div>
+                <h3 className="text-base font-bold text-slate-800 mb-1">Lembar Kerja (LKPD) Belum Disusun</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mb-4 leading-relaxed">
+                    Aktivitas murid terstruktur, petunjuk pengerjaan, stimulus, tabel penyelidikan, dan refleksi murid dapat dibuat secara otomatis berdasarkan modul ajar ini.
+                </p>
+                {onGenerateLKPD && (
+                    <button
+                        onClick={onGenerateLKPD}
+                        disabled={isGeneratingLKPD}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50"
+                    >
+                        {isGeneratingLKPD ? "Sedang Menyusun LKPD..." : "✨ Buat LKPD Sekarang"}
+                    </button>
+                )}
+            </div>
+        );
+    }
     const l = data.lkpd;
 
     // ▼ Helper: Ambil content string dari activity (apapun bentuk datanya)
