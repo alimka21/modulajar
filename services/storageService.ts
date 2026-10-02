@@ -181,32 +181,85 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
 
 export const saveUser = async (user: User) => {
     try {
-        // Cek duplikasi email/username via select cepat (bukan RPC)
+        const cleanEmail = (user.email || '').trim().toLowerCase();
+        const cleanUsername = (user.username || user.email.split('@')[0] || '').trim().toLowerCase();
+        const targetStatus = (user.status || 'pending').toLowerCase() as 'active' | 'pending';
+
+        // 1. Cek duplikasi email/username di tabel profiles (pencarian case-insensitive)
         const { data: existingUser } = await supabase
             .from('profiles')
-            .select('email')
-            .or(`email.eq.${user.email},username.eq.${user.username}`)
+            .select('id, email, username, name, status, role')
+            .or(`email.ilike.${cleanEmail},username.ilike.${cleanUsername}`)
             .maybeSingle();
 
         if (existingUser) {
-             throw new Error("Email atau Username sudah terdaftar.");
+             const statusLabel = existingUser.status === 'active' ? 'Pengguna Aktif' : 'Antrian Aktivasi';
+             throw new Error(`Email atau Username sudah terdaftar atas nama "${existingUser.name || existingUser.email}" di tab "${statusLabel}". Silakan periksa atau cari di tab Semua Pengguna.`);
         }
 
-        // Sign Up - Trigger Database akan menangani pembuatan profile
+        // 2. Sign Up - Daftarkan akun ke Supabase Auth
         const { data, error } = await supabase.auth.signUp({
-            email: user.email,
+            email: cleanEmail,
             password: user.password || '123456',
             options: {
                 data: { 
                     name: user.name, 
-                    username: user.username, 
+                    username: cleanUsername, 
                     password_text: user.password, 
-                    phone_number: user.phoneNumber 
+                    phone_number: user.phoneNumber || '',
+                    status: targetStatus
                 }
             }
         });
 
-        if (error) throw error;
+        if (error) {
+            // Deteksi jika email ini ternyata ada di auth.users (tertinggal saat hapus lama atau gagal sinkron)
+            if (error.message.includes('User already registered') || error.message.includes('already exists')) {
+                // Coba pulihkan ke tabel profiles secara otomatis
+                try {
+                    await syncOrphanedUsers();
+                    const { data: recovered } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .ilike('email', cleanEmail)
+                        .maybeSingle();
+
+                    if (recovered) {
+                        // Update profil dengan identitas baru & aktifkan
+                        await supabase.from('profiles').update({
+                            name: user.name,
+                            username: cleanUsername,
+                            password_text: user.password,
+                            status: targetStatus
+                        }).eq('id', recovered.id);
+
+                        return { user: recovered, recovered: true };
+                    }
+                } catch (recErr) {
+                    console.warn("Gagal auto-recover:", recErr);
+                }
+
+                throw new Error(`Email "${cleanEmail}" sebelumnya sudah tercatat di sistem Auth. Silakan klik tombol 'Sinkron & Pulihkan Akun' di tabel pengguna untuk memulihkan akun ini ke daftar.`);
+            }
+            throw error;
+        }
+
+        // 3. Jika status target adalah 'active' dan ID akun tersedia, pastikan langsung diaktifkan di tabel profiles
+        if (data?.user?.id && targetStatus === 'active') {
+            try {
+                // Beri jeda sangat singkat agar trigger insert selesai
+                setTimeout(async () => {
+                    await supabase.from('profiles').update({
+                        status: 'active',
+                        role: user.role || 'user',
+                        password_text: user.password
+                    }).eq('id', data.user!.id);
+                }, 400);
+            } catch (upErr) {
+                console.warn("Auto-activate profile error:", upErr);
+            }
+        }
+
         return data;
     } catch (error: any) {
         handleNetworkError(error);
@@ -216,25 +269,89 @@ export const saveUser = async (user: User) => {
 
 export const getUsers = async (): Promise<User[]> => {
     try {
-        // Admin Dashboard tetap butuh RPC untuk bypass RLS read-all
-        const { data, error } = await supabase.rpc('get_all_users_secure');
-        if (error) throw error;
-        return (data || []).map((p: any) => ({
-            id: p.id, name: p.name, username: p.username, email: p.email, password: p.password_text, 
-            role: p.role, status: p.status, joinedDate: p.joined_date, lastLogin: p.last_login,
-            generationCount: p.generation_count, apiKey: p.api_key
-        }));
+        let rawUsers: any[] = [];
+
+        // 1. Coba ambil via RPC get_all_users_secure dengan jangkauan besar (hingga 10.000 user)
+        try {
+            const { data: rpcData, error: rpcError } = await supabase
+                .rpc('get_all_users_secure')
+                .range(0, 9999);
+            
+            if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+                rawUsers = rpcData;
+            }
+        } catch (e) {
+            console.warn("RPC get_all_users_secure failed, falling back to direct select:", e);
+        }
+
+        // 2. Jika RPC tidak mengembalikan data, coba direct select dari tabel profiles
+        if (rawUsers.length === 0) {
+            const { data: directData, error: directError } = await supabase
+                .from('profiles')
+                .select('*')
+                .order('joined_date', { ascending: false })
+                .range(0, 9999);
+            
+            if (!directError && Array.isArray(directData)) {
+                rawUsers = directData;
+            }
+        }
+
+        // 3. Normalisasi data dengan pencegahan error null/undefined
+        return rawUsers.map((p: any) => {
+            const email = (p.email || '').trim();
+            const fallbackName = email ? email.split('@')[0] : 'Pengguna';
+            const rawStatus = (p.status || 'pending').toString().toLowerCase();
+
+            return {
+                id: p.id,
+                name: (p.name && p.name.trim()) ? p.name.trim() : fallbackName,
+                username: (p.username && p.username.trim()) ? p.username.trim() : fallbackName,
+                email: email,
+                password: p.password_text || '',
+                role: (p.role || 'user').toLowerCase(),
+                status: (rawStatus === 'active' ? 'active' : 'pending') as 'active' | 'pending',
+                joinedDate: p.joined_date || new Date().toISOString(),
+                lastLogin: p.last_login || '',
+                generationCount: typeof p.generation_count === 'number' ? p.generation_count : 0,
+                apiKey: p.api_key || ''
+            };
+        });
     } catch (e: any) {
         console.error("Get Users Error:", e);
         return [];
     }
 };
 
+export const syncOrphanedUsers = async (): Promise<{ count: number; message: string }> => {
+    try {
+        const { data, error } = await supabase.rpc('sync_orphaned_users');
+        if (!error && typeof data === 'number') {
+            return {
+                count: data,
+                message: data > 0 
+                    ? `Sinkronisasi berhasil! ${data} akun yang tersimpan di sistem Auth berhasil dipulihkan ke daftar profil.` 
+                    : `Semua akun sudah tersinkronisasi dengan baik antara sistem Autentikasi dan Profil.`
+            };
+        }
+    } catch (e) {
+        console.warn("Fungsi sync_orphaned_users belum terpasang di database:", e);
+    }
+
+    return { 
+        count: 0, 
+        message: "Pemeriksaan selesai. Jika masih ada akun auth yang belum muncul, jalankan script SQL di file SUPABASE_FIX_USERS_AND_SYNC.sql pada Supabase SQL Editor." 
+    };
+};
+
 export const updateUser = async (updatedUser: User) => {
     try {
         const { error } = await supabase.from('profiles').update({
-                name: updatedUser.name, username: updatedUser.username, status: updatedUser.status,
-                role: updatedUser.role, password_text: updatedUser.password
+                name: updatedUser.name, 
+                username: updatedUser.username, 
+                status: updatedUser.status,
+                role: updatedUser.role, 
+                password_text: updatedUser.password
             }).eq('id', updatedUser.id);
         if (error) throw error;
     } catch (e) { handleNetworkError(e); }
@@ -242,13 +359,27 @@ export const updateUser = async (updatedUser: User) => {
 
 export const updateUserStatus = async (userId: string, status: 'active' | 'pending') => {
     try {
+        // Coba lewat RPC admin_update_user_status (Bypass RLS)
         const { error } = await supabase.rpc('admin_update_user_status', { target_user_id: userId, new_status: status });
-        if (error) throw error;
+        if (error) {
+            // Fallback direct update jika RPC bermasalah
+            const { error: directErr } = await supabase.from('profiles').update({ status }).eq('id', userId);
+            if (directErr) throw directErr;
+        }
     } catch (error: any) { handleNetworkError(error); }
 };
 
 export const deleteUser = async (id: string) => {
     try {
+        // 1. Coba hapus menyeluruh dari auth.users & profiles via RPC
+        try {
+            const { error: rpcErr } = await supabase.rpc('admin_delete_user', { target_user_id: id });
+            if (!rpcErr) return;
+        } catch (e) {
+            console.warn("RPC admin_delete_user belum dipasang, fallback ke delete profiles:", e);
+        }
+
+        // 2. Fallback: Hapus dari tabel profiles
         const { error } = await supabase.from('profiles').delete().eq('id', id);
         if (error) throw error;
     } catch (e) { handleNetworkError(e); }
