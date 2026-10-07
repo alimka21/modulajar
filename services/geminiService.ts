@@ -171,16 +171,68 @@ const validateGeneratedContent = (data: any): { valid: boolean; reason?: string 
     return { valid: true };
 };
 
+// --- SANITASI PESAN ERROR (Aman, Profesional & Tanpa Bocoran Teknis) ---
+export const sanitizeAiErrorMessage = (error: any, isUserCustomKey: boolean = false): string => {
+    if (!error) return "Terjadi kendala saat memproses dokumen dengan AI. Silakan coba klik tombol Generate kembali.";
+    const raw = String(error?.message || error || "").toLowerCase();
+
+    // 1. Masalah Kunci API / Autentikasi
+    if (raw.includes("api_key") || raw.includes("unauthenticated") || raw.includes("api key not valid") || raw.includes("key_invalid") || raw.includes("401")) {
+        return isUserCustomKey
+            ? "API Key Mandiri Anda tidak valid atau belum diaktifkan di Google AI Studio. Silakan periksa kembali API Key Anda di menu Dashboard Profil."
+            : "Koneksi layanan AI memerlukan otentikasi. Silakan periksa atau masukkan API Key Mandiri Anda di menu Dashboard Profil.";
+    }
+
+    // 2. Izin / Hak Akses Dibatasi (403)
+    if (raw.includes("403") || raw.includes("permission_denied") || raw.includes("forbidden")) {
+        return isUserCustomKey
+            ? "API Key Mandiri Anda dibatasi atau tidak memiliki izin akses model. Periksa setelan pembatasan API Key pada konsol Google AI Studio Anda."
+            : "Akses layanan server AI sedang dibatasi. Silakan gunakan API Key Mandiri Anda di menu Dashboard Profil.";
+    }
+
+    // 3. Batas Kuota / Frekuensi Tercapai (429)
+    if (raw.includes("429") || raw.includes("resource_exhausted") || raw.includes("quota") || raw.includes("too many requests")) {
+        return isUserCustomKey
+            ? "Batas frekuensi penggunaan API Key Mandiri Anda sedang tercapai (Rate Limit Google AI Studio). Mohon tunggu sekitar 30–60 detik sebelum menekan tombol Generate kembali."
+            : "Lalu lintas server sedang mencapai batas kuota bersama. Mohon tunggu sejenak, atau gunakan API Key Mandiri di menu Dashboard untuk akses prioritas tanpa antrean.";
+    }
+
+    // 4. Server Google Sedang Sibuk / Lonjakan Beban (503 / 500)
+    if (raw.includes("503") || raw.includes("unavailable") || raw.includes("high demand") || raw.includes("overloaded") || raw.includes("temporarily unavailable") || raw.includes("500") || raw.includes("internal")) {
+        return "Layanan Google AI sedang mengalami lonjakan antrean yang sangat tinggi (High Demand). Silakan tunggu sekitar 10–20 detik lalu klik tombol Generate kembali.";
+    }
+
+    // 5. Waktu Habis / Koneksi Lambat (Timeout)
+    if (raw.includes("timeout") || raw.includes("abort") || raw.includes("deadline")) {
+        return "Waktu tunggu proses telah berakhir (Timeout) karena respon AI sangat padat atau koneksi internet lambat. Silakan coba klik Generate kembali.";
+    }
+
+    // 6. Konten Terpotong / Format Respon
+    if (raw.includes("konten tidak lengkap") || raw.includes("terpotong") || raw.includes("json")) {
+        return "Hasil rancangan dari AI terputus atau belum lengkap. Silakan klik tombol Generate kembali untuk menyusun ulang dokumen.";
+    }
+
+    // 7. Pesan Fallback Umum (Tidak membocorkan JSON, URL, kode status, atau identitas teknis)
+    return "Terjadi kendala saat menghubungkan ke layanan AI. Mohon tunggu sejenak dan coba klik Generate kembali.";
+};
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota & Anti-Kena Limit) ---
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
-    // Model yang didukung resmi, aktif, dan paling stabil untuk free tier & paid
+    // Model resmi dan stabil dari Google AI Studio:
+    // Model A: gemini-2.5-flash (Model utama produksi: paling stabil, kuota luas, respon cepat ~2.5s)
+    // Model B: gemini-flash-latest (Alias resmi Flash terkini)
+    // Model C: gemini-3-flash-preview (Preview cepat untuk beban tinggi)
+    // Model D: gemini-3.1-flash-lite (Alternatif hemat kuota)
+    // Model E: gemini-3.8-flash (Alternatif lanjutan)
     const ATTEMPTS = [
-        { model: 'gemini-3-flash-preview', label: 'Model A (Utama - Super Cepat & Kuota Responsif)' },
-        { model: 'gemini-3.1-flash-lite', label: 'Model B (Cadangan Cepat - Hemat Kuota)' },
-        { model: 'gemini-3.8-flash', label: 'Model C (Cadangan Standar Produksi)' }
+        { model: 'gemini-2.5-flash', label: 'Model A (Utama - Stabil & Cepat)' },
+        { model: 'gemini-flash-latest', label: 'Model B (Cadangan - Flash Terkini)' },
+        { model: 'gemini-3-flash-preview', label: 'Model C (Cadangan - Flash Preview)' },
+        { model: 'gemini-3.1-flash-lite', label: 'Model D (Cadangan - Flash Lite)' },
+        { model: 'gemini-3.8-flash', label: 'Model E (Cadangan - Alternatif)' }
     ];
 
     let lastError: any = null;
@@ -223,8 +275,8 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                         parsedData = JSON.parse(repairedText);
                         console.log("[AI] jsonrepair berhasil memperbaiki JSON.");
                     } catch (repairErr: any) {
-                        console.error("[AI] jsonrepair juga gagal:", repairErr.message, "Teks awal:", cleanedText.substring(0, 150), "...");
-                        throw new Error("Output AI terpotong atau tidak valid meskipun sudah diperbaiki. Silakan coba klik GENERATE lagi.");
+                        console.error("[AI] jsonrepair juga gagal:", repairErr.message);
+                        throw new Error("Output AI terpotong atau tidak valid. Silakan coba klik GENERATE lagi.");
                     }
                 }
                 
@@ -247,13 +299,18 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                 const errStr = String(e.message || e).toLowerCase();
                 console.warn(`[AI] ⚠️ Gagal pada ${attempt.label} (Percobaan ${retry + 1}):`, e.message);
 
-                // Auth / Invalid API Key: Langsung hentikan loop agar user tahu
-                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("api_key_invalid")) {
+                // Auth / Invalid API Key: Langsung hentikan loop agar tidak buang waktu
+                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("api_key_invalid") || errStr.includes("401")) {
                     throw new Error("API Key Tidak Valid atau belum diaktifkan di Google AI Studio.");
                 }
 
                 // 404 Model Not Found: Jangan retry model yang sama, langsung lanjut model berikutnya
                 if (errStr.includes("404") || errStr.includes("not found")) {
+                    break;
+                }
+
+                // Jika batas kuota harian tercapai, jangan buang waktu retry model yang sama
+                if (errStr.includes("per-day") || errStr.includes("daily") || errStr.includes("limit: 0")) {
                     break;
                 }
 
@@ -268,9 +325,9 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                     errStr.includes("konten tidak lengkap");
 
                 if (isRateLimitOrOverload && retry === 0 && !isLastAttempt) {
-                    // Beri jeda backoff 2.0 detik sebelum retry
-                    console.log("[AI] Menunggu 2.0 detik untuk jeda kuota (Exponential Backoff)...");
-                    await sleep(2000);
+                    // Beri jeda backoff singkat sebelum retry
+                    console.log("[AI] Menunggu 1.5 detik untuk jeda (Backoff)...");
+                    await sleep(1500);
                     continue;
                 }
 
@@ -280,8 +337,9 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
         }
     }
 
-    // Jika semua model gagal
-    throw new Error(`Gagal Generate. Server sedang sibuk atau kuota habis. Error terakhir: ${lastError?.message || "Unknown Error"}`);
+    // Jika semua model gagal, lempar pesan ramah pengguna tanpa membocorkan identitas teknis
+    const cleanError = sanitizeAiErrorMessage(lastError, false);
+    throw new Error(cleanError);
 };
 
 // Validasi API Key User
@@ -292,32 +350,32 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
         
-        // Coba model responsif pertama
-        const testModels = ['gemini-3-flash-preview', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+        // Coba model yang paling stabil dan responsif
+        const testModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite'];
         let successMessage = '';
-        let lastErr = '';
+        let lastErr: any = null;
 
         for (const modelToTest of testModels) {
             try {
                 const response: any = await withTimeout(
                     (signal) => ai.models.generateContent({
                         model: modelToTest, 
-                        contents: "Tes koneksi.", 
-                        config: { thinkingConfig: { thinkingBudget: 0 } as any }
+                        contents: "Tes koneksi."
                     }),
-                    12000,
-                    "Koneksi timeout (12s)"
+                    10000,
+                    "Koneksi timeout (10s)"
                 );
 
                 if (response && response.text) {
-                    successMessage = `✅ Koneksi Berhasil! (Model: ${modelToTest})`;
+                    successMessage = "✅ Koneksi Berhasil! API Key Google AI Studio Anda aktif dan siap digunakan.";
                     break;
                 }
             } catch (err: any) {
-                lastErr = err.message || '';
-                // Jika auth gagal total, hentikan
-                if (String(lastErr).toLowerCase().includes("api_key") || String(lastErr).toLowerCase().includes("unauthenticated")) {
-                    return { success: false, message: "❌ API Key tidak valid menurut Google AI Studio." };
+                lastErr = err;
+                const errStr = String(err?.message || err).toLowerCase();
+                // Jika auth gagal total, hentikan segera
+                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("key_invalid") || errStr.includes("401")) {
+                    return { success: false, message: "❌ API Key tidak valid. Pastikan Anda menyalin seluruh karakter API Key dengan benar dari Google AI Studio." };
                 }
             }
         }
@@ -325,10 +383,14 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
         if (successMessage) {
             return { success: true, message: successMessage };
         }
-        return { success: false, message: `❌ Gagal: ${lastErr || "Tidak ada respon dari server Google."}` };
+
+        // Pesan sanitasi yang aman dan layak dibaca oleh pengguna
+        const cleanMsg = sanitizeAiErrorMessage(lastErr, true);
+        return { success: false, message: `❌ Validasi Gagal: ${cleanMsg}` };
 
     } catch (error: any) {
-        return { success: false, message: `❌ Gagal: ${error.message || "Key tidak valid"}` };
+        const cleanMsg = sanitizeAiErrorMessage(error, true);
+        return { success: false, message: `❌ Validasi Gagal: ${cleanMsg}` };
     }
 };
 
@@ -395,18 +457,9 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     try {
         finalResult = await executeSmartStrategy(client, requestOptions);
     } catch (e: any) {
-        // Pretty Print Error untuk User
-        let msg = e.message || "Gagal Generate.";
-        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
-            msg = isUserCustomKey
-                ? "Batas kuota frekuensi API Key Mandiri Anda tercapai (Google 429). Mohon tunggu 30-60 detik sebelum mencoba kembali, atau periksa kuota akun Google AI Studio Anda."
-                : "Server sedang mencapai batas kuota bersama (Limit Google 429). Silakan masukkan API Key Mandiri Anda di menu Dashboard untuk akses prioritas tanpa antrean.";
-        } else if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
-            msg = isUserCustomKey
-                ? "API Key Mandiri Anda tidak memiliki izin atau dibatasi. Periksa setelan API Key di console Google AI Studio."
-                : "API Key server tidak memiliki izin (Permission Denied).";
-        }
-        throw new Error(msg);
+        // Pastikan pesan error 100% tersanitasi untuk pengguna tanpa membocorkan identitas teknis
+        const cleanMsg = sanitizeAiErrorMessage(e, isUserCustomKey);
+        throw new Error(cleanMsg);
     }
 
     // 5. Simpan Cache (Hanya jika konten valid dan lengkap)
