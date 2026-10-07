@@ -141,7 +141,55 @@ SET status = 'pending'
 WHERE LOWER(status) = 'pending';
 
 
--- 5. JALANKAN SINKRONISASI AWAL SEKARANG
+-- 5. FUNGSI UBAH PASSWORD OLEH ADMIN (SINKRON AUTH & PROFIL)
+-- Memastikan saat Admin mengubah password pengguna di Admin Dashboard,
+-- sandi login sebenarnya di auth.users ikut terupdate dan sinkron.
+CREATE OR REPLACE FUNCTION public.admin_set_user_password(target_user_id uuid, new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, extensions
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'Unauthorized: Only admins can change passwords.';
+  END IF;
+
+  -- Update sandi login terenkripsi di auth.users
+  UPDATE auth.users
+  SET encrypted_password = crypt(new_password, gen_salt('bf'))
+  WHERE id = target_user_id;
+
+  -- Update catatan password_text di profiles agar serasi
+  UPDATE public.profiles
+  SET password_text = new_password
+  WHERE id = target_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_set_user_password TO authenticated;
+
+
+-- 6. RESET KHUSUS AKUN HABRIANI AGAR LANGSUNG BISA LOGIN
+-- Mengeset sandi terenkripsi auth.users menjadi: 123123123123
+UPDATE auth.users 
+SET encrypted_password = crypt('123123123123', gen_salt('bf'))
+WHERE email = 'habriani50@guru.sd.belajar.id';
+
+UPDATE public.profiles
+SET password_text = '123123123123', status = 'active'
+WHERE email = 'habriani50@guru.sd.belajar.id';
+
+
+-- 7. PASTIKAN AKUN ADMIN MEMILIKI HAK AKSES PENUH
+UPDATE public.profiles 
+SET role = 'admin', status = 'active'
+WHERE email IN ('alimkamcl@gmail.com', 'kpbgalimka@gmail.com');
+
+-- 8. JALANKAN SINKRONISASI AWAL SEKARANG
 -- Mengembalikan semua akun auth yang saat ini belum ada di profiles
 SELECT public.sync_orphaned_users() AS akun_berhasil_dipulihkan;
 

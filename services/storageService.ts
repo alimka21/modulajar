@@ -270,30 +270,60 @@ export const saveUser = async (user: User) => {
 export const getUsers = async (): Promise<User[]> => {
     try {
         let rawUsers: any[] = [];
+        const PAGE_SIZE = 1000;
+        let from = 0;
+        let hasMore = true;
 
-        // 1. Coba ambil via RPC get_all_users_secure dengan jangkauan besar (hingga 10.000 user)
-        try {
-            const { data: rpcData, error: rpcError } = await supabase
-                .rpc('get_all_users_secure')
-                .range(0, 9999);
-            
-            if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
-                rawUsers = rpcData;
+        // Loop pagination otomatis untuk mengambil SEMUA user tanpa terpotong limit 1.000 PostgREST
+        while (hasMore) {
+            const to = from + PAGE_SIZE - 1;
+            let batchData: any[] | null = null;
+
+            // 1. Coba ambil batch via RPC get_all_users_secure
+            try {
+                const { data: rpcData, error: rpcError } = await supabase
+                    .rpc('get_all_users_secure')
+                    .range(from, to);
+                
+                if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+                    batchData = rpcData;
+                }
+            } catch (e) {
+                // Abaikan error RPC, lanjut ke fallback
             }
-        } catch (e) {
-            console.warn("RPC get_all_users_secure failed, falling back to direct select:", e);
-        }
 
-        // 2. Jika RPC tidak mengembalikan data, coba direct select dari tabel profiles
-        if (rawUsers.length === 0) {
-            const { data: directData, error: directError } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('joined_date', { ascending: false })
-                .range(0, 9999);
-            
-            if (!directError && Array.isArray(directData)) {
-                rawUsers = directData;
+            // 2. Jika RPC tidak mengembalikan data, coba direct select dari tabel profiles
+            if (!batchData || batchData.length === 0) {
+                try {
+                    const { data: directData, error: directError } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .order('joined_date', { ascending: false })
+                        .range(from, to);
+                    
+                    if (!directError && Array.isArray(directData) && directData.length > 0) {
+                        batchData = directData;
+                    }
+                } catch (e) {
+                    // Selesai jika gagal
+                }
+            }
+
+            if (batchData && batchData.length > 0) {
+                rawUsers = rawUsers.concat(batchData);
+                // Jika data yang didapat lebih sedikit dari PAGE_SIZE (1000), berarti sudah mencapai halaman terakhir
+                if (batchData.length < PAGE_SIZE) {
+                    hasMore = false;
+                } else {
+                    from += PAGE_SIZE; // Ambil halaman berikutnya (1000..1999, dst.)
+                }
+            } else {
+                hasMore = false;
+            }
+
+            // Batas keamanan agar tidak infinite loop (hingga 50.000 user)
+            if (from > 50000) {
+                break;
             }
         }
 
@@ -346,6 +376,7 @@ export const syncOrphanedUsers = async (): Promise<{ count: number; message: str
 
 export const updateUser = async (updatedUser: User) => {
     try {
+        // 1. Update data profil di tabel profiles
         const { error } = await supabase.from('profiles').update({
                 name: updatedUser.name, 
                 username: updatedUser.username, 
@@ -354,6 +385,18 @@ export const updateUser = async (updatedUser: User) => {
                 password_text: updatedUser.password
             }).eq('id', updatedUser.id);
         if (error) throw error;
+
+        // 2. Jika password diisi, sinkronkan juga ke auth.users agar password login benar-benar terupdate
+        if (updatedUser.password && updatedUser.password.length >= 6) {
+            try {
+                await supabase.rpc('admin_set_user_password', {
+                    target_user_id: updatedUser.id,
+                    new_password: updatedUser.password
+                });
+            } catch (authErr) {
+                console.warn("RPC admin_set_user_password belum dipasang di database:", authErr);
+            }
+        }
     } catch (e) { handleNetworkError(e); }
 };
 
