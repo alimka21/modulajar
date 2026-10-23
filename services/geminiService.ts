@@ -221,18 +221,16 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // --- STRATEGI: SMART SEQUENTIAL FALLBACK (Hemat Kuota & Anti-Kena Limit) ---
 const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): Promise<any> => {
     
-    // Model resmi dan stabil dari Google AI Studio:
-    // Model A: gemini-2.5-flash (Model utama produksi: paling stabil, kuota luas, respon cepat ~2.5s)
-    // Model B: gemini-flash-latest (Alias resmi Flash terkini)
-    // Model C: gemini-3-flash-preview (Preview cepat untuk beban tinggi)
-    // Model D: gemini-3.1-flash-lite (Alternatif hemat kuota)
-    // Model E: gemini-3.8-flash (Alternatif lanjutan)
+    // Model resmi dan mutakhir dari Google AI Studio:
+    // Model A: gemini-3.8-flash (Model utama mutakhir: cerdas, akurasi tinggi, cepat)
+    // Model B: gemini-3.1-flash-lite (Alternatif ultra-cepat dengan latensi paling rendah)
+    // Model C: gemini-2.5-flash (Model stabil handal dengan kuota luas)
+    // Model D: gemini-flash-latest (Alias resmi Flash stabil terkini)
     const ATTEMPTS = [
-        { model: 'gemini-2.5-flash', label: 'Model A (Utama - Stabil & Cepat)' },
-        { model: 'gemini-flash-latest', label: 'Model B (Cadangan - Flash Terkini)' },
-        { model: 'gemini-3-flash-preview', label: 'Model C (Cadangan - Flash Preview)' },
-        { model: 'gemini-3.1-flash-lite', label: 'Model D (Cadangan - Flash Lite)' },
-        { model: 'gemini-3.8-flash', label: 'Model E (Cadangan - Alternatif)' }
+        { model: 'gemini-3.8-flash', label: 'Model A (Utama - Gemini 3.8 Flash Cerdas & Cepat)' },
+        { model: 'gemini-3.1-flash-lite', label: 'Model B (Cadangan - Flash Lite Ultra Cepat)' },
+        { model: 'gemini-2.5-flash', label: 'Model C (Cadangan - Gemini 2.5 Flash Stabil)' },
+        { model: 'gemini-flash-latest', label: 'Model D (Cadangan - Flash Terkini)' }
     ];
 
     let lastError: any = null;
@@ -246,11 +244,21 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
             try {
                 console.log(`[AI] Mencoba ${attempt.label}: ${attempt.model} (Percobaan ${retry + 1})...`);
                 
+                // Menyesuaikan konfigurasi thinking agar model tidak menghabiskan waktu pada deep reasoning
+                const isGemini3 = attempt.model.includes('gemini-3') || attempt.model.includes('gemini-4');
+                const modelConfig: any = {
+                    ...requestOptions.config,
+                    thinkingConfig: isGemini3
+                        ? { thinkingLevel: attempt.model.includes('lite') ? 'minimal' : 'low' }
+                        : { thinkingBudget: 0 }
+                };
+
                 const response: any = await withTimeout(
                     async (signal) => {
                         const res = await client.models.generateContent({
                             model: attempt.model,
-                            ...requestOptions
+                            contents: requestOptions.contents,
+                            config: modelConfig
                         });
                         return res;
                     },
@@ -350,8 +358,8 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
         
-        // Coba model yang paling stabil dan responsif
-        const testModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite'];
+        // Coba model yang paling responsif dan mutakhir
+        const testModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
         let successMessage = '';
         let lastErr: any = null;
 
@@ -445,10 +453,7 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
             responseMimeType: "application/json",
             responseSchema: responseSchema,
             systemInstruction: systemInstruction,
-            temperature: 0.2,
-            thinkingConfig: {
-                thinkingBudget: 0
-            } as any
+            temperature: 0.2
         }
     };
 
