@@ -15,22 +15,27 @@ const cleanApiKey = (key: string | null | undefined): string => {
   return String(key).trim().replace(/[\r\n"']/g, '');
 };
 
-// --- HELPER: TIMEOUT WRAPPER WITH ABORT CONTROLLER ---
+// --- HELPER: TIMEOUT WRAPPER WITH ABORT CONTROLLER & PROMISE.RACE ---
 const withTimeout = async <T>(
   fn: (signal: AbortSignal) => Promise<T>,
   ms: number,
   errorMsg: string
 ): Promise<T> => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, ms);
+  let timeoutId: any;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(errorMsg));
+    }, ms);
+  });
 
   try {
-    return await fn(controller.signal);
+    return await Promise.race([fn(controller.signal), timeoutPromise]);
   } catch (error: any) {
-    if (controller.signal.aborted || error.name === 'AbortError') {
-        throw new Error(errorMsg);
+    if (controller.signal.aborted || error?.name === 'AbortError') {
+      throw new Error(errorMsg);
     }
     throw error;
   } finally {
@@ -350,53 +355,101 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
     throw new Error(cleanError);
 };
 
-// Validasi API Key User
+// Validasi API Key Cepat & Presisi (Instan tanpa overhead generasi token)
 export const validateApiKey = async (rawApiKey: string): Promise<{ success: boolean; message: string }> => {
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
+    // 1. Pre-validation format lokal instan (0ms)
+    if (apiKey.startsWith("sk-")) {
+        return {
+            success: false,
+            message: "Format API Key salah. Kunci yang Anda masukkan berawalan 'sk-' (format OpenAI). Harap gunakan API Key Google AI Studio yang diawali dengan 'AIzaSy'."
+        };
+    }
+
+    if (apiKey.length < 20) {
+        return {
+            success: false,
+            message: "Karakter API Key terlalu pendek. Pastikan Anda menyalin seluruh karakter dari Google AI Studio."
+        };
+    }
+
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
         
-        // Coba model yang paling responsif dan mutakhir
-        const testModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
-        let successMessage = '';
-        let lastErr: any = null;
-
-        for (const modelToTest of testModels) {
+        // 2. Gunakan countTokens yang ultra-cepat (~100-300ms) tanpa overhead decoding token
+        // Model gemini-2.5-flash adalah model standar paling stabil dan tersedia di semua tier Google AI Studio
+        const checkConnection = async () => {
             try {
-                const response: any = await withTimeout(
-                    (signal) => ai.models.generateContent({
-                        model: modelToTest, 
-                        contents: "Tes koneksi."
-                    }),
-                    10000,
-                    "Koneksi timeout (10s)"
-                );
-
-                if (response && response.text) {
-                    successMessage = "✅ Koneksi Berhasil! API Key Google AI Studio Anda aktif dan siap digunakan.";
-                    break;
-                }
+                await ai.models.countTokens({
+                    model: 'gemini-2.5-flash',
+                    contents: 'ping'
+                });
+                return true;
             } catch (err: any) {
-                lastErr = err;
                 const errStr = String(err?.message || err).toLowerCase();
-                // Jika auth gagal total, hentikan segera
-                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("key_invalid") || errStr.includes("401")) {
-                    return { success: false, message: "❌ API Key tidak valid. Pastikan Anda menyalin seluruh karakter API Key dengan benar dari Google AI Studio." };
+                // Jika error spesifik API Key Invalid atau Unauthenticated, langsung lempar agar tidak buang waktu
+                if (errStr.includes("api_key_invalid") || errStr.includes("api key not valid") || errStr.includes("400") || errStr.includes("401") || errStr.includes("unauthenticated")) {
+                    throw new Error("API_KEY_INVALID");
                 }
+                
+                // Jika countTokens mengalami masalah lain, coba fallback 1 token cepat
+                const fallbackRes = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: 'ping',
+                    config: {
+                        maxOutputTokens: 1
+                    }
+                });
+                return !!fallbackRes;
             }
-        }
+        };
 
-        if (successMessage) {
-            return { success: true, message: successMessage };
-        }
+        // Batasi timeout maksimal 5 detik agar user tidak menunggu lama
+        await withTimeout(
+            () => checkConnection(),
+            5000,
+            "Koneksi timeout. Pastikan koneksi internet Anda stabil."
+        );
 
-        // Pesan sanitasi yang aman dan layak dibaca oleh pengguna
-        const cleanMsg = sanitizeAiErrorMessage(lastErr, true);
-        return { success: false, message: `❌ Validasi Gagal: ${cleanMsg}` };
+        return {
+            success: true,
+            message: "✅ Koneksi Berhasil! API Key Google AI Studio Anda aktif dan siap digunakan."
+        };
 
     } catch (error: any) {
+        const errStr = String(error?.message || error).toLowerCase();
+        
+        if (errStr.includes("api_key_invalid") || errStr.includes("api key not valid") || errStr.includes("401") || errStr.includes("unauthenticated")) {
+            return {
+                success: false,
+                message: "❌ API Key tidak valid. Pastikan Anda menyalin seluruh karakter API Key dengan benar dari Google AI Studio (diawali 'AIzaSy')."
+            };
+        }
+
+        if (errStr.includes("403") || errStr.includes("permission_denied")) {
+            return {
+                success: false,
+                message: "❌ Akses ditolak (403). API Key Anda memiliki pembatasan API (API restrictions) di Google Cloud Console. Pastikan 'Generative Language API' diizinkan."
+            };
+        }
+
+        if (errStr.includes("429") || errStr.includes("resource_exhausted") || errStr.includes("quota")) {
+            // Rate limit berarti kredensial API Key valid dan terautentikasi
+            return {
+                success: true,
+                message: "✅ API Key Valid & Terhubung! (Catatan: Akun Google Anda sedang mencapai batas kuota request per menit di Google AI Studio)."
+            };
+        }
+
+        if (errStr.includes("timeout")) {
+            return {
+                success: false,
+                message: "⏱️ Waktu tunggu habis. Server Google AI Studio atau koneksi Anda sedang lambat. Silakan coba lagi."
+            };
+        }
+
         const cleanMsg = sanitizeAiErrorMessage(error, true);
         return { success: false, message: `❌ Validasi Gagal: ${cleanMsg}` };
     }
