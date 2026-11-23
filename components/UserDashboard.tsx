@@ -2,12 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { SchoolIdentity, User, HistoryItem, GeneratedLessonPlan, LessonIdentity } from '../types';
 import { INDONESIAN_MONTHS } from '../constants';
-import { validateApiKey } from '../services/geminiService';
+import { validateApiKey, cleanApiKey } from '../services/geminiService';
 import { getHistory, saveUserApiKey } from '../services/storageService';
 import { useAuth } from '../contexts/AuthContext';
 import { Save, User as UserIcon, School, FileText, Key, Eye, EyeOff, CheckCircle, AlertTriangle, Zap, Trash2, HelpCircle, ArrowRight, Clock, BookOpen, Layers, CheckSquare, Eye as ViewIcon, Loader2, RefreshCw, Edit3, X, Info, AlertCircle, ExternalLink, XCircle, Sparkles } from 'lucide-react';
 import { swal, toast } from '../services/notificationService';
-import { tokenManager } from '../services/tokenManager';
+import { tokenManager, ApiKeyMode } from '../services/tokenManager';
 
 interface UserDashboardProps {
   user: User;
@@ -29,36 +29,41 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   const [isSavingKey, setIsSavingKey] = useState(false); // State Loading Simpan
   const [isKeyValidated, setIsKeyValidated] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'NONE' | 'VALID' | 'INVALID'>('NONE');
+  const [detectedMode, setDetectedMode] = useState<ApiKeyMode>('gemini');
   const [testMessage, setTestMessage] = useState('');
   
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isIdentitySaved, setIsIdentitySaved] = useState(false);
 
+  // Sync identitas sekolah secara terpisah agar tidak mereset input API Key saat user mengetik
   useEffect(() => {
-      // Ambil key dari user (DB), tokenManager, atau storage, lakukan sanitasi basic
-      const currentKey = (user.apiKey || tokenManager.getKey() || sessionStorage.getItem('custom_api_key') || '').trim();
-      setApiKey(currentKey);
-      
-      // FIX: Ensure sync to storage and tokenManager so all services see it immediately
-      if (currentKey && currentKey.length > 5) {
-          tokenManager.setKey(currentKey); // Update memory and persistent manager
-          setKeyStatus('VALID');
-          setIsKeyValidated(true);
-          setIsEditingKey(false);
-      } else {
-          tokenManager.clearKey();
-          setIsEditingKey(true);
-      }
-      
       setIdentityData(schoolIdentity);
-      loadHistoryData();
-      
       const saved = localStorage.getItem('schoolIdentity');
       if (saved) {
           setIsIdentitySaved(true);
       }
-  }, [schoolIdentity, user]);
+  }, [schoolIdentity]);
+
+  // Sync API Key & Riwayat khusus berdasarkan akun user aktif (user.id)
+  useEffect(() => {
+      tokenManager.setActiveUser(user.id, user.apiKey);
+      const currentKey = cleanApiKey(user.apiKey || tokenManager.getKey(user.id) || '');
+      setApiKey(currentKey);
+      setDetectedMode(tokenManager.getMode(user.id));
+
+      if (currentKey && currentKey.length >= 10) {
+          setKeyStatus('VALID');
+          setIsKeyValidated(true);
+          setIsEditingKey(false);
+      } else {
+          setKeyStatus('NONE');
+          setIsKeyValidated(false);
+          setIsEditingKey(true);
+      }
+
+      loadHistoryData();
+  }, [user.id, user.apiKey]);
 
   const loadHistoryData = async () => {
       setIsLoadingHistory(true);
@@ -118,12 +123,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   };
 
   const handleTestKey = async () => {
-      const cleanKey = apiKey.trim().replace(/[\r\n"']/g, '');
+      const cleanKey = cleanApiKey(apiKey);
       if (!cleanKey) {
           swal.fire({ icon: 'warning', title: 'Input Kosong', text: 'Mohon masukkan API Key Google AI Studio terlebih dahulu.' });
           return;
       }
-      
+
+      setApiKey(cleanKey);
       setIsTestingKey(true);
       setTestMessage('Sedang menguji koneksi ke Google AI Studio...');
       
@@ -131,6 +137,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       
       setIsTestingKey(false);
       if (result.success) {
+          const mode: ApiKeyMode = result.mode || 'gemini';
+          setDetectedMode(mode);
           setKeyStatus('VALID');
           setIsKeyValidated(true);
           setTestMessage(result.message);
@@ -144,13 +152,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
   };
 
   const handleSaveApiKey = async () => {
-      const cleanKey = apiKey.trim().replace(/[\r\n"']/g, '');
+      const cleanKey = cleanApiKey(apiKey);
       if (!cleanKey) {
           swal.fire({ icon: 'warning', title: 'Input Kosong', text: 'Mohon masukkan API Key Google AI Studio terlebih dahulu.' });
           return;
       }
-      
+
+      setApiKey(cleanKey);
       setIsSavingKey(true); // Mulai Loading
+
+      let modeToSave: ApiKeyMode = detectedMode;
 
       // Jika belum diuji, uji validasi instan terlebih dahulu
       if (!isKeyValidated) {
@@ -164,31 +175,43 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
               swal.fire({ icon: 'error', title: 'Koneksi Gagal', text: testRes.message });
               return;
           }
+          modeToSave = testRes.mode || 'gemini';
+          setDetectedMode(modeToSave);
           setIsKeyValidated(true);
           setKeyStatus('VALID');
           setTestMessage(testRes.message);
       }
       
       try {
-          // 1. Simpan ke database
+          // 1. Simpan ke akun user di cloud (tabel profiles + metadata Auth sebagai cadangan anti-RLS)
           await saveUserApiKey(user.id, cleanKey);
           
-          // 2. Set Session & Token Manager IMMEDIATELY
-          sessionStorage.setItem('custom_api_key', cleanKey);
-          tokenManager.setKey(cleanKey);
+          // 2. Bind ke TokenManager khusus untuk user.id ini agar langsung aktif digunakan
+          tokenManager.setKey(cleanKey, user.id, modeToSave);
           
-          // 3. Refresh Auth Context (Sync dari DB agar state global update)
+          // 3. Refresh Auth Context agar state user global langsung sinkron
           await refreshAuth();
           
           setIsEditingKey(false);
+          setKeyStatus('VALID');
+          setIsKeyValidated(true);
           swal.fire({ 
               icon: 'success', 
               title: 'API Key Berhasil Disimpan!', 
-              text: 'Sistem siap membuat modul pembelajaran menggunakan akun Google AI Studio Anda.' 
+              text: 'API Key Anda telah tersimpan permanen di akun ini dan siap digunakan untuk menyusun modul pembelajaran.' 
           });
       } catch (e: any) {
-          console.error(e);
-          swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: e.message || 'Terjadi gangguan sinkronisasi database.' });
+          console.error("Save API Key Error:", e);
+          // Fallback aman: tetap simpan lokal terisolasi per akun jika jaringan DB sempat putus
+          tokenManager.setKey(cleanKey, user.id, modeToSave);
+          setIsEditingKey(false);
+          setKeyStatus('VALID');
+          setIsKeyValidated(true);
+          swal.fire({ 
+              icon: 'warning', 
+              title: 'Tersimpan di Perangkat Ini', 
+              text: `API Key Anda valid dan langsung aktif digunakan di perangkat ini, namun sinkronisasi ke server mengalami kendala (${e.message || 'koneksi terputus'}). Silakan klik Simpan ulang nanti jika ingin menyinkronkan ke perangkat lain.` 
+          });
       } finally {
           setIsSavingKey(false); // Selesai Loading
       }
@@ -205,17 +228,17 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
       }).then(async (result: any) => {
           if (result.isConfirmed) {
               try {
-                  // 1. Hapus dari DB
+                  // 1. Hapus dari DB & Auth Metadata akun ini
                   await saveUserApiKey(user.id, null);
                   
-                  // 2. Clear Session & Manager
-                  sessionStorage.removeItem('custom_api_key');
-                  tokenManager.setKey(null);
+                  // 2. Clear TokenManager khusus user.id ini
+                  tokenManager.clearKey(user.id);
                   
                   // 3. Reset State Lokal
                   setApiKey('');
                   setKeyStatus('NONE');
                   setIsKeyValidated(false);
+                  setDetectedMode('gemini');
                   setIsEditingKey(true);
                   setTestMessage('');
                   
@@ -224,7 +247,13 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                   
                   toast.fire({ icon: 'success', title: 'API Key Dihapus' });
               } catch (e) {
-                  toast.fire({ icon: 'error', title: 'Gagal Menghapus' });
+                  // Tetap hapus lokal agar user tidak terjebak
+                  tokenManager.clearKey(user.id);
+                  setApiKey('');
+                  setKeyStatus('NONE');
+                  setIsKeyValidated(false);
+                  setIsEditingKey(true);
+                  toast.fire({ icon: 'error', title: 'Gagal sinkronisasi hapus ke server, namun key lokal telah dibersihkan.' });
               }
           }
       });
@@ -424,16 +453,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                             <h3 className="font-semibold text-slate-700 mb-3">Status API Key Anda</h3>
                             
                             <div className={`p-4 rounded-xl border-2 ${
-                                isKeyValidated && keyStatus === 'VALID'
+                                keyStatus === 'VALID'
                                     ? 'bg-green-50 border-green-300'
-                                    : isKeyValidated && keyStatus === 'INVALID'
+                                    : keyStatus === 'INVALID'
                                     ? 'bg-red-50 border-red-300'
                                     : 'bg-yellow-50 border-yellow-300'
                             }`}>
                                 <div className="flex items-start gap-3">
-                                    {isKeyValidated && keyStatus === 'VALID' ? (
+                                    {keyStatus === 'VALID' ? (
                                         <CheckCircle className="text-green-600 flex-shrink-0 mt-1" size={20} />
-                                    ) : isKeyValidated && keyStatus === 'INVALID' ? (
+                                    ) : keyStatus === 'INVALID' ? (
                                         <XCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
                                     ) : (
                                         <AlertCircle className="text-yellow-600 flex-shrink-0 mt-1" size={20} />
@@ -441,46 +470,46 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                     
                                     <div className="flex-1">
                                         <p className={`font-semibold ${
-                                            isKeyValidated && keyStatus === 'VALID'
+                                            keyStatus === 'VALID'
                                                 ? 'text-green-900'
-                                                : isKeyValidated && keyStatus === 'INVALID'
+                                                : keyStatus === 'INVALID'
                                                 ? 'text-red-900'
                                                 : 'text-yellow-900'
                                         }`}>
-                                            {isKeyValidated && keyStatus === 'VALID' 
+                                            {keyStatus === 'VALID' 
                                                 ? '✅ API Key Valid & Siap Digunakan'
-                                                : isKeyValidated && keyStatus === 'INVALID'
-                                                ? '❌ API Key Tidak Valid'
-                                                : '⚠️ API Key Belum Dikonfigurasi'
+                                                : keyStatus === 'INVALID'
+                                                ? '❌ API Key Tidak Valid / Gagal Terhubung'
+                                                : '⚠️ API Key Pribadi Belum Dikonfigurasi'
                                             }
                                         </p>
                                         
-                                        {isKeyValidated && keyStatus === 'VALID' && (
+                                        {keyStatus === 'VALID' && (
                                             <div className="text-xs text-slate-600 mt-2 space-y-1">
                                                 <p>
                                                     <strong>Sumber:</strong> {
                                                         apiKey && apiKey.length > 0
-                                                            ? '🔐 API Key Pribadi Anda'
+                                                            ? `🔐 API Key Pribadi (${apiKey.startsWith('AQ.') ? 'Format Baru AQ.' : 'Format Standar AIza'})`
                                                             : '🌐 API Key Bawaan Server'
                                                     }
                                                 </p>
                                                 {apiKey && apiKey.length > 0 && (
                                                     <p>
-                                                        <strong>Tersimpan:</strong> Ya (di Database)
+                                                        <strong>Akun:</strong> Tersimpan khusus untuk akun {user.email}
                                                     </p>
                                                 )}
                                             </div>
                                         )}
                                         
-                                        {isKeyValidated && keyStatus === 'INVALID' && (
+                                        {keyStatus === 'INVALID' && (
                                             <p className="text-xs text-red-700 mt-2">
-                                                Periksa kembali API Key Anda atau hubungi support jika mengalami kesulitan.
+                                                {testMessage || 'Periksa kembali API Key Anda dari Google AI Studio (format AQ.... atau AIza...) dan pastikan tidak terpotong.'}
                                             </p>
                                         )}
                                         
-                                        {!isKeyValidated && (
+                                        {keyStatus === 'NONE' && (
                                             <p className="text-xs text-yellow-700 mt-2">
-                                                Gunakan API Key bawaan server atau masukkan API Key pribadi untuk mulai membuat modul.
+                                                Masukkan API Key pribadi Anda dari Google AI Studio (mendukung format baru <strong>AQ....</strong> maupun format lama <strong>AIza...</strong>) agar bebas antrean.
                                             </p>
                                         )}
                                     </div>
@@ -497,13 +526,16 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                             {!isEditingKey && apiKey && keyStatus === 'VALID' ? (
                                 <div className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-3">
                                     <p className="text-xs text-slate-600">
-                                        API Key Anda tersimpan di database. Ditampilkan sebagian untuk keamanan:
+                                        API Key Anda tersimpan aman di akun ini. Ditampilkan sebagian untuk keamanan:
                                     </p>
-                                    <div className="font-mono text-sm bg-white p-3 rounded border border-slate-200">
-                                        {apiKey.substring(0, 10)}...{apiKey.substring(apiKey.length - 10)}
+                                    <div className="font-mono text-sm bg-white p-3 rounded border border-slate-200 break-all">
+                                        {apiKey.length > 20
+                                            ? `${apiKey.substring(0, 10)}••••••••${apiKey.substring(apiKey.length - 8)}`
+                                            : `${apiKey.substring(0, 6)}••••••`}
                                     </div>
                                     <div className="flex gap-2">
                                         <button
+                                            type="button"
                                             onClick={handleStartEditing}
                                             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                                         >
@@ -511,6 +543,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                             Ubah API Key
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={handleDeleteApiKey}
                                             className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
                                         >
@@ -543,14 +576,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                                     setApiKey(e.target.value); 
                                                     setIsKeyValidated(false); 
                                                     setKeyStatus('NONE'); 
+                                                    setTestMessage('');
                                                 }}
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && apiKey.trim() && !isTestingKey && !isSavingKey) {
                                                         handleSaveApiKey();
                                                     }
                                                 }}
-                                                placeholder="AIzaSy..."
-                                                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white transition-all shadow-sm font-mono"
+                                                placeholder="AQ.... atau AIzaSy..."
+                                                className="w-full px-4 py-2.5 pr-11 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white transition-all shadow-sm font-mono"
                                             />
                                             <button
                                                 type="button"
@@ -561,7 +595,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                             </button>
                                         </div>
                                         <p className="text-xs text-slate-500 mt-2">
-                                            🔒 API Key Google AI Studio Anda diawali dengan <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono">AIzaSy</code> (39 karakter). Disimpan terenkripsi untuk akun Anda.
+                                            🔒 Mendukung format terbaru Google AI Studio (<code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono">AQ....</code>) maupun format standar (<code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded font-mono">AIzaSy...</code>). Tersimpan khusus untuk akun Anda.
                                         </p>
                                     </div>
 
@@ -627,12 +661,15 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, schoolIdentity, onS
                                         </button>
                                     </div>
 
-                                    {isEditingKey && (
+                                    {isEditingKey && (user.apiKey || tokenManager.getKey(user.id)) && (
                                         <button
+                                            type="button"
                                             onClick={() => {
+                                                const savedKey = cleanApiKey(user.apiKey || tokenManager.getKey(user.id) || '');
+                                                setApiKey(savedKey);
                                                 setIsEditingKey(false);
-                                                setApiKey(user.apiKey || sessionStorage.getItem('custom_api_key') || '');
-                                                setKeyStatus('NONE');
+                                                setKeyStatus(savedKey ? 'VALID' : 'NONE');
+                                                setIsKeyValidated(!!savedKey);
                                                 setTestMessage('');
                                             }}
                                             className="w-full px-4 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium transition-colors"

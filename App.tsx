@@ -5,6 +5,7 @@ import { INITIAL_SCHOOL_IDENTITY, INITIAL_LESSON_IDENTITY } from './constants';
 import { generateRPP, generateLKPD, generateAssessment, generateQuestionBank, generateMaterials, refineDocument } from './services/geminiService';
 import { initializeStorage, authenticate, getSettings, incrementGenerationCount, saveHistory, updateHistory, saveDraft, getDraft, clearDraft } from './services/storageService';
 import { swal, toast, showLoading, closeLoading } from './services/notificationService';
+import { tokenManager } from './services/tokenManager';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
@@ -199,7 +200,7 @@ const AppContent: React.FC = () => {
             setLessonIdentity(INITIAL_LESSON_IDENTITY);
             setCurrentHistoryId(null);
             clearDraft();
-            sessionStorage.removeItem('custom_api_key');
+            tokenManager.resetSession();
             await supabase.auth.signOut();
         }
       });

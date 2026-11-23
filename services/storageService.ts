@@ -63,6 +63,10 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             .eq('id', session.user.id)
             .single();
 
+        const metaKey = typeof session.user.user_metadata?.custom_api_key === 'string'
+            ? session.user.user_metadata.custom_api_key.trim()
+            : '';
+
         if (error || !profile) {
             console.warn("Profile fetch failed, attempting auto-recovery from Auth Metadata...");
             // Fallback: Jika profile belum terbuat (race condition trigger), gunakan metadata Auth
@@ -78,9 +82,11 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
                 joinedDate: new Date().toISOString(),
                 lastLogin: new Date().toISOString(),
                 generationCount: 0,
-                apiKey: ''
+                apiKey: metaKey
             };
         }
+
+        const profileKey = typeof profile.api_key === 'string' ? profile.api_key.trim() : '';
 
         return {
             id: session.user.id,
@@ -93,7 +99,7 @@ export const mapSessionToUser = async (session: any): Promise<User | null> => {
             joinedDate: profile.joined_date,
             lastLogin: profile.last_login,
             generationCount: profile.generation_count || 0,
-            apiKey: profile.api_key || '' 
+            apiKey: profileKey || metaKey
         };
     } catch (e) {
         console.error("Mapping error:", e);
@@ -166,7 +172,7 @@ export const authenticate = async (emailOrUsername: string, passwordPlain: strin
                 joinedDate: profile.joined_date,
                 lastLogin: profile.last_login,
                 generationCount: profile.generation_count,
-                apiKey: profile.api_key
+                apiKey: (profile.api_key || authData.user.user_metadata?.custom_api_key || '').trim()
             };
         } else {
             // Jika profile null tapi auth sukses (Kasus sangat jarang)
@@ -547,12 +553,108 @@ export const getHistory = async (userId: string, userRole?: string): Promise<His
     } catch (err) { return []; }
 };
 
-export const saveUserApiKey = async (userId: string, apiKey: string | null) => {
-    try { 
-        const { error } = await supabase.from('profiles').update({ api_key: apiKey }).eq('id', userId);
-        if (error) throw error;
+export const saveUserApiKey = async (
+    userId: string,
+    apiKey: string | null
+): Promise<{ savedToProfile: boolean; savedToAccount: boolean }> => {
+    const cleanKey = apiKey
+        ? String(apiKey)
+            .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+            .replace(/["'`\r\n\t\s]/g, '')
+            .trim()
+        : null;
+
+    let savedToProfile = false;
+    let savedToAccount = false;
+    let lastError: any = null;
+
+    try {
+        // Pastikan sesi aktif valid & gunakan auth user ID resmi jika tersedia
+        const { data: sessionData } = await supabase.auth.getSession();
+        const authUser = sessionData?.session?.user;
+        const targetId = authUser?.id || userId;
+
+        // 1. Coba update langsung ke tabel profiles dan verifikasi baris yang ter-update
+        const { data: updatedRow, error: updateErr } = await supabase
+            .from('profiles')
+            .update({ api_key: cleanKey })
+            .eq('id', targetId)
+            .select('id, api_key')
+            .maybeSingle();
+
+        if (!updateErr && updatedRow) {
+            savedToProfile = true;
+        } else {
+            lastError = updateErr;
+
+            // 2. Jika 0 baris ter-update (misal profil belum terbuat), coba auto-upsert profil user
+            if (!updateErr && !updatedRow && authUser) {
+                const fallbackUsername =
+                    authUser.user_metadata?.username ||
+                    (authUser.email ? authUser.email.split('@')[0] : `user_${targetId.slice(0, 6)}`);
+                const { data: upsertedRow, error: upsertErr } = await supabase
+                    .from('profiles')
+                    .upsert(
+                        {
+                            id: targetId,
+                            email: authUser.email || '',
+                            name: authUser.user_metadata?.name || fallbackUsername,
+                            username: fallbackUsername,
+                            role: authUser.user_metadata?.role || 'user',
+                            status: 'active',
+                            api_key: cleanKey
+                        },
+                        { onConflict: 'id' }
+                    )
+                    .select('id, api_key')
+                    .maybeSingle();
+
+                if (!upsertErr && upsertedRow) {
+                    savedToProfile = true;
+                } else if (upsertErr) {
+                    lastError = upsertErr;
+                }
+            }
+
+            // 3. Fallback RPC save_my_api_key (jika terpasang di database untuk bypass RLS)
+            if (!savedToProfile) {
+                try {
+                    const { error: rpcErr } = await supabase.rpc('save_my_api_key', {
+                        new_api_key: cleanKey
+                    });
+                    if (!rpcErr) {
+                        savedToProfile = true;
+                    }
+                } catch (rpcCatchErr) {
+                    // Abaikan jika RPC belum dibuat
+                }
+            }
+        }
+
+        // 4. Selalu sinkronkan ke Supabase Auth user_metadata milik akun tersebut
+        // Ini kebal terhadap error RLS tabel profiles dan menjamin API Key tersimpan di cloud akun user!
+        try {
+            const { error: authMetaErr } = await supabase.auth.updateUser({
+                data: {
+                    custom_api_key: cleanKey ?? ''
+                }
+            });
+            if (!authMetaErr) {
+                savedToAccount = true;
+            } else if (!lastError) {
+                lastError = authMetaErr;
+            }
+        } catch (metaErr) {
+            if (!lastError) lastError = metaErr;
+        }
+
+        if (!savedToProfile && !savedToAccount) {
+            throw lastError || new Error("Gagal menyimpan API Key ke akun Anda. Pastikan Anda masih login dan koneksi internet stabil.");
+        }
+
+        return { savedToProfile, savedToAccount };
     } catch (e) {
         handleNetworkError(e);
-        throw e; 
+        throw e;
     }
 };

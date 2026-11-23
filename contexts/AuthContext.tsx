@@ -34,41 +34,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleSession = async (session: any) => {
     if (!session) {
       setUser(null);
-      sessionStorage.removeItem('custom_api_key');
-      tokenManager.clearKey();
+      tokenManager.resetSession();
       setLoading(false);
       return;
     }
 
     try {
-      // mapSessionToUser now uses optimized Direct Select (no RPC)
+      // mapSessionToUser now uses optimized Direct Select (no RPC) + auth metadata fallback
       const mappedUser = await mapSessionToUser(session);
       
       if (mappedUser) {
-        setUser(mappedUser);
-        
-        // 1. Set TokenManager (Singleton) for Service access (preserve local custom key if DB profile has no key yet)
-        const effectiveApiKey = (mappedUser.apiKey && mappedUser.apiKey.length > 5) ? mappedUser.apiKey : tokenManager.getKey();
-        tokenManager.setKey(effectiveApiKey || null);
+        // Bind TokenManager strictly to this user's ID (prevents cross-account leakage)
+        tokenManager.setActiveUser(mappedUser.id, mappedUser.apiKey);
+        const effectiveApiKey = tokenManager.getKey(mappedUser.id) || '';
 
-        // 2. Set Session Storage (Legacy/UI Persistence)
-        if (effectiveApiKey && effectiveApiKey.length > 5) {
-            sessionStorage.setItem('custom_api_key', effectiveApiKey);
-        } else {
-            sessionStorage.removeItem('custom_api_key');
-        }
+        setUser({
+          ...mappedUser,
+          apiKey: effectiveApiKey
+        });
         
         resetIdleTimer();
       } else {
         // Sesi ada, tapi profil DB tidak ditemukan
         console.warn("User authenticated but no profile found.");
         setUser(null);
-        tokenManager.clearKey();
+        tokenManager.resetSession();
       }
     } catch (error) {
       console.error("Auth Context Error:", error);
       setUser(null);
-      tokenManager.clearKey();
+      tokenManager.resetSession();
     } finally {
       setLoading(false);
     }
@@ -88,8 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user) {
       await supabase.auth.signOut();
       setUser(null);
-      sessionStorage.removeItem('custom_api_key');
-      tokenManager.clearKey();
+      tokenManager.resetSession();
       swal.fire({
         icon: 'warning',
         title: 'Sesi Berakhir',
@@ -119,12 +113,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           handleSession(session);
       } else if (event === 'SIGNED_OUT') {
           setUser(null);
-          sessionStorage.removeItem('custom_api_key');
-          tokenManager.clearKey();
+          tokenManager.resetSession();
           setLoading(false);
       }
     });

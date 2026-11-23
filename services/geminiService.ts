@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { SchoolIdentity, LessonIdentity, GeneratedLessonPlan, LKPDData, QuestionBankConfig, QuestionBankData, MaterialsData, DeepLearningAssessment } from '../types';
-import { tokenManager } from "./tokenManager";
+import { tokenManager, ApiKeyMode } from "./tokenManager";
 import { supabase } from "../lib/supabaseClient";
 // @ts-ignore
 import sintaksModelMD from '../rpp-pembelajaran-mendalam/sintaks-model-pembelajaran.md?raw';
@@ -10,9 +10,19 @@ const CACHE_PREFIX = 'pakar_ai_v5_direct_'; // Versi cache local
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Jam
 const REQUEST_TIMEOUT_MS = 120000; // 120 Detik per model karena instruksi yang sangat panjang
 
-const cleanApiKey = (key: string | null | undefined): string => {
+export const cleanApiKey = (key: string | null | undefined): string => {
   if (!key) return "";
-  return String(key).trim().replace(/[\r\n"']/g, '');
+  return String(key)
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // Hapus karakter spasi tak terlihat (zero-width / NBSP)
+    .replace(/["'`\r\n\t\s]/g, '')               // Hapus tanda kutip, backtick, baris baru, dan spasi
+    .trim();
+};
+
+const createGenAIClient = (apiKey: string, mode: ApiKeyMode = 'gemini'): GoogleGenAI => {
+  if (mode === 'vertex_express') {
+    return new GoogleGenAI({ vertexai: true, apiKey });
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 // --- HELPER: TIMEOUT WRAPPER WITH ABORT CONTROLLER & PROMISE.RACE ---
@@ -254,7 +264,7 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                 const modelConfig: any = {
                     ...requestOptions.config,
                     thinkingConfig: isGemini3
-                        ? { thinkingLevel: attempt.model.includes('lite') ? 'minimal' : 'low' }
+                        ? { thinkingLevel: attempt.model.includes('lite') ? 'MINIMAL' : 'LOW' }
                         : { thinkingBudget: 0 }
                 };
 
@@ -312,9 +322,16 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
                 const errStr = String(e.message || e).toLowerCase();
                 console.warn(`[AI] ⚠️ Gagal pada ${attempt.label} (Percobaan ${retry + 1}):`, e.message);
 
-                // Auth / Invalid API Key: Langsung hentikan loop agar tidak buang waktu
-                if (errStr.includes("api_key") || errStr.includes("unauthenticated") || errStr.includes("api key not valid") || errStr.includes("api_key_invalid") || errStr.includes("401")) {
-                    throw new Error("API Key Tidak Valid atau belum diaktifkan di Google AI Studio.");
+                // Auth / Invalid API Key: Langsung hentikan loop dan teruskan detail error ke tryGenerate
+                if (
+                    errStr.includes("api_key_invalid") ||
+                    errStr.includes("api key not valid") ||
+                    errStr.includes("key_invalid") ||
+                    errStr.includes("access_token_type_unsupported") ||
+                    errStr.includes("unauthenticated") ||
+                    errStr.includes("401")
+                ) {
+                    throw e;
                 }
 
                 // 404 Model Not Found: Jangan retry model yang sama, langsung lanjut model berikutnya
@@ -350,103 +367,184 @@ const executeSmartStrategy = async (client: GoogleGenAI, requestOptions: any): P
         }
     }
 
-    // Jika semua model gagal, lempar pesan ramah pengguna tanpa membocorkan identitas teknis
-    const cleanError = sanitizeAiErrorMessage(lastError, false);
-    throw new Error(cleanError);
+    // Jika semua model gagal, lempar error terakhir agar tryGenerate bisa melakukan fallback mode/sanitasi
+    throw lastError || new Error("Gagal menghubungkan ke layanan AI.");
 };
 
-// Validasi API Key Cepat & Presisi (Instan tanpa overhead generasi token)
-export const validateApiKey = async (rawApiKey: string): Promise<{ success: boolean; message: string }> => {
+// Helper: Uji koneksi ringan untuk 1 mode endpoint ('gemini' atau 'vertex_express')
+const probeEndpointConnection = async (
+    apiKey: string,
+    mode: ApiKeyMode
+): Promise<{ ok: boolean; rateLimited?: boolean; error?: any }> => {
+    const ai = createGenAIClient(apiKey, mode);
+    const probeModels = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let lastErr: any = null;
+
+    for (const model of probeModels) {
+        try {
+            await ai.models.countTokens({
+                model,
+                contents: 'ping'
+            });
+            return { ok: true };
+        } catch (err: any) {
+            lastErr = err;
+            const errStr = String(err?.message || err).toLowerCase();
+
+            // Rate limit berarti kredensial API Key SAH & terautentikasi
+            if (errStr.includes("429") || errStr.includes("resource_exhausted") || errStr.includes("quota")) {
+                return { ok: true, rateLimited: true };
+            }
+
+            // Auth/permission error definitif -> hentikan loop model untuk endpoint ini
+            const isDefinitiveAuthError =
+                errStr.includes("api_key_invalid") ||
+                errStr.includes("api key not valid") ||
+                errStr.includes("key_invalid") ||
+                errStr.includes("access_token_type_unsupported") ||
+                errStr.includes("unauthenticated") ||
+                errStr.includes("permission_denied") ||
+                errStr.includes("401") ||
+                errStr.includes("403");
+
+            if (isDefinitiveAuthError) {
+                return { ok: false, error: err };
+            }
+
+            // Jika countTokens ditolak pada model ini (misal 404 / method unsupported), coba fallback 1 token cepat
+            if (model === probeModels[0]) {
+                try {
+                    const res = await ai.models.generateContent({
+                        model,
+                        contents: 'ping',
+                        config: { maxOutputTokens: 1 }
+                    });
+                    if (res) return { ok: true };
+                } catch (genErr: any) {
+                    const genErrStr = String(genErr?.message || genErr).toLowerCase();
+                    if (genErrStr.includes("429") || genErrStr.includes("resource_exhausted") || genErrStr.includes("quota")) {
+                        return { ok: true, rateLimited: true };
+                    }
+                    if (
+                        genErrStr.includes("api_key_invalid") ||
+                        genErrStr.includes("api key not valid") ||
+                        genErrStr.includes("access_token_type_unsupported") ||
+                        genErrStr.includes("unauthenticated") ||
+                        genErrStr.includes("401") ||
+                        genErrStr.includes("403")
+                    ) {
+                        return { ok: false, error: genErr };
+                    }
+                    lastErr = genErr;
+                }
+            }
+        }
+    }
+
+    return { ok: false, error: lastErr };
+};
+
+// Validasi API Key Cepat & Multi-Format (Mendukung format baru AQ. maupun AIzaSy...)
+export const validateApiKey = async (
+    rawApiKey: string
+): Promise<{ success: boolean; message: string; mode?: ApiKeyMode }> => {
     const apiKey = cleanApiKey(rawApiKey);
     if (!apiKey) return { success: false, message: "API Key kosong." };
 
-    // 1. Pre-validation format lokal instan (0ms)
-    if (apiKey.startsWith("sk-")) {
+    // 1. Pre-validation lokal instan (0ms) - hanya tolak key dari provider lain yang jelas salah
+    if (apiKey.startsWith("sk-") || apiKey.startsWith("gsk_")) {
         return {
             success: false,
-            message: "Format API Key salah. Kunci yang Anda masukkan berawalan 'sk-' (format OpenAI). Harap gunakan API Key Google AI Studio yang diawali dengan 'AIzaSy'."
+            message: "Format API Key salah (bukan kunci Google Gemini). Harap gunakan API Key resmi dari Google AI Studio (format baru 'AQ....' atau format standar 'AIza...')."
         };
     }
 
-    if (apiKey.length < 20) {
+    if (apiKey.length < 15) {
         return {
             success: false,
-            message: "Karakter API Key terlalu pendek. Pastikan Anda menyalin seluruh karakter dari Google AI Studio."
+            message: "Karakter API Key terlalu pendek atau terpotong. Pastikan Anda menyalin seluruh karakter API Key dari Google AI Studio."
         };
     }
+
+    const isNewAqFormat = apiKey.startsWith("AQ.");
 
     try {
-        const ai = new GoogleGenAI({ apiKey: apiKey });
-        
-        // 2. Gunakan countTokens yang ultra-cepat (~100-300ms) tanpa overhead decoding token
-        // Model gemini-2.5-flash adalah model standar paling stabil dan tersedia di semua tier Google AI Studio
-        const checkConnection = async () => {
-            try {
-                await ai.models.countTokens({
-                    model: 'gemini-2.5-flash',
-                    contents: 'ping'
-                });
-                return true;
-            } catch (err: any) {
-                const errStr = String(err?.message || err).toLowerCase();
-                // Jika error spesifik API Key Invalid atau Unauthenticated, langsung lempar agar tidak buang waktu
-                if (errStr.includes("api_key_invalid") || errStr.includes("api key not valid") || errStr.includes("400") || errStr.includes("401") || errStr.includes("unauthenticated")) {
-                    throw new Error("API_KEY_INVALID");
+        const result = await withTimeout(
+            async () => {
+                // Uji endpoint standar Google AI Studio (generativelanguage.googleapis.com)
+                const stdRes = await probeEndpointConnection(apiKey, 'gemini');
+                if (stdRes.ok) {
+                    return { ok: true, mode: 'gemini' as ApiKeyMode, rateLimited: stdRes.rateLimited };
                 }
-                
-                // Jika countTokens mengalami masalah lain, coba fallback 1 token cepat
-                const fallbackRes = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: 'ping',
-                    config: {
-                        maxOutputTokens: 1
-                    }
-                });
-                return !!fallbackRes;
-            }
-        };
 
-        // Batasi timeout maksimal 5 detik agar user tidak menunggu lama
-        await withTimeout(
-            () => checkConnection(),
-            5000,
+                // Jika key format baru 'AQ.' gagal di generativelanguage, otomatis uji Vertex AI Express Mode (aiplatform.googleapis.com)
+                if (isNewAqFormat) {
+                    const vertexRes = await probeEndpointConnection(apiKey, 'vertex_express');
+                    if (vertexRes.ok) {
+                        return { ok: true, mode: 'vertex_express' as ApiKeyMode, rateLimited: vertexRes.rateLimited };
+                    }
+                    return { ok: false, error: stdRes.error || vertexRes.error };
+                }
+
+                return { ok: false, error: stdRes.error };
+            },
+            7000,
             "Koneksi timeout. Pastikan koneksi internet Anda stabil."
         );
 
-        return {
-            success: true,
-            message: "✅ Koneksi Berhasil! API Key Google AI Studio Anda aktif dan siap digunakan."
-        };
+        if (result.ok) {
+            if (result.rateLimited) {
+                return {
+                    success: true,
+                    mode: result.mode,
+                    message: "✅ API Key Valid & Terhubung! (Catatan: kuota request per menit akun Google Anda sedang penuh, tunggu sebentar sebelum generate)."
+                };
+            }
+            const formatLabel = result.mode === 'vertex_express'
+                ? 'API Key Google Gemini (Format AQ. / Express Mode)'
+                : isNewAqFormat
+                ? 'API Key Google AI Studio (Format Baru AQ.)'
+                : 'API Key Google AI Studio';
+            return {
+                success: true,
+                mode: result.mode,
+                message: `✅ Koneksi Berhasil! ${formatLabel} Anda aktif dan siap digunakan.`
+            };
+        }
 
-    } catch (error: any) {
-        const errStr = String(error?.message || error).toLowerCase();
-        
-        if (errStr.includes("api_key_invalid") || errStr.includes("api key not valid") || errStr.includes("401") || errStr.includes("unauthenticated")) {
+        const error = result.error;
+        const errStr = String(error?.message || error || "").toLowerCase();
+
+        if (errStr.includes("access_token_type_unsupported")) {
             return {
                 success: false,
-                message: "❌ API Key tidak valid. Pastikan Anda menyalin seluruh karakter API Key dengan benar dari Google AI Studio (diawali 'AIzaSy')."
+                message: "❌ API Key format AQ. ditolak oleh server Google. Pastikan di Google Cloud Console > Credentials pembatasan API memilih 'Generative Language API' (bukan 'Gemini API'), atau buat API Key baru langsung di aistudio.google.com/apikey."
+            };
+        }
+
+        if (errStr.includes("api_key_invalid") || errStr.includes("api key not valid") || errStr.includes("key_invalid") || errStr.includes("401") || errStr.includes("unauthenticated")) {
+            return {
+                success: false,
+                message: "❌ API Key tidak valid atau sudah dinonaktifkan. Pastikan seluruh karakter API Key dari Google AI Studio (format 'AQ....' atau 'AIza...') tersalin dengan lengkap tanpa terpotong."
             };
         }
 
         if (errStr.includes("403") || errStr.includes("permission_denied")) {
             return {
                 success: false,
-                message: "❌ Akses ditolak (403). API Key Anda memiliki pembatasan API (API restrictions) di Google Cloud Console. Pastikan 'Generative Language API' diizinkan."
+                message: "❌ Akses ditolak (403). API Key Anda memiliki pembatasan (API restrictions) di Google Cloud Console. Pastikan 'Generative Language API' diizinkan untuk key ini."
             };
         }
 
-        if (errStr.includes("429") || errStr.includes("resource_exhausted") || errStr.includes("quota")) {
-            // Rate limit berarti kredensial API Key valid dan terautentikasi
-            return {
-                success: true,
-                message: "✅ API Key Valid & Terhubung! (Catatan: Akun Google Anda sedang mencapai batas kuota request per menit di Google AI Studio)."
-            };
-        }
+        const cleanMsg = sanitizeAiErrorMessage(error, true);
+        return { success: false, message: `❌ Validasi Gagal: ${cleanMsg}` };
 
+    } catch (error: any) {
+        const errStr = String(error?.message || error || "").toLowerCase();
         if (errStr.includes("timeout")) {
             return {
                 success: false,
-                message: "⏱️ Waktu tunggu habis. Server Google AI Studio atau koneksi Anda sedang lambat. Silakan coba lagi."
+                message: "⏱️ Waktu tunggu habis. Server Google AI Studio atau koneksi internet Anda sedang lambat. Silakan coba klik sekali lagi."
             };
         }
 
@@ -458,8 +556,7 @@ export const validateApiKey = async (rawApiKey: string): Promise<{ success: bool
 // --- CORE GENERATION LOGIC ---
 const tryGenerate = async (systemInstruction: string, userPrompt: string, responseSchema: any): Promise<any> => {
     
-    // 0. Identifikasi Key & Mode
-    // Prioritas: Token Manager (Memory + SessionStorage + LocalStorage) > Process / Vite Env
+    // 0. Identifikasi Key & Mode (Strictly per-account via tokenManager)
     const memoryKey = tokenManager.getKey();
     const userKey = cleanApiKey(memoryKey);
     const systemKey = cleanApiKey(
@@ -467,14 +564,15 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
       ((import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || (import.meta as any).env?.VITE_API_KEY || '')
     );
     
-    const isUserCustomKey = !!(userKey && userKey.length > 5); 
+    const isUserCustomKey = !!(userKey && userKey.length >= 10); 
     const apiKey = isUserCustomKey ? userKey : systemKey;
 
     if (!apiKey) {
         throw new Error("API Key Kosong. Silakan masukkan API Key Google AI Studio Anda di menu Dashboard.");
     }
 
-    console.log(`[AI] Mode API Key: ${isUserCustomKey ? '🔑 API KEY MANDIRI (User)' : '🌐 API KEY SERVER BERSAMA'}`);
+    const activeMode: ApiKeyMode = isUserCustomKey ? tokenManager.getMode() : 'gemini';
+    console.log(`[AI] Mode API Key: ${isUserCustomKey ? `🔑 API KEY MANDIRI (${activeMode})` : '🌐 API KEY SERVER BERSAMA'}`);
 
     // 1. Generate Hash untuk Cache Key
     const signature = userPrompt + JSON.stringify(responseSchema) + systemInstruction;
@@ -497,8 +595,8 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
         }
     }
 
-    // 4. Generate AI (Smart Strategy)
-    const client = new GoogleGenAI({ apiKey: apiKey });
+    // 4. Generate AI (Smart Strategy + Auto Dual-Endpoint Fallback untuk format baru AQ.)
+    const client = createGenAIClient(apiKey, activeMode);
     
     const requestOptions = {
         contents: userPrompt,
@@ -515,9 +613,29 @@ const tryGenerate = async (systemInstruction: string, userPrompt: string, respon
     try {
         finalResult = await executeSmartStrategy(client, requestOptions);
     } catch (e: any) {
-        // Pastikan pesan error 100% tersanitasi untuk pengguna tanpa membocorkan identitas teknis
-        const cleanMsg = sanitizeAiErrorMessage(e, isUserCustomKey);
-        throw new Error(cleanMsg);
+        const errStr = String(e?.message || e || "").toLowerCase();
+        const isAqEndpointMismatch =
+            isUserCustomKey &&
+            apiKey.startsWith("AQ.") &&
+            (errStr.includes("access_token_type_unsupported") || errStr.includes("401") || errStr.includes("403") || errStr.includes("unauthenticated"));
+
+        if (isAqEndpointMismatch) {
+            const altMode: ApiKeyMode = activeMode === 'gemini' ? 'vertex_express' : 'gemini';
+            console.log(`[AI] Mencoba mode endpoint alternatif (${altMode}) untuk key AQ....`);
+            try {
+                const altClient = createGenAIClient(apiKey, altMode);
+                finalResult = await executeSmartStrategy(altClient, requestOptions);
+                // Simpan mode yang berhasil agar request selanjutnya langsung cepat
+                tokenManager.setMode(altMode);
+            } catch (altErr: any) {
+                const cleanMsg = sanitizeAiErrorMessage(altErr, isUserCustomKey);
+                throw new Error(cleanMsg);
+            }
+        } else {
+            // Pastikan pesan error 100% tersanitasi untuk pengguna tanpa membocorkan identitas teknis
+            const cleanMsg = sanitizeAiErrorMessage(e, isUserCustomKey);
+            throw new Error(cleanMsg);
+        }
     }
 
     // 5. Simpan Cache (Hanya jika konten valid dan lengkap)
